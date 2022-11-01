@@ -1,0 +1,176 @@
+Flow report for main
+Sun Nov 21 15:58:12 2021
+Quartus II 64-Bit Version 13.0.1 Build 232 06/12/2013 Service Pack 1 SJ Web Edition
+
+
+---------------------
+; Table of Contents ;
+---------------------
+  1. Legal Notice
+  2. Flow Summary
+  3. Flow Settings
+  4. Flow Non-Default Global Settings
+  5. Flow Elapsed Time
+  6. Flow OS Summary
+  7. Flow Log
+  8. Flow Messages
+  9. Flow Suppressed Messages
+
+
+
+----------------
+; Legal Notice ;
+----------------
+Copyright (C) 1991-2013 Altera Corporation
+Your use of Altera Corporation's design tools, logic functions 
+and other software and tools, and its AMPP partner logic 
+functions, and any output files from any of the foregoing 
+(including device programming or simulation files), and any 
+associated documentation or information are expressly subject 
+to the terms and conditions of the Altera Program License 
+Subscription Agreement, Altera MegaCore Function License 
+Agreement, or other applicable license agreement, including, 
+without limitation, that your use is for the sole purpose of 
+programming logic devices manufactured by Altera and sold by 
+Altera or its authorized distributors.  Please refer to the 
+applicable agreement for further details.
+
+
+
++--------------------------------------------------------------------------------------+
+; Flow Summary                                                                         ;
++------------------------------------+-------------------------------------------------+
+; Flow Status                        ; Successful - Sun Nov 21 15:58:12 2021           ;
+; Quartus II 64-Bit Version          ; 13.0.1 Build 232 06/12/2013 SP 1 SJ Web Edition ;
+; Revision Name                      ; main                                            ;
+; Top-level Entity Name              ; Main                                            ;
+; Family                             ; Cyclone II                                      ;
+; Device                             ; EP2C5T144C8                                     ;
+; Timing Models                      ; Final                                           ;
+; Total logic elements               ; 1,076 / 4,608 ( 23 % )                          ;
+;     Total combinational functions  ; 996 / 4,608 ( 22 % )                            ;
+;     Dedicated logic registers      ; 537 / 4,608 ( 12 % )                            ;
+; Total registers                    ; 556                                             ;
+; Total pins                         ; 53 / 89 ( 60 % )                                ;
+; Total virtual pins                 ; 0                                               ;
+; Total memory bits                  ; 1,024 / 119,808 ( < 1 % )                       ;
+; Embedded Multiplier 9-bit elements ; 0 / 26 ( 0 % )                                  ;
+; Total PLLs                         ; 0 / 2 ( 0 % )                                   ;
++------------------------------------+-------------------------------------------------+
+
+
++-----------------------------------------+
+; Flow Settings                           ;
++-------------------+---------------------+
+; Option            ; Setting             ;
++-------------------+---------------------+
+; Start date & time ; 11/21/2021 15:57:51 ;
+; Main task         ; Compilation         ;
+; Revision Name     ; main                ;
++-------------------+---------------------+
+
+
++-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+; Flow Non-Default Global Settings                                                                                                                                                  ;
++--------------------------------------+---------------------------------------------------------------------------------------------+---------------+-------------+----------------+
+; Assignment Name                      ; Value                                                                                       ; Default Value ; Entity Name ; Section Id     ;
++--------------------------------------+---------------------------------------------------------------------------------------------+---------------+-------------+----------------+
+; COMPILER_SIGNATURE_ID                ; 84440844783897.163751027101464                                                              ; --            ; --          ; --             ;
+; EDA_DESIGN_INSTANCE_NAME             ; NA                                                                                          ; --            ; --          ; NMI            ;
+; EDA_DESIGN_INSTANCE_NAME             ; NA                                                                                          ; --            ; --          ; Trace          ;
+; EDA_DESIGN_INSTANCE_NAME             ; NA                                                                                          ; --            ; --          ; CRC            ;
+; EDA_DESIGN_INSTANCE_NAME             ; NA                                                                                          ; --            ; --          ; Trace Prefixed ;
+; EDA_DESIGN_INSTANCE_NAME             ; NA                                                                                          ; --            ; --          ; SPI            ;
+; EDA_NATIVELINK_SIMULATION_TEST_BENCH ; Trace Prefixed                                                                              ; --            ; --          ; eda_simulation ;
+; EDA_OUTPUT_DATA_FORMAT               ; Vhdl                                                                                        ; --            ; --          ; eda_simulation ;
+; EDA_SIMULATION_TOOL                  ; ModelSim-Altera (VHDL)                                                                      ; <None>        ; --          ; --             ;
+; EDA_TEST_BENCH_ENABLE_STATUS         ; TEST_BENCH_MODE                                                                             ; --            ; --          ; eda_simulation ;
+; EDA_TEST_BENCH_FILE                  ; simulation/nmi_tb.vhd                                                                       ; --            ; --          ; NMI            ;
+; EDA_TEST_BENCH_FILE                  ; simulation/trace_tb.vhd                                                                     ; --            ; --          ; Trace          ;
+; EDA_TEST_BENCH_FILE                  ; simulation/crc_tb.vhd                                                                       ; --            ; --          ; CRC            ;
+; EDA_TEST_BENCH_FILE                  ; simulation/trace_pre_tb.vhd                                                                 ; --            ; --          ; Trace Prefixed ;
+; EDA_TEST_BENCH_FILE                  ; simulation/spi_tb.vhd                                                                       ; --            ; --          ; SPI            ;
+; EDA_TEST_BENCH_MODULE_NAME           ; nmi_tb                                                                                      ; --            ; --          ; NMI            ;
+; EDA_TEST_BENCH_MODULE_NAME           ; trace_tb                                                                                    ; --            ; --          ; Trace          ;
+; EDA_TEST_BENCH_MODULE_NAME           ; crc_tb                                                                                      ; --            ; --          ; CRC            ;
+; EDA_TEST_BENCH_MODULE_NAME           ; trace_pre_tb                                                                                ; --            ; --          ; Trace Prefixed ;
+; EDA_TEST_BENCH_MODULE_NAME           ; spi_tb                                                                                      ; --            ; --          ; SPI            ;
+; EDA_TEST_BENCH_NAME                  ; NMI                                                                                         ; --            ; --          ; eda_simulation ;
+; EDA_TEST_BENCH_NAME                  ; Trace                                                                                       ; --            ; --          ; eda_simulation ;
+; EDA_TEST_BENCH_NAME                  ; CRC                                                                                         ; --            ; --          ; eda_simulation ;
+; EDA_TEST_BENCH_NAME                  ; Trace Prefixed                                                                              ; --            ; --          ; eda_simulation ;
+; EDA_TEST_BENCH_NAME                  ; SPI                                                                                         ; --            ; --          ; eda_simulation ;
+; EDA_TEST_BENCH_RUN_SIM_FOR           ; 20 us                                                                                       ; --            ; --          ; NMI            ;
+; EDA_TEST_BENCH_RUN_SIM_FOR           ; 20 us                                                                                       ; --            ; --          ; Trace          ;
+; EDA_TEST_BENCH_RUN_SIM_FOR           ; 20 us                                                                                       ; --            ; --          ; CRC            ;
+; EDA_TEST_BENCH_RUN_SIM_FOR           ; 20 us                                                                                       ; --            ; --          ; Trace Prefixed ;
+; EDA_TEST_BENCH_RUN_SIM_FOR           ; 20 us                                                                                       ; --            ; --          ; SPI            ;
+; ENABLE_DRC_SETTINGS                  ; On                                                                                          ; Off           ; --          ; --             ;
+; ENABLE_SIGNALTAP                     ; Off                                                                                         ; --            ; --          ; --             ;
+; IP_TOOL_NAME                         ; RAM: 1-PORT                                                                                 ; --            ; --          ; --             ;
+; IP_TOOL_NAME                         ; ALTPLL                                                                                      ; --            ; --          ; --             ;
+; IP_TOOL_NAME                         ; RAM: 1-PORT                                                                                 ; --            ; --          ; --             ;
+; IP_TOOL_VERSION                      ; 13.0                                                                                        ; --            ; --          ; --             ;
+; IP_TOOL_VERSION                      ; 13.0                                                                                        ; --            ; --          ; --             ;
+; IP_TOOL_VERSION                      ; 13.0                                                                                        ; --            ; --          ; --             ;
+; MAX_CORE_JUNCTION_TEMP               ; 85                                                                                          ; --            ; --          ; --             ;
+; MIN_CORE_JUNCTION_TEMP               ; 0                                                                                           ; --            ; --          ; --             ;
+; MISC_FILE                            ; vhdl/CharGen_inst.vhd                                                                       ; --            ; --          ; --             ;
+; MISC_FILE                            ; vhdl/CharGen.cmp                                                                            ; --            ; --          ; --             ;
+; MISC_FILE                            ; vhdl/MainPLL.cmp                                                                            ; --            ; --          ; --             ;
+; MISC_FILE                            ; vhdl/MainPLL.ppf                                                                            ; --            ; --          ; --             ;
+; MISC_FILE                            ; vhdl/FIFO_RAM_inst.vhd                                                                      ; --            ; --          ; --             ;
+; MISC_FILE                            ; vhdl/FIFO_RAM.cmp                                                                           ; --            ; --          ; --             ;
+; PARTITION_COLOR                      ; 16764057                                                                                    ; --            ; Main        ; Top            ;
+; PARTITION_FITTER_PRESERVATION_LEVEL  ; PLACEMENT_AND_ROUTING                                                                       ; --            ; Main        ; Top            ;
+; PARTITION_NETLIST_TYPE               ; SOURCE                                                                                      ; --            ; Main        ; Top            ;
+; POWER_BOARD_THERMAL_MODEL            ; None (CONSERVATIVE)                                                                         ; --            ; --          ; --             ;
+; POWER_PRESET_COOLING_SOLUTION        ; 23 MM HEAT SINK WITH 200 LFPM AIRFLOW                                                       ; --            ; --          ; --             ;
+; PROJECT_OUTPUT_DIRECTORY             ; output_files                                                                                ; --            ; --          ; --             ;
+; SLD_FILE                             ; D:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/output_files/AllPins_auto_stripped.stp ; --            ; --          ; --             ;
+; TIMEQUEST_DO_REPORT_TIMING           ; On                                                                                          ; Off           ; --          ; --             ;
+; USE_SIGNALTAP_FILE                   ; output_files/AllPins.stp                                                                    ; --            ; --          ; --             ;
++--------------------------------------+---------------------------------------------------------------------------------------------+---------------+-------------+----------------+
+
+
++-------------------------------------------------------------------------------------------------------------------------------+
+; Flow Elapsed Time                                                                                                             ;
++---------------------------+--------------+-------------------------+---------------------+------------------------------------+
+; Module Name               ; Elapsed Time ; Average Processors Used ; Peak Virtual Memory ; Total CPU Time (on all processors) ;
++---------------------------+--------------+-------------------------+---------------------+------------------------------------+
+; Analysis & Synthesis      ; 00:00:08     ; 1.0                     ; 4655 MB             ; 00:00:07                           ;
+; Fitter                    ; 00:00:05     ; 1.0                     ; 5229 MB             ; 00:00:06                           ;
+; Assembler                 ; 00:00:01     ; 1.0                     ; 4563 MB             ; 00:00:01                           ;
+; TimeQuest Timing Analyzer ; 00:00:02     ; 1.0                     ; 4611 MB             ; 00:00:02                           ;
+; Design Assistant          ; 00:00:01     ; 1.0                     ; 4563 MB             ; 00:00:01                           ;
+; EDA Netlist Writer        ; 00:00:01     ; 1.0                     ; 4543 MB             ; 00:00:01                           ;
+; Total                     ; 00:00:18     ; --                      ; --                  ; 00:00:18                           ;
++---------------------------+--------------+-------------------------+---------------------+------------------------------------+
+
+
++----------------------------------------------------------------------------------------+
+; Flow OS Summary                                                                        ;
++---------------------------+------------------+-----------+------------+----------------+
+; Module Name               ; Machine Hostname ; OS Name   ; OS Version ; Processor type ;
++---------------------------+------------------+-----------+------------+----------------+
+; Analysis & Synthesis      ; DESKTOP-LI58AK2  ; Windows 7 ; 6.2        ; x86_64         ;
+; Fitter                    ; DESKTOP-LI58AK2  ; Windows 7 ; 6.2        ; x86_64         ;
+; Assembler                 ; DESKTOP-LI58AK2  ; Windows 7 ; 6.2        ; x86_64         ;
+; TimeQuest Timing Analyzer ; DESKTOP-LI58AK2  ; Windows 7 ; 6.2        ; x86_64         ;
+; Design Assistant          ; DESKTOP-LI58AK2  ; Windows 7 ; 6.2        ; x86_64         ;
+; EDA Netlist Writer        ; DESKTOP-LI58AK2  ; Windows 7 ; 6.2        ; x86_64         ;
++---------------------------+------------------+-----------+------------+----------------+
+
+
+------------
+; Flow Log ;
+------------
+quartus_map --read_settings_files=on --write_settings_files=off ZARC -c main
+quartus_fit --read_settings_files=off --write_settings_files=off ZARC -c main
+quartus_asm --read_settings_files=off --write_settings_files=off ZARC -c main
+quartus_sta ZARC -c main
+quartus_drc --read_settings_files=off --write_settings_files=off ZARC -c main
+quartus_eda --read_settings_files=off --write_settings_files=off ZARC -c main
+
+
+

@@ -1,0 +1,1004 @@
+; *******************************************************
+; * File Routines for CP/M Applications                 *
+; * Version: V1.0                                       *
+; * Merlin Skinner, 19/12/2021                          *
+; *******************************************************
+;
+; These routines are intended to ease file I/O. Some, such as fopen are
+; essentially just wrappers around the BDOS routines. However, they write
+; messages to the console to assist with error reporting and debugging. Byte
+; read/write routines fwrby and frdby provide a byte serial file interface,
+; which is easier to use in many applications.
+;
+; An extension of the basic CP/M FCB structure is used to include a record
+; (sector) buffer as well as some housekeeping variables. The FCBR structure
+; definition is in cpm_files.i
+;
+;
+                title Files
+;
+CPMF            equ 1                   ; Flag module for includes
+;DEBUG           equ 1                   ; Enable debugging messages
+;
+;
+;
+; ************
+; * Includes *
+; ************
+;
+;
+                include "macros.i"
+                include "cpm.i"
+                include "terminal.i"    ; Terminal constants
+                include "cpm_utility.i" ; CP/M utilities
+                include "cpm_files.i"   ; CP/M file handling
+;
+;
+;
+; *************
+; * Externals *
+; *************
+;
+;
+; Variables
+; None
+;
+; Functions
+                public finit    ; Initialise FCBR structure
+                public fbfcb    ; Build FCB
+                public fdel     ; Delete file *
+                public fopen    ; Open existing file for R/W *
+                public fmake    ; Create new file *
+                public fwrrec   ; Write record to file *
+                public fwrby    ; Write byte to file *
+                public fwrblk   ; Write block to file *
+                public frdrec   ; Read record from file *
+                public frdby    ; Read byte from file *
+                public frdblk   ; Read block from file *
+                public fclose   ; Close file *
+                public fdfcb    ; Display FCB
+                public fdnam    ; Display filename
+                public fdswem   ; Display sequential write error message
+                public fdsrem   ; Display sequential read error message
+; * Any errors are reported to the console.
+;
+; From utility.z80
+                extern cbdos    ; Call BDOS with some registers saved
+                extern conwch   ; Write character to console
+                extern cwnwln   ; Write new line characters to console
+                extern cwvich   ; Print only visible 7-bit characters
+                extern cwpspc   ; Print a space
+                extern conwms   ; Print "$" terminated string to the console
+                extern conwmn   ; Print message <n> in a list
+                extern cwphby   ; Print A in hexadecimal
+;
+;
+; ********
+; * Code *
+; ********
+;
+;
+                cseg                    ; Code segment
+;
+; If the CP/M FCB is at the beginning of the FCBR structure, we can pass a
+; FCBR pointer to routines expecting an FCB.
+                assert FCBR_FCB = 0
+;
+;
+; Initialise FCBR structure.
+; Call with:
+; IX - pointer to FCB (or FCBR structure)
+; IX is preserved.
+finit           ld (ix + FCBR_FLAGS), 0  ; Initialise flags
+                ret
+;
+;
+; Build FCB or FCBR). The FCB is zeroed and the filename is copied in. The
+; default drive is selected, but this may be overwritten if required.
+; Call with:
+; HL - pointer to filename, e.g. "FOOFILE TXT"
+; IX - pointer to FCB (or FCBR structure)
+; IX is preserved.
+fbfcb           push bc
+                push hl
+
+; Zero FCB initially.
+                push ix
+                pop hl
+                ld b, FCB_SIZE
+                xor a
+rom_ld_clr_lp   ld (hl), a
+                inc hl
+                djnz rom_ld_clr_lp
+; Copy name.
+                push ix
+                pop hl
+                ld bc, FCB_NAME
+                add hl, bc              ; Find start of name in FCB
+                ex de, hl
+                pop hl
+                ld bc, FILENAME_SIZE + FILEEXT_SIZE
+                ldir
+;
+                pop bc
+                ret
+;
+;
+; Delete file and report any errors to the console.
+; Call with:
+; IX - pointer to FCB (or FCBR structure)
+; Returns with:
+; A - BDOS error code if carry = 1
+; Carry flag is set if BDOS reported an error.
+; IX is preserved.
+fdel            push bc
+                push de
+                push hl
+;
+                ifdef DEBUG
+                    ld hl, del_msg      ; "Deleting file"
+                    call conwms         ; Print $-terminated string to console
+                    call fdfcb          ; Display FCB
+                endif
+;
+; Panic if file is open.
+                bit FCBR_FL_OPEN_BIT, (ix + FCBR_FLAGS)
+                call nz, panic
+;
+                push ix
+                pop de
+                ld c, BDOS_DELETE_FILE  ; Delete File
+                call cbdos
+                cp 0xff
+                jr z, df_error          ; Jump on error
+                and a                   ; Flag success (carry = 0)
+;
+; Return with carry set and BDOS error code in A on error.
+df_exit         pop hl
+                pop de
+                pop bc
+                ret
+;
+; File delete error.
+df_error        push af                 ; Save error code
+                ld hl, delete_err_msg   ; "Can't delete file"
+                call conwms             ; Print $-terminated string to console
+                pop af
+                scf                     ; Flag error
+                jr df_exit
+;
+;
+; Open existing file for read / write and report any errors to the console.
+; Call with:
+; IX - pointer to FCBR structure
+; Returns with:
+; A - BDOS error code if carry = 1
+; Carry flag is set if BDOS reported an error.
+; IX is preserved.
+fopen           push bc
+                push de
+                push hl
+;
+                ifdef DEBUG
+                    ld hl, open_msg     ; "Opening file"
+                    call conwms         ; Print $-terminated string to console
+                    call fdfcb          ; Display FCB
+                endif
+;
+                push ix
+                pop de
+                ld c, BDOS_OPEN_FILE    ; Open File
+                call cbdos
+                cp 0xff
+                jr z, of_error          ; Jump on error
+;
+                ifdef DEBUG
+                    ld hl, opened_msg   ; "Opened file"
+                    call conwms         ; Print $-terminated string to console
+                    call fdfcb          ; Display FCB
+                endif
+;
+; Initialise FCBR variables.
+                set FCBR_FL_OPEN_BIT, (ix + FCBR_FLAGS)    ; Flag file is open
+                res FCBR_FL_DIRTY_BIT, (ix + FCBR_FLAGS)   ; Buffer is clean
+                ld (ix + FCBR_CONTENTS), 0  ;RBUFF is empty
+                and a                   ; Flag success (carry = 0)
+;
+; Return with carry set and BDOS error code in A on error.
+of_exit         pop hl
+                pop de
+                pop bc
+                ret
+;
+; File open error.
+of_error        push af                 ; Save BDOS error code
+                ld hl, open_err_msg     ; "Can't open file"
+                call conwms             ; Print $-terminated string to console
+                pop af
+                res FCBR_FL_OPEN_BIT, (ix + FCBR_FLAGS)  ; Flag file is closed
+                scf                     ; Flag error
+                jr of_exit
+;
+;
+; Create new file for read / write and report any errors to the console. Any
+; existing file with the same name is deleted.
+; Call with:
+; IX - pointer to FCBR structure
+; Returns with:
+; A - BDOS error code if carry = 1
+; Carry flag is set if BDOS reported an error.
+; IX is preserved.
+fmake           push bc
+                push de
+                push hl
+;
+; Panic if file is open.
+                bit FCBR_FL_OPEN_BIT, (ix + FCBR_FLAGS)
+                call nz, panic
+;
+; First delete any existing file. This is recommended to prevent multiple files
+; with the same name.
+                call fdel               ; Delete any existing file
+                jr c, mf_delete_dn      ; Jump on error (can't find file)
+; Inform user of deletion.
+                ld hl, make_del_msg     ; "Existing file deleted"
+                call conwms             ; Print $-terminated string to console
+;
+; Create the file.
+mf_delete_dn
+                ifdef DEBUG
+                    ld hl, make_msg     ; "Creating new file"
+                    call conwms         ; Print $-terminated string to console
+                    call fdfcb          ; Display FCB
+                endif
+;
+                push ix
+                pop de
+                ld c, BDOS_MAKE_FILE    ; Open File
+                call cbdos
+                cp 0xff
+                jr z, mf_error          ; Jump on error
+;
+                ifdef DEBUG
+                    ld hl, made_msg     ; "Created OK"
+                    call conwms         ; Print $-terminated string to console
+                    call fdfcb          ; Display FCB
+                endif
+;
+; Initialise FCBR variables.
+                set FCBR_FL_OPEN_BIT, (ix + FCBR_FLAGS)    ; Flag file is open
+                res FCBR_FL_DIRTY_BIT, (ix + FCBR_FLAGS)   ; Buffer is clean
+                ld (ix + FCBR_CONTENTS), 0  ;RBUFF is empty
+                and a                   ; Flag success (carry = 0)
+;
+; Return with carry set and BDOS error code in A on error.
+mf_exit         pop hl
+                pop de
+                pop bc
+                ret
+;
+; File open error.
+mf_error        push af                 ; Save BDOS error code
+                ld hl, make_err_msg     ; "Can't create file"
+                call conwms             ; Print $-terminated string to console
+                pop af
+                scf                     ; Flag error
+                jr mf_exit
+;
+;
+; Write record buffer contents to the file and report any errors to the
+; console.
+; Call with:
+; IX - pointer to FCBR structure
+; Returns with:
+; A - BDOS error code if carry = 1
+; Carry flag is set if BDOS reported an error.
+; IX is preserved.
+fwrrec          push bc
+                push de
+                push hl
+;
+                ifdef DEBUG
+                    ld hl, wr_rec_msg   ; "Writing record"
+                    call conwms         ; Print $-terminated string to console
+                    call fdfcb          ; Display FCB
+                endif
+;
+; Panic if file is not open.
+                bit FCBR_FL_OPEN_BIT, (ix + FCBR_FLAGS)
+                call z, panic
+;
+; Set DMA address to buffer in FCBR structure.
+                push ix
+                pop hl
+                ld de, FCBR_RBUFF
+                add hl, de
+                ex de, hl
+; DE - record buffer address.
+                ld c, BDOS_SET_DMA_ADDR ; Set DMA Address
+                call cbdos
+;
+; Perform the write.
+                push ix
+                pop de
+                ld c, BDOS_WRITE_SEQ    ; Write Sequential
+; DE - pointer to FCB.
+                call cbdos
+                and a
+                jr z, wrr_ok            ; Return if OK (carry = 0)
+; BDOS returned an error.
+                push af                 ; Save BDOS error code
+                call fdswem             ; Display sequential write error message
+                pop af
+                scf                     ; Flag error
+;
+; Return with carry set and BDOS error code in A on error.
+wrr_exit        pop hl
+                pop de
+                pop bc
+                ret
+;
+; Mark buffer clean and exit.
+wrr_ok          res FCBR_FL_DIRTY_BIT, (ix + FCBR_FLAGS)
+                jr wrr_exit
+;
+;
+; Write byte to file and report any errors to the console.
+; Call with:
+; A - byte
+; IX - pointer FCBR structure
+; Returns with:
+; A - BDOS error code if carry = 1
+; Carry flag is set if BDOS reported an error.
+; IX is preserved.
+fwrby           push bc
+                push de
+                push hl
+;
+                ld c, a                 ; Save byte for later
+; Find address in record buffer.
+                push ix
+                pop hl
+                ld de, FCBR_RBUFF
+                add hl, de              ; Add buffer start
+                ld e, (ix + FCBR_CONTENTS)
+                ld d, 0
+                add hl, de              ; Add bytes in buffer
+                ld (hl), c              ; Insert new byte
+                inc (ix + FCBR_CONTENTS)    ; One more byte in buffer
+                set FCBR_FL_DIRTY_BIT, (ix + FCBR_FLAGS)   ; Buffer is dirty
+;
+; Exit unless the buffer is full.
+                ld a, (ix + FCBR_CONTENTS)
+                cp CPM_SECTOR_SIZE
+                jr c, wrb_ok
+; Write record.
+                call fwrrec             ; Write record to file
+                jr c, wrb_exit          ; Exit on error
+                ld (ix + FCBR_CONTENTS), 0  ;RBUFF is empty
+                res FCBR_FL_DIRTY_BIT, (ix + FCBR_FLAGS)   ; Buffer is clean
+;
+; Exit with success flag.
+wrb_ok          and a
+;
+; Return with carry set and BDOS error code in A on error.
+wrb_exit        pop hl
+                pop de
+                pop bc
+                ret
+;
+;
+; Write an arbitrary length block to a file and report any errors to the
+; console. The file must be open before calling this routine, and the block
+; is appended to any data previously written. If the length is not a whole
+; number of records, the last record is padded with ^Z (EOF). No translation
+; is performed, so the file will be a binary copy of the memory block. Text
+; files should not require a ^Z to be appended externally due to the padding
+; behaviour. From http://www.gaby.de/cpm/manuals/archive/cpm22htm/ch5.htm:
+; The end of an ASCII file is denoted by a CTRL-Z character (1AH) or a real
+; end-of-file returned by the CP/M read operation.
+;
+; Call with:
+; BC - length of block (0 or more bytes)
+; HL - start of block
+; IX - pointer FCBR structure
+; Returns with:
+; A - BDOS error code if carry = 1
+; Carry flag is set if BDOS reported an error.
+; IX is preserved.
+fwrblk          push de
+;
+                ifdef DEBUG
+                    push bc
+                    push hl
+                    push bc
+                    push hl
+                    ld hl, wr_blk_msg   ; "Writing block "
+                    call conwms         ; Print $-terminated string to console
+                    pop hl              ; Address
+                    call cwphwd         ; Print HL in hexadecimal
+                    call cwpspc         ; Print a space
+                    pop hl              ; Length
+                    call cwphwd         ; Print HL in hexadecimal
+                    call cwnwln         ; Write new line characters to console
+                    call fdfcb          ; Display FCB
+                    pop hl
+                    pop bc
+                endif
+;
+wblk_loop       ld a, b
+                or c
+                jr z, wblk_exit         ; Exit if all done (carry = 0)
+; Write a byte.
+                ld a, (hl)
+                call fwrby
+                jr c, wblk_exit         ; Exit on error
+                inc hl
+                dec bc
+                jr wblk_loop
+;
+; Return with carry set and BDOS error code in A on error.
+wblk_exit       pop de
+                ret
+;
+;
+; Read a record from the file to the record buffer and report any errors to the
+; console.
+; Call with:
+; IX - pointer to FCB (or FCBR structure)
+; Returns with:
+; A - BDOS error code if carry = 1 (e.g. BDOS_READ_SEQ_EOF)
+; Carry flag is set if BDOS reported an error.
+; IX is preserved.
+frdrec          push bc
+                push de
+                push hl
+;
+                ifdef DEBUG
+                    ld hl, rd_rec_msg   ; "Reading record"
+                    call conwms         ; Print $-terminated string to console
+                    call fdfcb          ; Display FCB
+                endif
+;
+; Panic if file is not open.
+                bit FCBR_FL_OPEN_BIT, (ix + FCBR_FLAGS)
+                call z, panic
+;
+; Set DMA address to buffer in FCBR structure.
+                push ix
+                pop hl
+                ld de, FCBR_RBUFF
+                add hl, de
+                ex de, hl
+; DE - record buffer address.
+                ld c, BDOS_SET_DMA_ADDR ; Set DMA Address
+                call cbdos
+;
+; Perform the read.
+                push ix
+                pop de
+                ld c, BDOS_READ_SEQ     ; Read Sequential
+                call cbdos
+                and a
+                jr z, rdr_exit          ; Return if OK (carry = 0)
+                cp BDOS_READ_SEQ_EOF
+                jr z, rdr_error         ; Return with EOF error
+; BDOS returned an error. EOF is not really an error, so nothing is displayed
+; in this case.
+                call fdsrem             ; Display sequential write error message
+rdr_error       scf                     ; Flag error
+;
+; Return with carry set and BDOS error code in A on error.
+rdr_exit        pop hl
+                pop de
+                pop bc
+                ret
+;
+;
+; Read byte from file and report any errors to the console.
+; Call with:
+; IX - pointer FCBR structure
+; Returns with:
+; A - BDOS error code if carry = 1 (e.g. BDOS_READ_SEQ_EOF) or byte if
+; carry = 0
+; Carry flag is set if BDOS reported an error.
+; IX is preserved.
+frdby           push bc
+                push de
+                push hl
+;
+                bit FCBR_FL_DIRTY_BIT, (ix + FCBR_FLAGS)
+                jr z, rdb_clean
+;
+; We would be reading over write data, which is almost certainly not what
+; was intended.
+                ld hl, dirty_err_msg    ; "Buffer is dirty!"
+                call conwms         ; Print $-terminated string to console
+                scf                 ; Flag error
+                jr rdb_exit
+;
+; Is there any data in the buffer?
+rdb_clean       ld a, (ix + FCBR_CONTENTS)
+                and a
+                jr nz, rdb_fetch
+;
+; The buffer is empty, so read a record.
+                call frdrec             ; Read record from file
+                jr c, rdb_exit          ; Exit on error
+                ld (ix + FCBR_CONTENTS), CPM_SECTOR_SIZE
+;
+; Find address in record buffer.
+rdb_fetch       push ix
+                pop hl
+                ld de, FCBR_RBUFF
+                add hl, de              ; Add buffer start
+                ld a, CPM_SECTOR_SIZE
+                sub (ix + FCBR_CONTENTS)
+                ld e, a
+                ld d, 0
+                add hl, de              ; Add bytes in buffer
+                ld a, (hl)              ; Fetch byte
+                dec (ix + FCBR_CONTENTS)    ; One fewer bytes in buffer
+;
+; Exit with success flag.
+rdb_ok          and a
+;
+; Return with carry set on error and byte or BDOS error code in A.
+rdb_exit        pop hl
+                pop de
+                pop bc
+                ret
+;
+;
+; Read an arbitrary length block from a file and report any errors to the
+; console. Reading will continue until the maximum length is reached or the
+; BDOS reports EOF. The file must be open before calling this routine. The
+; data read follows on from any previous byte reads. No translation is
+; performed, so the memory block will be a binary copy of the file. This will
+; include any EOF (^Z) characters.
+; Call with:
+; BC - maximum length of block (0 or more bytes)
+; HL - start of block
+; IX - pointer to FCBR structure
+; Returns with:
+; A - BDOS error code if carry = 1 (e.g. BDOS_READ_SEQ_EOF)
+; BC - number of bytes read
+; Carry flag is set if BDOS reported an error.
+; IX is preserved.
+frdblk          push de
+;
+                ifdef DEBUG
+                    push bc
+                    push hl
+                    push bc
+                    push hl
+                    ld hl, rd_blk_msg   ; "Reading block "
+                    call conwms         ; Print $-terminated string to console
+                    pop hl              ; Address
+                    call cwphwd         ; Print HL in hexadecimal
+                    call cwpspc         ; Print a space
+                    pop hl              ; Length
+                    call cwphwd         ; Print HL in hexadecimal
+                    call cwnwln         ; Write new line characters to console
+                    call fdfcb          ; Display FCB
+                    pop hl
+                    pop bc
+                endif
+;
+                ld de, 0                ; Counter
+;
+rblk_loop       ld a, b
+                or c
+                jr z, rblk_exit         ; Exit if all done (carry = 0)
+; Read a byte.
+                call frdby
+                jr c, rblk_exit         ; Exit on error
+                ld (hl), a
+                inc hl
+                inc de                  ; Count bytes read
+                dec bc
+                jr rblk_loop
+;
+; Return with carry set and BDOS error code in A on error.
+rblk_exit       ld b, d                 ; Copy bytes read to BC
+                ld c, e
+                pop de
+                ret
+;
+;
+; Close an open file and report any errors to the console. If the file is
+; already closed, no action is taken.
+; Call with:
+; IX - pointer to FCBR structure
+; Returns with:
+; A - BDOS error code if carry = 1
+; Carry flag is set if BDOS reported an error.
+; IX is preserved.
+fclose          push bc
+                push de
+                push hl
+;
+; Exit if file is not open.
+                bit FCBR_FL_OPEN_BIT, (ix + FCBR_FLAGS)
+                jr z, cf_exit           ; Return with carry = 0
+
+                ifdef DEBUG
+                    ld hl, close_msg    ; "Closing file"
+                    call conwms         ; Print $-terminated string to console
+                    call fdfcb          ; Display FCB
+                endif
+;
+; Does the buffer contain unwritten write data? If so, pad with ^Z until the
+; record is written.
+cf_pad_loop     bit FCBR_FL_DIRTY_BIT, (ix + FCBR_FLAGS)
+                jr z, cf_clean
+; Pad record with ^Z. When the buffer is full, fwrby will write it and flag the
+; buffer clean.
+                ld a, FILE_EOF
+                call fwrby              ; Write byte to file
+                jr c, cf_close_err      ; Exit on error
+                jr cf_pad_loop
+;
+; Close the file.
+cf_clean        push ix
+                pop de
+                ld c, BDOS_CLOSE_FILE   ; Close File
+                call cbdos
+                cp 0xff
+                jr z, cf_close_err      ; Jump on error
+;
+                ifdef DEBUG
+                    ld hl, closed_msg   ; "Closed file"
+                    call conwms         ; Print $-terminated string to console
+                    call fdfcb          ; Display FCB
+                endif
+                and a                   ; Flag success (carry = 0)
+;
+; Return with carry set and BDOS error code in A on error.
+cf_exit         res FCBR_FL_OPEN_BIT, (ix + FCBR_FLAGS) ; Mark file closed
+                pop hl
+                pop de
+                pop bc
+                ret
+;
+; File close error.
+cf_close_err    push af                 ; Save BDOS error code
+                ld hl, close_err_msg    ; "Can't close file"
+                call conwms             ; Print $-terminated string to console
+                pop af
+                scf                     ; Flag error
+                jr cf_exit
+;
+;
+; Display File Control Block (FCB). This is mainly for use when debugging.
+; Unlike fdnam, all name characters are printed.
+; "D:12345678.123, EX: xx, S1: xx, S2: xx, RC: xx"
+; "AL: 00 11 22 33 44 55 66 77 88 99 AA BB CC DD EE FF"
+; "CR: xx, Rec: 00 11 22"
+; Call with:
+; IX - pointer to FCB (or FCBR structure)
+; Returns with:
+; IX is preserved.
+fdfcb           push bc
+                push de
+                push hl
+;
+                push ix
+                pop hl
+; HL - FCB pointer.
+
+; Drive. 0 for default, 1-16 for A-P.
+                ld a, (hl)              ; Drive. 0 for default, 1-16 for A-P
+                inc hl
+                and a
+                jr nz, dfcb_drv_ndef    ; Jump if not default drive
+; Default drive.
+                ld a, " "
+                jr dfcb_prnt_drive
+; Drive specified.
+dfcb_drv_ndef   add "A" - 1             ; Convert to letter
+dfcb_prnt_drive ld c, '?'               ; Substitution character
+                call cwvich             ; Print only visible 7-bit characters
+                ld a, ":"               ; Separator
+                call conwch             ; Write character to console
+;
+; Filename
+                ld b, FILENAME_SIZE
+dfcb_name_loop  ld a, (hl)              ; Fetch character
+                inc hl
+                call cwvich             ; Print only visible 7-bit characters
+                djnz dfcb_name_loop
+;
+                ld a, "."               ; Separator
+                call conwch             ; Write character to console
+;
+; Type (extension).
+                ld b, FILEEXT_SIZE
+dfcb_ext_loop   ld a, (hl)              ; Fetch character
+                inc hl
+                call cwvich             ; Print only visible 7-bit characters
+                djnz dfcb_ext_loop
+;
+                ld de, dfcb_msgs        ; Point to text
+; DE - pointer to text
+; HL - pointer to data in FCB
+;
+; Current extent.
+                scf                     ; Display ", " prefix
+                call dfcb_item          ; EX
+                scf
+                call dfcb_item          ; S1
+                scf
+                call dfcb_item          ; S2
+                scf
+                call dfcb_item          ; RC
+;
+; Display associated block numbers.
+                push hl
+                ld hl, dfcb_al_msg      ; 0x0d, 0x0a, "AL:"
+                call conwms             ; Print $-terminated string to console
+                pop hl
+;
+                ld b, 16
+dfcb_al_data    call cwpspc             ; Print a space
+                ld a, (hl)
+                call cwphby             ; Print A in hexadecimal
+                inc hl
+                djnz dfcb_al_data
+                call cwnwln             ; Write new line characters to console
+;
+                and a                   ; Skip ", " prefix
+                call dfcb_item          ; CR
+                scf
+                call dfcb_item          ; R0
+                scf
+                call dfcb_item          ; R1
+                scf
+                call dfcb_item          ; R2
+;
+                call cwnwln             ; Write new line characters to console
+                pop hl
+                pop de
+                pop bc
+                ret
+;
+; Display accopanying text and next byte. Used by dfcb. Call with:
+; DE - pointer to text
+; HL - pointer to data in FCB
+; Carry flag - set to display preceding ", ".
+; Returns with DE and HL advanced to next item.
+dfcb_item       push bc
+;
+                jr nc, dfcb_pref_done   ; Skip prefix if appropriate
+                ld a, ","
+                call conwch             ; Write character to console
+                call cwpspc             ; Print a space
+dfcb_pref_done  ex de, hl
+                ld c, "|"               ; Text separator
+dfcb_item_loop  ld a, (hl)
+                inc hl
+                cp c
+                jr z, dfcb_name_done
+                call conwch             ; Write character to console
+                jr dfcb_item_loop
+dfcb_name_done  ld a, ":"
+                call conwch             ; Write character to console
+                call cwpspc             ; Print a space
+                ex de, hl
+;
+; Text and separators written. Print the data.
+                ld a, (hl)
+                inc hl
+                call cwphby             ; Print A in hexadecimal
+;
+                pop bc
+                ret
+;
+;
+; Display filename (only) from File Control Block (FCB). The drive letter is
+; included and trailing spaces are omitted. If no drive letter is specified,
+; the default (current) drive is shown. Example: A:FOO.TXT
+; Call with:
+; IX - pointer to FCB (or FCBR structure)
+; Returns with:
+; IX is preserved.
+fdnam           push bc
+                push hl
+;
+                push ix
+                pop hl
+; HL - FCB pointer.
+;
+; Drive. 0 for default, 1-16 for A-P.
+                ld a, (hl)              ; Drive. 0 for default, 1-16 for A-P
+                inc hl
+                and a
+                jr nz, dfnm_drv_ndef    ; Jump if not default drive
+; Default drive. CDISK logs the current default drive (in bits 0-3, 0 being A:
+; and 1 being B:, etc) and the current user (in bits 4-7).
+                ld a, (CDISK)
+                and 0x0f                ; Isolate default drive
+                inc a                   ; Change base to 1 to match FCB
+; A - drive
+dfnm_drv_ndef   add "A" - 1             ; Convert to letter
+                ld c, '?'               ; Substitution character
+                call cwvich             ; Print only visible 7-bit characters
+                ld a, ":"               ; Separator
+                call conwch             ; Write character to console
+;
+; Filename. Find last non-space character.
+; HL - points to first character of name.
+                ld c, FILENAME_SIZE
+                call dfnm_name          ; Display filename
+;
+                ld a, "."               ; Separator
+                call conwch             ; Write character to console
+;
+; Find address of extension.
+                push ix
+                pop hl
+                ld bc, FCB_TYP
+                add hl, bc
+                ld c, FILEEXT_SIZE
+                call dfnm_name          ; Display extension
+;
+                pop hl
+                pop bc
+                ret
+;
+;
+; Write name or extension omitting trailing spaces.
+; C - maximum length of string
+; HL - pointer to start of string
+; B register is not preserved.
+dfnm_name       push hl                 ; Save start address
+                ld b, 0
+                add hl, bc              ; Add length
+; HL - points to last character + 1
+                ld b, c
+dfnm_scan_loop  dec hl
+                ld a, (hl)
+                cp " "
+                jr nz, dfnm_scan_end    ; Jump if non-space found
+                djnz dfnm_scan_loop
+; Now write out the string
+; B - length of string without trailing spaces. Zero indicates a null string.
+dfnm_scan_end   pop hl                  ; Point to start of name again
+                inc b                   ; Add offset for first pass
+                jr dfnm_name_strt
+dfnm_name_loop  ld a, (hl)              ; Fetch character
+                inc hl
+                call cwvich             ; Print only visible 7-bit characters
+dfnm_name_strt  djnz dfnm_name_loop
+;
+                ret
+;
+;
+; Display Sequential Write Error Message.
+; Writes an appropriate message according to a return code from BDOS_WRITE_SEQ.
+; Nothing is displayed if A = 0x00 (success code).
+; Call with:
+; A - BDOS_WRITE_SEQ return code
+fdswem          push bc
+                push hl
+;
+                ld hl, dswe_code_table
+                jr dserr_common         ; Continue with common code
+;
+;
+; Display Sequential Read Error Message.
+; Writes an appropriate message according to a return code from BDOS_READ_SEQ.
+; Nothing is displayed if A = 0x00 (success code).
+; Call with:
+; A - BDOS_READ_SEQ return code
+fdsrem          push bc
+                push hl
+;
+                ld hl, dsre_code_table
+;
+; Common code for fdswem and fdsrem.
+; A - BDOS return code
+; HL - pointer to code conversion table
+dserr_common    and a
+                jr z, dserr_exit        ; Ignore success codes
+; Unfortunately, the codes are not consecutive. Convert them into a linear
+; sequence using a lookup table.
+                ld c, a                 ; Save original code
+dserr_conv_loop ld a, (hl)
+                inc hl
+                and a
+                jr z, dserr_unknown     ; Jump if terminator found
+                cp c
+                jr z, dserr_match       ; Jump on match
+                inc hl                  ; Skip second code in each pair
+                jr dserr_conv_loop
+;
+; Code not found in table.
+dserr_unknown   ld hl, dse_unkn_msg     ; "Unknown read / write error"
+                call conwms             ; Print $-terminated string to console
+                jr dserr_exit
+;
+; HL - pointer to required message number.
+dserr_match     ld a, (hl)
+                ld c, "|"               ; Separator
+                ld hl, dserr_err_msgs
+                call conwmn             ; Print message <n> in a list
+                call cwnwln             ; Write new line characters to console
+;
+dserr_exit      pop hl
+                pop bc
+                ret
+;
+;
+;
+; *************
+; * Constants *
+; *************
+;
+;
+del_msg         byte "Deleting file", 0x0d, 0x0a, "$"
+delete_err_msg  byte "Can't delete file", 0x0d, 0x0a, "$"
+close_msg       byte "Closing file", 0x0d, 0x0a, "$"
+closed_msg      byte "Closed OK", 0x0d, 0x0a, "$"
+close_err_msg   byte "Can't close file", 0x0d, 0x0a, "$"
+open_msg        byte "Opening file", 0x0d, 0x0a, "$"
+opened_msg      byte "Opened OK", 0x0d, 0x0a, "$"
+open_err_msg    byte "Can't open file", 0x0d, 0x0a, "$"
+make_msg        byte "Creating new file", 0x0d, 0x0a, "$"
+make_del_msg    byte "Existing file deleted", 0x0d, 0x0a, "$"
+made_msg        byte "Created OK", 0x0d, 0x0a, "$"
+make_err_msg    byte "Can't create file", 0x0d, 0x0a, "$"
+wr_rec_msg      byte "Writing record", 0x0d, 0x0a, "$"
+wr_blk_msg      byte "Writing block $"
+rd_rec_msg      byte "Reading record", 0x0d, 0x0a, "$"
+rd_blk_msg      byte "Reading block $"
+dirty_err_msg   byte "Buffer is dirty!", 0x0d, 0x0a, "$"
+dfcb_al_msg     byte 0x0d, 0x0a, "AL:", "$"
+dfcb_msgs       byte "EX|S1|S2|RC|CR|R0|R1|R2|"
+;
+; BDOS_WRITE_SEQ error code translation table. The first entry in each pair is the
+; BDOS error code, and the second is the corresponding message number.
+dswe_code_table byte 1, 0           ; Directory full
+                byte 2, 1           ; Disk full
+                byte 8, 2           ; File locked
+                byte 9, 3           ; Invalid FCB
+                byte 10, 4          ; Media changed
+                byte 11, 5          ; File verification error
+                byte 0xff, 6        ; Hardware error
+                byte 0              ; Terminator
+;
+; BDOS_READ_SEQ error code translation table. Note common messages are "borrowed"
+; from BDOS_WRITE_SEQ.
+dsre_code_table byte 1, 7           ; End of file
+                byte 9, 3           ; Invalid FCB
+                byte 10, 4          ; Media changed
+                byte 11, 5          ; File verification error
+                byte 0xff, 6        ; Hardware error
+                byte 0              ; Terminator
+;
+; BDOS_WRITE_SEQ and BDOS_READ_SEQ error messages.
+dserr_err_msgs  byte "Directory full|"          ; 0
+                byte "Disk full|"               ; 1
+                byte "File locked|"             ; 2
+                byte "Invalid FCB|"             ; 3
+                byte "Media changed|"           ; 4
+                byte "File verification error|" ; 5
+                byte "Hardware error|"          ; 6
+                byte "End of file", 0           ; 7
+;
+dse_unkn_msg    byte "Unknown read / write error", 0x0d, 0x0a, "$"
+;
+;
+;
+; *************
+; * Variables *
+; *************
+;
+;
+; Note: linker "-c" option is used, so no data is initialised here.
+                dseg                ; Data segment
+;
+;blk_length      defs 2              ; Length remaining
+;
+                end
+

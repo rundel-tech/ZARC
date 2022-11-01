@@ -1,0 +1,5 @@
+#!/bin/bash
+# Script to run the Z80 assembler zmac.
+# Merlin, 18/4/2021
+
+/home/merlin/Technical/HardwareProjects/ZARC_Z80_Box/Non-GitHub/Software/tools/zmac/zmac "$@"

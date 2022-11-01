@@ -1,0 +1,449 @@
+; *******************************************************
+; * Mathematical Routines for CP/M Applications         *
+; * Version: V1.0                                       *
+; * Merlin Skinner, 10/9/2022                           *
+; *******************************************************
+;
+; Integer mathematical routines for use with CP/M applications.
+;
+; Routines preserve all registers not required as operands or return
+; values except AF unless otherwise stated below.
+;
+;
+                title MAths
+;
+CPMM            equ 1                   ; Flag module for includes
+;
+;
+;
+; ************
+; * Includes *
+; ************
+;
+;
+                include "macros.i"
+                include "z80.i"
+                include "cpm.i"
+                include "cpm_maths.i"
+;
+;
+;
+; *************
+; * Externals *
+; *************
+;
+;
+; Variables
+; None.
+;
+; Functions.
+; CP/M specific.
+; 32-bit arithmetic.
+                public mclr32       ; 32-bit clear (zero)
+                public mcop32       ; 32-bit copy from (hl) to (de)
+                public minc32       ; 32-bit increment
+                public mcp32        ; 32-bit compare (hl) - (de)
+                public madd32       ; 32-bit add (hl) <- (hl) + (de)
+                public msub32       ; 32-bit sub (hl) <- (hl) - (de)
+;
+; Derived from the monitor's utility.z80.
+                public madlbu       ; 32-bit / 8-bit unsigned divide
+                public madwbu       ; 16-bit / 8-bit unsigned divide
+                public madbbu       ; 8-bit / 8-bit unsigned divide
+                public mamwwu       ; 16-bit * 16-bit unsigned multiply
+                public mamlbu       ; 32-bit * 8-bit unsigned multiply
+                public crc16x       ; Software CRC-16 (XMODEM)
+;
+;
+;
+; ********
+; * Code *
+; ********
+;
+;
+                cseg                    ; Code segment
+;
+; 32-bit / 8-bit unsigned divide. Uses restoring algorithm. Derived from code at
+; https://wikiti.brandonw.net/index.php?title=Z80_Routines:Math:Division
+; Call with:
+; DEHL - dividend
+; C - divisor
+; Returns with:
+; DEHL - quotient
+; A - remainder
+madlbu          push bc
+                ld b, 32            ; Loop counter
+                xor a
+dulb_bitloop    add	hl, hl          ; Shift MS bit of dividend into carry
+                rl e
+                rl d
+                rla                 ; Collect bit in LS of A
+                jr c, dulb_dosub
+                cp c
+                jr c, dulb_nextbit
+dulb_dosub      sub	a, c
+                inc	l
+dulb_nextbit    djnz	dulb_bitloop
+                pop bc
+                ret
+;
+;
+; 16-bit / 8-bit unsigned divide. Uses restoring algorithm. Derived from code at
+; https://wikiti.brandonw.net/index.php?title=Z80_Routines:Math:Division
+; Call with:
+; HL - dividend
+; C - divisor
+; Returns with:
+; HL - quotient
+; A - remainder
+madwbu          push bc
+                ld b, 16            ; Loop counter
+                xor a
+duwb_bitloop    add hl, hl          ; Shift MS bit of dividend into carry
+                rla                 ; Collect bit in LS of A
+                jr c, duwb_dosub
+                cp c
+                jr c, duwb_nextbit
+duwb_dosub      sub	a, c
+                inc	l
+duwb_nextbit    djnz duwb_bitloop
+                pop bc
+                ret
+;
+;
+; 8-bit / 8-bit unsigned divide. Uses restoring algorithm. Derived from code at
+; https://wikiti.brandonw.net/index.php?title=Z80_Routines:Math:Division
+; Call with:
+; L - dividend
+; C - divisor
+; Returns with:
+; L - quotient
+; A - remainder
+madbbu          push bc
+                ld b, 8             ; Loop counter
+                xor a
+dubb_bitloop    sla l               ; Shift MS bit of dividend into carry
+                rla                 ; Collect bit in LS of A
+                cp c
+                jr c, dubb_nextbit
+dubb_dosub      sub c
+                inc l
+dubb_nextbit    djnz dubb_bitloop
+                pop bc
+                ret
+;
+;
+; 16-bit * 16-bit unsigned multiply. Uses restoring algorithm. Derived from code at
+; https://wikiti.brandonw.net/index.php?title=Z80_Routines:Math:Multiplication
+; Call with:
+; BC - multiplicand
+; DE - multiplier
+; Returns with:
+; DEHL - result
+mamwwu          ld hl, 0            ; Zero LSW of result
+; Optimised 1st iteration
+                sla	e               ; Shift multiplier
+                rl d
+                jr nc, muww_sk_ld
+; Set result to multiplicand if the MS bit of the multiplier was set.
+                ld h, b
+                ld l, c
+muww_sk_ld      ld a, 15
+; A - loop counter
+; BC - multiplicand
+; DE - multiplier (MS bits) and result (LS bits).
+; HL - LSW of result
+muww_loop       add hl, hl          ; Shift result (DEHL) left
+                rl e
+                rl d
+                jr nc, muww_nc      ; Jump if multiplier bit is zero
+                add hl, bc          ; Add multiplicand to result
+                jr nc, muww_nc
+                inc de              ; Propagate the carry into DE
+muww_nc         dec a
+                jr nz, muww_loop
+                ret
+;
+;
+; 32-bit * 8-bit unsigned multiply. Uses restoring algorithm. Derived from mamwwu
+; above.
+; Call with:
+; DEHL - multiplicand
+; C - multiplier
+; Returns with:
+; CDEHL - result
+mamlbu          ld a, c
+; Save some registers.
+                push bc
+                exx
+                push bc
+                push hl
+                exx
+; Setup registers for the multiply.
+                push de
+                push hl
+                pop bc              ; LSW of multiplicand
+                and a               ; Reset carry
+                sbc hl, hl          ; Zero LS 32-bits of result
+                exx
+                pop bc              ; MSW of multiplicand
+                sbc hl, hl          ; Zero MS 32-bits of result
+                exx
+                ld e, a             ; Multiplier
+; B'C'BC - multiplicand
+; E - multiplier
+; H'L'HL - result
+; Optimised 1st iteration
+                sla	e		        ; Shift multiplier
+                jr nc, mulb_sk_ld
+; Set result to multiplicand if the MS bit of the multiplier was set.
+                ld l, c
+                ld h, b
+                exx
+                ld l, c
+                ld h, b
+                exx
+mulb_sk_ld      ld a, 7
+; A - loop counter
+; B'C'BC - multiplicand
+; E - multiplier (MS bits) and result (LS bits).
+; H'L'HL - result
+mulb_loop       add hl, hl          ; Shift result (CH'L'HL) left
+                exx
+                adc hl, hl
+                exx
+                rl e
+                jr nc, mulb_nc      ; Jump if multiplier bit is zero
+                add hl, bc          ; Add multiplicand to result
+                exx
+                adc hl, bc
+                exx
+                jr nc, mulb_nc
+                inc e               ; Propagate the carry into result
+mulb_nc         dec a
+                jr nz, mulb_loop
+                ld a, e             ; Top bits of result
+                exx
+                push hl             ; MSW of result
+                exx
+                pop de
+; Restore registers
+                exx
+                pop hl
+                pop bc
+                exx
+                pop bc
+                ld c, a
+; CDEHL - result
+                ret
+;
+;
+; Update CRC according to the CRC16 / XMODEM and MultiMediaCard CRC16 algorithm.
+; Adapted from http://regregex.bbcmicro.net/crc-code.htm#crc-code.16.8080
+; Call with:
+; A - byte to be included
+; HL - CRC
+; Returns with:
+; HL - updated CRC;
+crc16x          push bc
+;
+                xor h
+                ld b, a
+                ld c, l
+                rrca
+                rrca
+                rrca
+                rrca
+                ld l, a
+                and 0x0f
+                ld h, a
+                xor b
+                ld b, a
+                xor l
+                and 0xf0
+                ld l, a
+                xor c
+                add hl, hl
+                xor h
+                ld h, a
+                ld a, l
+                xor b
+                ld l, a
+;
+                pop bc
+                ret
+;
+;
+; *** 32-bit arithmetic ***
+;
+; Variables are assumed to be little-endian.
+;
+;
+; Clear (zero) the 32-bit variable at (hl).
+; Call with:
+; HL - pointer to first byte of variable.  An incremented pointer is returned to
+; ease processing of arrays.
+mclr32          xor a
+                ld (hl), a
+                inc hl
+                ld (hl), a
+                inc hl
+                ld (hl), a
+                inc hl
+                ld (hl), a
+                inc hl
+                ret
+;
+;
+; Copy a 32-bit number from (hl) to (de).
+; Call with:
+; DE - pointer to first byte of destination.
+; HL - pointer to first byte of source.
+mcop32          ld a, (hl)
+                ld (de), a
+                inc hl
+                inc de
+                ld a, (hl)
+                ld (de), a
+                inc hl
+                inc de
+                ld a, (hl)
+                ld (de), a
+                inc hl
+                inc de
+                ld a, (hl)
+                ld (de), a
+                ret
+;
+;
+; Increment the 32-bit variable at (hl). An incremented pointer is returned to
+; ease processing of arrays.
+; Call with:
+; HL - pointer to first byte of variable.
+; Returns with:
+; Carry flag - arithmetic carry from MSB
+minc32          ld a, (hl)
+                add a, 1                ; Not inc, as we need carry
+                ld (hl), a
+                inc hl
+                ld a, (hl)
+                adc a, 0
+                ld (hl), a
+                inc hl
+                ld a, (hl)
+                adc a, 0
+                ld (hl), a
+                inc hl
+                ld a, (hl)
+                adc a, 0
+                ld (hl), a
+                inc hl
+                ret
+;
+;
+; Compare two 32-bit numbers by calculating (hl) - (de). Incremented
+; pointers are returned to ease processing of arrays.
+; Call with:
+; DE - pointer to first byte of subtrahend.
+; HL - pointer to first byte of minuend.
+; Returns with:
+; DE - pointer to first byte after subtrahend.
+; HL - pointer to first byte after minuend.
+; Carry flag - arithmetic carry from MSB
+mcp32           ex de, hl
+                ld a, (de)
+                sub (hl)
+                inc hl
+                inc de
+                ld a, (de)
+                sbc (hl)
+                inc hl
+                inc de
+                ld a, (de)
+                sbc (hl)
+                inc hl
+                inc de
+                ld a, (de)
+                sbc (hl)
+                inc hl
+                inc de
+                ret
+;
+;
+; Add two 32-bit numbers by calculating (hl) <- (hl) + (de). Incremented
+; pointers are returned to ease processing of arrays.
+; Call with:
+; DE - pointer to first byte of addend 1.
+; HL - pointer to first byte of addend 2 and sum.
+; Returns with:
+; DE - pointer to first byte after addend 1.
+; HL - pointer to first byte after addend 2 and sum.
+; Carry flag - arithmetic carry from MSB
+madd32          ld a, (de)
+                add (hl)
+                ld (hl), a
+                inc hl
+                inc de
+                ld a, (de)
+                adc (hl)
+                ld (hl), a
+                inc hl
+                inc de
+                ld a, (de)
+                adc (hl)
+                ld (hl), a
+                inc hl
+                inc de
+                ld a, (de)
+                adc (hl)
+                ld (hl), a
+                inc hl
+                inc de
+                ret
+;
+;
+; Subtract two 32-bit numbers by calculating (hl) <- (hl) - (de). Incremented
+; pointers are returned to ease processing of arrays.
+; Call with:
+; DE - pointer to first byte of subtrahend.
+; HL - pointer to first byte of minuend and result.
+; Returns with:
+; DE - pointer to first byte after subtrahend.
+; HL - pointer to first byte after minuend and result.
+; Carry flag - arithmetic carry from MSB
+msub32          ex de, hl
+                ld a, (de)
+                sub (hl)
+                ld (de), a
+                inc hl
+                inc de
+                ld a, (de)
+                adc (hl)
+                ld (de), a
+                inc hl
+                inc de
+                ld a, (de)
+                adc (hl)
+                ld (de), a
+                inc hl
+                inc de
+                ld a, (de)
+                adc (hl)
+                ld (de), a
+                inc hl
+                inc de
+                ret
+;
+;
+;
+; *************
+; * Variables *
+; *************
+;
+; Note: linker "-c" option is used, so no data is initialised here.
+                dseg                ; Data segment
+;
+;gldn_x1         defs 4              ; Read long decimal temporary store
+;
+                end
+

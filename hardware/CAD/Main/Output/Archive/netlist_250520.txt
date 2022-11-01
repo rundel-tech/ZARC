@@ -1,0 +1,765 @@
+START header
+
+gEDA's netlist format
+(Initially created for testing of gnetlist)
+
+END header
+
+START graphical symbols
+
+Component without refdes: title-A2.sym at ((48800 . 69200) 72100 . 52700)
+Component without refdes: title-A2.sym at ((48800 . 69200) 72100 . 52700)
+Component without refdes: busripper-1.sym at ((67578 . 67722) 67808 . 67492)
+Component without refdes: busripper-1.sym at ((67578 . 67322) 67808 . 67092)
+Component without refdes: busripper-1.sym at ((67578 . 66922) 67808 . 66692)
+Component without refdes: busripper-1.sym at ((67578 . 66522) 67808 . 66292)
+Component without refdes: busripper-1.sym at ((67578 . 66122) 67808 . 65892)
+Component without refdes: busripper-1.sym at ((67578 . 65722) 67808 . 65492)
+Component without refdes: busripper-1.sym at ((67578 . 65322) 67808 . 65092)
+Component without refdes: busripper-1.sym at ((67578 . 64922) 67808 . 64692)
+Component without refdes: busripper-1.sym at ((63092 . 67122) 63322 . 66892)
+Component without refdes: busripper-1.sym at ((63092 . 66822) 63322 . 66592)
+Component without refdes: busripper-1.sym at ((63092 . 66522) 63322 . 66292)
+Component without refdes: busripper-1.sym at ((63092 . 66222) 63322 . 65992)
+Component without refdes: busripper-1.sym at ((63092 . 65922) 63322 . 65692)
+Component without refdes: busripper-1.sym at ((63092 . 65622) 63322 . 65392)
+Component without refdes: busripper-1.sym at ((63092 . 65322) 63322 . 65092)
+Component without refdes: busripper-1.sym at ((63092 . 65022) 63322 . 64792)
+Component without refdes: busripper-1.sym at ((56478 . 67122) 56708 . 66892)
+Component without refdes: busripper-1.sym at ((56478 . 66822) 56708 . 66592)
+Component without refdes: busripper-1.sym at ((56478 . 66522) 56708 . 66292)
+Component without refdes: busripper-1.sym at ((56478 . 66222) 56708 . 65992)
+Component without refdes: busripper-1.sym at ((56478 . 65922) 56708 . 65692)
+Component without refdes: busripper-1.sym at ((56478 . 65622) 56708 . 65392)
+Component without refdes: busripper-1.sym at ((56478 . 65322) 56708 . 65092)
+Component without refdes: busripper-1.sym at ((56478 . 65022) 56708 . 64792)
+Component without refdes: busripper-1.sym at ((59478 . 67122) 59708 . 66892)
+Component without refdes: busripper-1.sym at ((59478 . 66822) 59708 . 66592)
+Component without refdes: busripper-1.sym at ((59478 . 66522) 59708 . 66292)
+Component without refdes: busripper-1.sym at ((59478 . 66222) 59708 . 65992)
+Component without refdes: busripper-1.sym at ((59478 . 65922) 59708 . 65692)
+Component without refdes: busripper-1.sym at ((59478 . 65622) 59708 . 65392)
+Component without refdes: busripper-1.sym at ((59478 . 65322) 59708 . 65092)
+Component without refdes: busripper-1.sym at ((59478 . 65022) 59708 . 64792)
+Component without refdes: title-A2.sym at ((48800 . 69200) 72100 . 52700)
+Component without refdes: title-A2.sym at ((48800 . 69200) 72100 . 52700)
+Component without refdes: title-A2.sym at ((48800 . 69200) 72100 . 52700)
+Component without refdes: title-A2.sym at ((48800 . 69200) 72100 . 52700)
+Component without refdes: title-A2.sym at ((48800 . 69200) 72100 . 52700)
+Component without refdes: title-A2.sym at ((40000 . 56500) 63300 . 40000)
+Component without refdes: title-A2.sym at ((48800 . 69200) 72100 . 52700)
+Component without refdes: title-A2.sym at ((48800 . 69200) 72100 . 52700)
+Component without refdes: busripper-1.sym at ((52778 . 66722) 53008 . 66492)
+Component without refdes: busripper-1.sym at ((52778 . 66422) 53008 . 66192)
+Component without refdes: busripper-1.sym at ((52778 . 66122) 53008 . 65892)
+Component without refdes: busripper-1.sym at ((52778 . 65822) 53008 . 65592)
+Component without refdes: busripper-1.sym at ((52778 . 65522) 53008 . 65292)
+Component without refdes: busripper-1.sym at ((52778 . 65222) 53008 . 64992)
+Component without refdes: busripper-1.sym at ((52778 . 64922) 53008 . 64692)
+Component without refdes: busripper-1.sym at ((52778 . 64622) 53008 . 64392)
+Component without refdes: busripper-1.sym at ((64692 . 66722) 64922 . 66492)
+Component without refdes: busripper-1.sym at ((64692 . 66422) 64922 . 66192)
+Component without refdes: busripper-1.sym at ((64692 . 66122) 64922 . 65892)
+Component without refdes: busripper-1.sym at ((64692 . 65822) 64922 . 65592)
+Component without refdes: busripper-1.sym at ((64692 . 65522) 64922 . 65292)
+Component without refdes: busripper-1.sym at ((64692 . 65222) 64922 . 64992)
+Component without refdes: busripper-1.sym at ((64692 . 64922) 64922 . 64692)
+Component without refdes: busripper-1.sym at ((64692 . 64622) 64922 . 64392)
+Component without refdes: busripper-1.sym at ((70292 . 66722) 70522 . 66492)
+Component without refdes: busripper-1.sym at ((70292 . 66422) 70522 . 66192)
+Component without refdes: busripper-1.sym at ((70292 . 66122) 70522 . 65892)
+Component without refdes: busripper-1.sym at ((70292 . 65822) 70522 . 65592)
+Component without refdes: busripper-1.sym at ((70292 . 65522) 70522 . 65292)
+Component without refdes: busripper-1.sym at ((70292 . 65222) 70522 . 64992)
+Component without refdes: busripper-1.sym at ((70292 . 64922) 70522 . 64692)
+Component without refdes: busripper-1.sym at ((70292 . 64622) 70522 . 64392)
+Component without refdes: busripper-1.sym at ((56392 . 62222) 56622 . 61992)
+Component without refdes: busripper-1.sym at ((56392 . 62522) 56622 . 62292)
+Component without refdes: busripper-1.sym at ((56392 . 62822) 56622 . 62592)
+Component without refdes: busripper-1.sym at ((56392 . 63122) 56622 . 62892)
+Component without refdes: busripper-1.sym at ((56392 . 63422) 56622 . 63192)
+Component without refdes: busripper-1.sym at ((56392 . 63722) 56622 . 63492)
+Component without refdes: busripper-1.sym at ((56392 . 64022) 56622 . 63792)
+Component without refdes: busripper-1.sym at ((56392 . 64322) 56622 . 64092)
+Component without refdes: busripper-1.sym at ((56392 . 64622) 56622 . 64392)
+Component without refdes: busripper-1.sym at ((56392 . 64922) 56622 . 64692)
+Component without refdes: busripper-1.sym at ((56392 . 65222) 56622 . 64992)
+Component without refdes: busripper-1.sym at ((56392 . 65522) 56622 . 65292)
+Component without refdes: busripper-1.sym at ((56392 . 65822) 56622 . 65592)
+Component without refdes: busripper-1.sym at ((56392 . 66122) 56622 . 65892)
+Component without refdes: busripper-1.sym at ((56392 . 66422) 56622 . 66192)
+Component without refdes: busripper-1.sym at ((56392 . 66722) 56622 . 66492)
+Component without refdes: busripper-1.sym at ((60778 . 66722) 61008 . 66492)
+Component without refdes: busripper-1.sym at ((60778 . 66422) 61008 . 66192)
+Component without refdes: busripper-1.sym at ((60778 . 66122) 61008 . 65892)
+Component without refdes: busripper-1.sym at ((60778 . 65822) 61008 . 65592)
+Component without refdes: busripper-1.sym at ((60778 . 65522) 61008 . 65292)
+Component without refdes: busripper-1.sym at ((60778 . 65222) 61008 . 64992)
+Component without refdes: busripper-1.sym at ((60778 . 64922) 61008 . 64692)
+Component without refdes: busripper-1.sym at ((60778 . 64622) 61008 . 64392)
+Component without refdes: busripper-1.sym at ((60778 . 64322) 61008 . 64092)
+Component without refdes: busripper-1.sym at ((60778 . 64022) 61008 . 63792)
+Component without refdes: busripper-1.sym at ((60778 . 63722) 61008 . 63492)
+Component without refdes: busripper-1.sym at ((60778 . 63422) 61008 . 63192)
+Component without refdes: busripper-1.sym at ((60778 . 63122) 61008 . 62892)
+Component without refdes: busripper-1.sym at ((60578 . 62522) 60808 . 62292)
+Component without refdes: busripper-1.sym at ((60578 . 62222) 60808 . 61992)
+Component without refdes: busripper-1.sym at ((60578 . 61922) 60808 . 61692)
+Component without refdes: busripper-1.sym at ((60578 . 61622) 60808 . 61392)
+Component without refdes: busripper-1.sym at ((60578 . 61322) 60808 . 61092)
+Component without refdes: busripper-1.sym at ((66278 . 66722) 66508 . 66492)
+Component without refdes: busripper-1.sym at ((66278 . 66422) 66508 . 66192)
+Component without refdes: busripper-1.sym at ((66278 . 66122) 66508 . 65892)
+Component without refdes: busripper-1.sym at ((66278 . 65822) 66508 . 65592)
+Component without refdes: busripper-1.sym at ((66278 . 65522) 66508 . 65292)
+Component without refdes: busripper-1.sym at ((66278 . 65222) 66508 . 64992)
+Component without refdes: busripper-1.sym at ((66278 . 64922) 66508 . 64692)
+Component without refdes: busripper-1.sym at ((66278 . 64622) 66508 . 64392)
+Component without refdes: busripper-1.sym at ((66278 . 64322) 66508 . 64092)
+Component without refdes: busripper-1.sym at ((66278 . 64022) 66508 . 63792)
+Component without refdes: busripper-1.sym at ((66278 . 63722) 66508 . 63492)
+Component without refdes: busripper-1.sym at ((66278 . 63422) 66508 . 63192)
+Component without refdes: busripper-1.sym at ((66278 . 63122) 66508 . 62892)
+Component without refdes: busripper-1.sym at ((66078 . 62822) 66308 . 62592)
+Component without refdes: busripper-1.sym at ((66078 . 62522) 66308 . 62292)
+Component without refdes: busripper-1.sym at ((66078 . 62222) 66308 . 61992)
+Component without refdes: busripper-1.sym at ((66078 . 61922) 66308 . 61692)
+Component without refdes: busripper-1.sym at ((66078 . 61622) 66308 . 61392)
+Component without refdes: busripper-1.sym at ((66078 . 61322) 66308 . 61092)
+Component without refdes: busripper-1.sym at ((60578 . 62822) 60808 . 62592)
+Component without refdes: title-A2.sym at ((48800 . 69200) 72100 . 52700)
+Component without refdes: busripper-1.sym at ((62292 . 66722) 62522 . 66492)
+Component without refdes: busripper-1.sym at ((62292 . 66422) 62522 . 66192)
+Component without refdes: busripper-1.sym at ((62292 . 66122) 62522 . 65892)
+Component without refdes: busripper-1.sym at ((62292 . 65822) 62522 . 65592)
+Component without refdes: busripper-1.sym at ((62292 . 62822) 62522 . 62592)
+Component without refdes: busripper-1.sym at ((62292 . 62522) 62522 . 62292)
+Component without refdes: busripper-1.sym at ((56178 . 66722) 56408 . 66492)
+Component without refdes: busripper-1.sym at ((56178 . 66422) 56408 . 66192)
+Component without refdes: busripper-1.sym at ((56178 . 66122) 56408 . 65892)
+Component without refdes: busripper-1.sym at ((56178 . 65822) 56408 . 65592)
+Component without refdes: busripper-1.sym at ((56178 . 62822) 56408 . 62592)
+Component without refdes: busripper-1.sym at ((56178 . 62522) 56408 . 62292)
+Component without refdes: busripper-1.sym at ((56178 . 61922) 56408 . 61692)
+Component without refdes: busripper-1.sym at ((56178 . 62222) 56408 . 61992)
+Component without refdes: title-A2.sym at ((48800 . 69200) 72100 . 52700)
+Component without refdes: busripper-1.sym at ((56678 . 62622) 56908 . 62392)
+Component without refdes: busripper-1.sym at ((56678 . 62322) 56908 . 62092)
+Component without refdes: busripper-1.sym at ((56678 . 62022) 56908 . 61792)
+Component without refdes: busripper-1.sym at ((56678 . 61722) 56908 . 61492)
+Component without refdes: busripper-1.sym at ((56678 . 61422) 56908 . 61192)
+Component without refdes: busripper-1.sym at ((56678 . 61122) 56908 . 60892)
+Component without refdes: busripper-1.sym at ((56678 . 60822) 56908 . 60592)
+Component without refdes: busripper-1.sym at ((56678 . 60522) 56908 . 60292)
+Component without refdes: busripper-1.sym at ((56478 . 67222) 56708 . 66992)
+Component without refdes: busripper-1.sym at ((56478 . 66922) 56708 . 66692)
+Component without refdes: busripper-1.sym at ((56478 . 66622) 56708 . 66392)
+Component without refdes: busripper-1.sym at ((56478 . 66322) 56708 . 66092)
+Component without refdes: busripper-1.sym at ((56478 . 66022) 56708 . 65792)
+Component without refdes: busripper-1.sym at ((56478 . 65722) 56708 . 65492)
+Component without refdes: title-A2.sym at ((48800 . 69200) 72100 . 52700)
+Component without refdes: busripper-1.sym at ((56278 . 62122) 56508 . 61892)
+Component without refdes: busripper-1.sym at ((56278 . 61822) 56508 . 61592)
+Component without refdes: busripper-1.sym at ((56278 . 61522) 56508 . 61292)
+Component without refdes: busripper-1.sym at ((56278 . 61222) 56508 . 60992)
+Component without refdes: busripper-1.sym at ((56278 . 60922) 56508 . 60692)
+Component without refdes: busripper-1.sym at ((56278 . 60622) 56508 . 60392)
+Component without refdes: busripper-1.sym at ((56278 . 60322) 56508 . 60092)
+Component without refdes: busripper-1.sym at ((56278 . 60022) 56508 . 59792)
+Component without refdes: busripper-1.sym at ((56278 . 57722) 56508 . 57492)
+Component without refdes: busripper-1.sym at ((56278 . 57422) 56508 . 57192)
+Component without refdes: busripper-1.sym at ((56278 . 57122) 56508 . 56892)
+Component without refdes: busripper-1.sym at ((56278 . 56822) 56508 . 56592)
+Component without refdes: busripper-1.sym at ((56278 . 56522) 56508 . 56292)
+Component without refdes: busripper-1.sym at ((56278 . 56222) 56508 . 55992)
+Component without refdes: busripper-1.sym at ((56278 . 55922) 56508 . 55692)
+Component without refdes: busripper-1.sym at ((56278 . 55622) 56508 . 55392)
+Component without refdes: title-A2.sym at ((48800 . 69200) 72100 . 52700)
+Component without refdes: busripper-1.sym at ((50678 . 67222) 50908 . 66992)
+Component without refdes: busripper-1.sym at ((50678 . 66922) 50908 . 66692)
+Component without refdes: busripper-1.sym at ((50678 . 66622) 50908 . 66392)
+Component without refdes: busripper-1.sym at ((50678 . 66322) 50908 . 66092)
+Component without refdes: busripper-1.sym at ((50678 . 66022) 50908 . 65792)
+Component without refdes: busripper-1.sym at ((50678 . 65722) 50908 . 65492)
+Component without refdes: busripper-1.sym at ((50678 . 65422) 50908 . 65192)
+Component without refdes: busripper-1.sym at ((50678 . 65122) 50908 . 64892)
+Component without refdes: busripper-1.sym at ((53778 . 67222) 54008 . 66992)
+Component without refdes: busripper-1.sym at ((53778 . 66922) 54008 . 66692)
+Component without refdes: busripper-1.sym at ((53778 . 66622) 54008 . 66392)
+Component without refdes: busripper-1.sym at ((53778 . 66322) 54008 . 66092)
+Component without refdes: busripper-1.sym at ((53778 . 66022) 54008 . 65792)
+Component without refdes: busripper-1.sym at ((53778 . 65722) 54008 . 65492)
+Component without refdes: busripper-1.sym at ((53778 . 65422) 54008 . 65192)
+Component without refdes: busripper-1.sym at ((53778 . 65122) 54008 . 64892)
+Component without refdes: busripper-1.sym at ((50778 . 58222) 51008 . 57992)
+Component without refdes: busripper-1.sym at ((50778 . 57922) 51008 . 57692)
+Component without refdes: busripper-1.sym at ((50778 . 57622) 51008 . 57392)
+Component without refdes: busripper-1.sym at ((50778 . 57322) 51008 . 57092)
+Component without refdes: busripper-1.sym at ((50778 . 57022) 51008 . 56792)
+Component without refdes: busripper-1.sym at ((50778 . 56722) 51008 . 56492)
+Component without refdes: busripper-1.sym at ((50778 . 56422) 51008 . 56192)
+Component without refdes: busripper-1.sym at ((50778 . 56122) 51008 . 55892)
+Component without refdes: busripper-1.sym at ((57778 . 67122) 58008 . 66892)
+Component without refdes: busripper-1.sym at ((57778 . 66822) 58008 . 66592)
+Component without refdes: busripper-1.sym at ((57778 . 66522) 58008 . 66292)
+Component without refdes: busripper-1.sym at ((57778 . 66222) 58008 . 65992)
+Component without refdes: busripper-1.sym at ((57778 . 65922) 58008 . 65692)
+Component without refdes: busripper-1.sym at ((57778 . 65622) 58008 . 65392)
+Component without refdes: busripper-1.sym at ((57778 . 65322) 58008 . 65092)
+Component without refdes: busripper-1.sym at ((57778 . 65022) 58008 . 64792)
+Component without refdes: busripper-1.sym at ((61192 . 67122) 61422 . 66892)
+Component without refdes: busripper-1.sym at ((61192 . 66822) 61422 . 66592)
+Component without refdes: busripper-1.sym at ((61192 . 66522) 61422 . 66292)
+Component without refdes: busripper-1.sym at ((61192 . 66222) 61422 . 65992)
+Component without refdes: busripper-1.sym at ((61192 . 65922) 61422 . 65692)
+Component without refdes: busripper-1.sym at ((61192 . 65622) 61422 . 65392)
+Component without refdes: busripper-1.sym at ((61192 . 65322) 61422 . 65092)
+Component without refdes: busripper-1.sym at ((61192 . 65022) 61422 . 64792)
+Component without refdes: busripper-1.sym at ((57778 . 58122) 58008 . 57892)
+Component without refdes: busripper-1.sym at ((57778 . 57822) 58008 . 57592)
+Component without refdes: busripper-1.sym at ((57778 . 57522) 58008 . 57292)
+Component without refdes: busripper-1.sym at ((57778 . 57222) 58008 . 56992)
+Component without refdes: busripper-1.sym at ((57778 . 56922) 58008 . 56692)
+Component without refdes: busripper-1.sym at ((57778 . 56622) 58008 . 56392)
+Component without refdes: busripper-1.sym at ((57778 . 56322) 58008 . 56092)
+Component without refdes: busripper-1.sym at ((57778 . 56022) 58008 . 55792)
+Component without refdes: busripper-1.sym at ((61092 . 58122) 61322 . 57892)
+Component without refdes: busripper-1.sym at ((61092 . 57822) 61322 . 57592)
+Component without refdes: busripper-1.sym at ((61092 . 57522) 61322 . 57292)
+Component without refdes: busripper-1.sym at ((61092 . 57222) 61322 . 56992)
+Component without refdes: busripper-1.sym at ((61092 . 56922) 61322 . 56692)
+Component without refdes: busripper-1.sym at ((61092 . 56622) 61322 . 56392)
+Component without refdes: busripper-1.sym at ((61092 . 56322) 61322 . 56092)
+Component without refdes: busripper-1.sym at ((61092 . 56022) 61322 . 55792)
+Component without refdes: busripper-1.sym at ((62078 . 58222) 62308 . 57992)
+Component without refdes: busripper-1.sym at ((62078 . 57922) 62308 . 57692)
+Component without refdes: busripper-1.sym at ((62078 . 57622) 62308 . 57392)
+Component without refdes: busripper-1.sym at ((62078 . 57322) 62308 . 57092)
+Component without refdes: busripper-1.sym at ((62078 . 57022) 62308 . 56792)
+Component without refdes: busripper-1.sym at ((62078 . 56722) 62308 . 56492)
+Component without refdes: busripper-1.sym at ((62078 . 56422) 62308 . 56192)
+Component without refdes: busripper-1.sym at ((62078 . 56122) 62308 . 55892)
+Component without refdes: title-A2.sym at ((48800 . 69200) 72100 . 52700)
+Component without refdes: busripper-1.sym at ((56878 . 59308) 57108 . 59078)
+Component without refdes: busripper-1.sym at ((63092 . 59308) 63322 . 59078)
+Component without refdes: busripper-1.sym at ((56878 . 59608) 57108 . 59378)
+Component without refdes: busripper-1.sym at ((56878 . 59908) 57108 . 59678)
+Component without refdes: busripper-1.sym at ((56878 . 60208) 57108 . 59978)
+Component without refdes: busripper-1.sym at ((63092 . 59608) 63322 . 59378)
+Component without refdes: busripper-1.sym at ((63092 . 59908) 63322 . 59678)
+Component without refdes: busripper-1.sym at ((63092 . 60208) 63322 . 59978)
+Component without refdes: busripper-1.sym at ((57078 . 57808) 57308 . 57578)
+Component without refdes: busripper-1.sym at ((62892 . 57808) 63122 . 57578)
+Component without refdes: busripper-1.sym at ((57078 . 58108) 57308 . 57878)
+Component without refdes: busripper-1.sym at ((57078 . 58408) 57308 . 58178)
+Component without refdes: busripper-1.sym at ((57078 . 58708) 57308 . 58478)
+Component without refdes: busripper-1.sym at ((62892 . 58108) 63122 . 57878)
+Component without refdes: busripper-1.sym at ((62892 . 58408) 63122 . 58178)
+Component without refdes: busripper-1.sym at ((62892 . 58708) 63122 . 58478)
+
+END graphical symbols
+
+START components
+
+B1 device=BATTERY
+B2 device=BATTERY
+C1 device=CAPACITOR
+C2 device=POLARIZED_CAPACITOR
+C3 device=POLARIZED_CAPACITOR
+C4 device=POLARIZED_CAPACITOR
+C5 device=CAPACITOR
+C8 device=POLARIZED_CAPACITOR
+C9 device=POLARIZED_CAPACITOR
+D1 device=DIODE
+D2 device=DIODE
+D3 device=DIODE
+D4 device=?
+D5 device=DIODE
+D6 device=DIODE
+J1 device=DIN41612_64_AB-1
+J2 device=CONNECTOR_26
+J3 device=CONNECTOR_26
+J4 device=CONNECTOR_26
+J5 device=CONN4
+J6 device=CONN4
+J7 device=CONN3
+R1 device=RESISTOR
+R2 device=RESISTOR
+R3 device=RESISTORPACK_9
+R4 device=RESISTORPACK_9
+R5 device=RESISTORPACK_9
+R6 device=RESISTOR
+R7 device=RESISTOR
+R8 device=RESISTORPACK_9
+R9 device=RESISTOR
+R10 device=RESISTOR
+R11 device=RESISTOR
+R12 device=RESISTOR
+R13 device=RESISTOR
+R14 device=RESISTOR
+R15 device=RESISTOR
+R16 device=RESISTOR
+R17 device=RESISTOR
+R18 device=RESISTOR
+R19 device=RESISTOR
+R20 device=RESISTOR
+R21 device=RESISTOR
+R22 device=RESISTOR
+R23 device=RESISTOR
+R24 device=RESISTOR
+R25 device=RESISTOR
+R26 device=RESISTOR
+R27 device=RESISTOR
+R28 device=RESISTOR
+R29 device=RESISTOR
+R30 device=RESISTOR
+R31 device=RESISTOR
+R32 device=RESISTOR
+R33 device=RESISTORPACK_9
+R34 device=RESISTOR
+R35 device=RESISTOR
+R36 device=RESISTOR
+R37 device=RESISTOR
+R38 device=RESISTOR
+R39 device=RESISTOR
+R40 device=RESISTOR
+R41 device=RESISTOR
+R42 device=RESISTOR
+R43 device=RESISTOR
+R44 device=RESISTOR
+R45 device=RESISTOR
+R46 device=RESISTOR
+R47 device=RESISTOR
+R48 device=RESISTOR
+R49 device=RESISTOR
+R50 device=RESISTOR
+R51 device=RESISTOR
+R52 device=RESISTOR
+R53 device=RESISTOR
+R54 device=RESISTOR
+R55 device=RESISTOR
+R56 device=RESISTOR
+R57 device=RESISTOR
+R58 device=RESISTORPACK_8
+R59 device=RESISTORPACK_8
+R60 device=RESISTORPACK_8
+R61 device=RESISTORPACK_8
+R62 device=RESISTORPACK_8
+R63 device=RESISTOR
+R64 device=RESISTOR
+R65 device=RESISTOR
+R66 device=RESISTOR
+R67 device=RESISTOR
+U1 device=74HCT541
+U2 device=74HCT540
+U3 device=74HCT540
+U4 device=74HCT540
+U5 device=74HCT540
+U6 device=74HCT541
+U7 device=74LS04
+U8 device=OSC
+U9 device=74LS393
+U10 device=74HCT4040
+U11 device=ADM691AANZ
+U13 device=74LVC245
+U14 device=74HCT04
+U15 device=74HC32
+U16 device=74LS273
+U17 device=74LS08
+U18 device=74LS32
+U19 device=74LS00
+U20 device=74HCT74
+U21 device=74HCT08
+U23 device=74HCT245
+U24 device=74LS670
+U25 device=74LS670
+U26 device=74LS273
+U27 device=74LS175
+U28 device=74LS279
+U29 device=74LS175
+U30 device=74LS08
+U31 device=74HCT04
+U32 device=74HCT00
+U33 device=74LVC245
+U34 device=Z80
+U35 device=AS6C4008-55P
+U36 device=AS6C4008-55P
+U38 device=74LS00
+U39 device=74LS08
+U40 device=74LS32
+U41 device=74LS74
+U42 device=74HCT32
+U43 device=74LS373
+U44 device=MCP1700-~/TO
+
+END components
+
+START "no-connect" nets
+
+\_SW_NEXT_NC\_
+\_SW_NMI_NC\_
+\_SW_RESET_NC\_
+\_SW_STEP_NC\_
+\_SW_WRITE_NC\_
+unnamed_net3
+unnamed_net4
+unnamed_net8
+unnamed_net9
+unnamed_net10
+unnamed_net11
+unnamed_net12
+unnamed_net13
+unnamed_net14
+unnamed_net15
+unnamed_net16
+unnamed_net17
+unnamed_net18
+unnamed_net19
+unnamed_net20
+unnamed_net24
+unnamed_net37
+unnamed_net45
+unnamed_net46
+unnamed_net47
+unnamed_net48
+unnamed_net51
+unnamed_net54
+unnamed_net55
+unnamed_net64
+unnamed_net68
+unnamed_net71
+unnamed_net72
+unnamed_net73
+unnamed_net79
+unnamed_net80
+unnamed_net81
+unnamed_net82
+unnamed_net83
+unnamed_net84
+unnamed_net85
+unnamed_net86
+unnamed_net87
+unnamed_net89
+unnamed_net90
+unnamed_net91
+unnamed_net92
+unnamed_net93
+unnamed_net94
+unnamed_net152
+
+END "no-connect" nets
+
+START renamed-nets
+
+RAM_VCC -> RAM_VCC
+
+END renamed-nets
+
+START nets
+
++3.3V : C9 1, D4 2, J1 A12, J1 A22, J1 A27, J1 A32, J5 B2, R5 1, U13 1, U33 1
++12V : J1 A1, J6 B4, R1 2
+-12V : J1 B1, J6 B3
+A0 : R58 2, U5 2, U14 1, U33 2, U34 30, U35 12, U36 12
+A1 : R58 3, U5 3, U14 3, U33 3, U34 31, U35 11, U36 11
+A2 : R58 4, U5 4, U33 4, U34 32, U35 10, U36 10
+A3 : R58 5, U5 5, U33 5, U34 33, U35 9, U36 9
+A4 : R58 6, U5 6, U33 6, U34 34, U35 8, U36 8
+A5 : R58 7, U5 7, U33 7, U34 35, U35 7, U36 7
+A6 : R58 8, U5 8, U33 8, U34 36, U35 6, U36 6
+A7 : R58 9, U5 9, U33 9, U34 37, U35 5, U36 5
+A8 : R59 2, U2 2, U34 38, U35 27, U36 27
+A9 : R59 3, U2 3, U34 39, U35 26, U36 26
+A10 : R59 4, U2 4, U34 40, U35 23, U36 23
+A11 : R59 5, U2 5, U34 1, U35 25, U36 25
+A12 : R59 6, U2 6, U34 2, U35 4, U36 4
+A13 : R59 7, U2 7, U14 11, U15 13, U34 3
+A14 : R59 8, U2 8, U14 5, U34 4
+A15 : R59 9, U2 9, U14 9, U34 5
+BD0 : J1 A23, R62 9, U23 18, U24 15, U43 2
+BD1 : J1 B23, R62 8, U23 17, U24 1, U43 5
+BD2 : J1 A24, R62 7, U23 16, U24 2, U43 6
+BD3 : J1 B24, R62 6, U23 15, U24 3, U43 9
+BD4 : J1 A25, R62 5, U23 14, U25 15, U43 12
+BD5 : J1 B25, R62 4, U23 13, U25 1, U43 15
+BD6 : J1 A26, R62 3, U23 12, U25 2, U43 16
+BD7 : J1 B26, R62 2, U23 11, U25 3, U43 19
+CPU_CLK : U14 12, U34 6
+CPU_CLK_B : U13 2, U20 3, U20 11, U27 9, U29 9, U31 8, U41 3
+CYCLE : U20 10, U28 1, U28 5, U29 1, U31 6
+D0 : R60 2, U3 2, U23 2, U34 14, U35 13, U36 13
+D1 : R60 3, U3 3, U23 3, U34 15, U35 14, U36 14
+D2 : R60 4, U3 4, U23 4, U34 12, U35 15, U36 15
+D3 : R60 5, U3 5, U23 5, U34 8, U35 17, U36 17
+D4 : R60 6, U3 6, U23 6, U34 7, U35 18, U36 18
+D5 : R60 7, U3 7, U23 7, U34 9, U35 19, U36 19
+D6 : R60 8, U3 8, U23 8, U34 10, U35 20, U36 20
+D7 : R60 9, U3 9, U23 9, U34 13, U35 21, U36 21
+DO_A : U19 13, U29 2, U29 5, U39 10
+DO_B : U29 7, U29 12, U30 12, U39 12
+DO_D : U27 13, U29 15
+DO_NEXT : U18 5, U18 9, U28 4, U40 2
+DO_STEP : U18 10, U28 7
+DO_STEPORNEXT : U18 8, U18 12, U19 12, U40 5
+DO_WRITE : U18 4, U18 13, U28 9
+DO_WRITEORNEXT : U18 2, U18 6
+GND : B2 2, C1 1, C2 2, C3 2, C4 2, C5 1, C8 2, C9 2, J1 B11, J1 B12, J1 B13, J1 B14, J1 B15, J1 B16, J1 B17, J1 B18, J1 B19, J1 B20, J1 B21, J1 B22, J1 B27, J1 B32, J4 25, J4 26, J5 B1, J6 B1, R3 1, R6 1, R7 1, R58 1, R59 1, R60 1, R62 1, R63 1, R64 1, R65 1, R66 1, U1 1, U1 10, U1 19, U2 10, U3 10, U4 10, U5 10, U6 1, U6 10, U6 19, U7 7, U8 7, U9 2, U9 7, U9 12, U10 8, U10 11, U11 4, U11 9, U13 10, U13 19, U14 7, U15 7, U16 10, U16 18, U17 7, U17 9, U17 10, U17 12, U17 13, U18 7, U19 7, U20 7, U21 7, U21 12, U21 13, U23 10, U24 8, U25 8, U26 10, U27 8, U28 8, U28 14, U28 15, U29 8, U30 7, U31 3, U31 7, U32 7, U33 10, U33 19, U34 29, U35 16, U36 16, U38 7, U39 1, U39 2, U39 7, U40 7, U41 7, U42 7, U43 10, U44 1
+IO_BUF_DIR : J1 A20, U23 1, U32 8
+LED_A0 : J3 16, R17 2
+LED_A1 : J3 15, R21 2
+LED_A2 : J3 14, R18 2
+LED_A3 : J3 13, R22 2
+LED_A4 : J3 12, R19 2
+LED_A5 : J3 11, R23 2
+LED_A6 : J3 10, R20 2
+LED_A7 : J3 9, R24 2
+LED_A8 : J2 18, R42 2
+LED_A9 : J2 17, R46 2
+LED_A10 : J2 16, R43 2
+LED_A11 : J2 11, R47 2
+LED_A12 : J2 15, R44 2
+LED_A13 : J2 14, R48 2
+LED_A14 : J2 13, R45 2
+LED_A15 : J2 12, R49 2
+LED_ARxD : J3 20, R30 2
+LED_ATxD : J3 19, R26 2
+LED_CRxD : J3 18, R29 2
+LED_CTxD : J3 17, R25 2
+LED_D0 : J2 26, R50 2
+LED_D1 : J2 25, R54 2
+LED_D2 : J2 24, R51 2
+LED_D3 : J2 23, R55 2
+LED_D4 : J2 22, R52 2
+LED_D5 : J2 21, R56 2
+LED_D6 : J2 20, R53 2
+LED_D7 : J2 19, R57 2
+LED_HALT : J2 3, R34 2
+LED_INT : J3 22, R31 2
+LED_IORQ : J2 6, R39 2
+LED_M1 : J2 4, R38 2
+LED_MA14 : J3 8, R9 2
+LED_MA15 : J3 7, R13 2
+LED_MA16 : J3 6, R10 2
+LED_MA17 : J3 5, R14 2
+LED_MA18 : J3 4, R11 2
+LED_MA19 : J3 3, R15 2
+LED_MREQ : J2 5, R35 2
+LED_NMI : J3 23, R28 2
+LED_PROT : J3 1, R16 2
+LED_PWR : D6 1, J2 1, J2 2, J3 25, J3 26, J4 20, R63 2
+LED_RD : J2 7, R36 2
+LED_RESET : J3 24, R32 2
+LED_S0 : J2 10, R41 2
+LED_S1 : J2 9, R37 2
+LED_SUPER : J3 2, R12 2
+LED_WAIT : J3 21, R27 2
+LED_WR : J2 8, R40 2
+LV_A0 : J1 A28, U33 18
+LV_A1 : J1 B28, U33 17
+LV_A2 : J1 A29, U33 16
+LV_A3 : J1 B29, U33 15
+LV_A4 : J1 A30, U33 14
+LV_A5 : J1 B30, U33 13
+LV_A6 : J1 A31, U33 12
+LV_A7 : J1 B31, U33 11
+LV_CPU_CLK : J1 A11, U13 18
+LV_INT : J1 A6, R66 2, U38 12
+LV_NMI : J1 B6, R65 2, U32 13
+LV_PROT : J1 A19, U13 11
+LV_SUPER : J1 A18, U13 12
+MA14 : R8 2, U4 2, U24 10, U35 28, U36 28
+MA15 : R8 3, U4 3, U24 9, U35 3, U36 3
+MA16 : R8 4, U4 4, U24 7, U35 31, U36 31
+MA17 : R8 5, U4 5, U24 6, U35 2, U36 2
+MA18 : R8 6, U4 6, U25 10, U35 30, U36 30
+MA19 : R8 7, U4 7, U25 9, U35 1, U36 1
+MAN : U18 1, U26 19
+NEXT : U26 9, U27 4, U38 1
+NMI_SWITCH : J1 A9, U16 9
+PNL_CLK : U10 15, U16 11, U26 11
+PNL_LATCH_EN : U42 8, U43 11
+PNL_WAIT : U17 6, U40 9
+POW_RST : R5 6, U11 16
+PRE_WAIT : U40 8, U41 2, U42 9
+PROT : R8 9, U4 9, U13 9, U25 6, U42 12
+RAM_VCC : C4 1, U11 2, U15 14, U35 32, U36 32
+RD : U21 10, U31 10, U39 4
+RFSH : U2 1, U2 19, U3 1, U3 19, U4 1, U4 19, U5 1, U5 19, U31 2
+RUN : U32 12, U38 13, U41 9
+STBY_3V3 : C3 1, R67 1, U11 1, U44 3
+STEP : U26 5, U27 5, U38 4
+SUPER : R8 8, U4 8, U13 8, U25 7
+SW_PD0 : J4 8, R3 2, U43 3
+SW_PD1 : J4 7, R3 3, U43 4
+SW_PD2 : J4 6, R3 4, U43 7
+SW_PD3 : J4 5, R3 5, U43 8
+SW_PD4 : J4 4, R3 6, U43 13
+SW_PD5 : J4 3, R3 7, U43 14
+SW_PD6 : J4 2, R3 8, U43 17
+SW_PD7 : J4 1, R3 9, U43 18
+USE_PNL_DATA : U19 4, U39 6, U39 9
+VCC : U2 20, U3 20, U4 20, U5 20, U7 14, U8 14, U9 14, U10 16, U13 20, U14 14, U16 20, U17 14, U18 14, U19 14, U20 14, U21 14, U23 20, U24 16, U25 16, U26 20, U27 16, U28 16, U29 16, U30 14, U31 14, U32 14, U33 20, U38 14, U39 14, U40 14, U41 14, U42 14, U43 20
+Vcc : C5 2, C8 1, D1 2, D4 1, D5 2, J1 A10, J1 B10, J4 9, J4 10, J4 19, J5 B3, R4 1, R8 1, R33 1, R61 1, U1 20, U6 20, U11 3, U20 1, U20 4, U20 13, U34 11, U34 25, U41 1, U41 4
+WRITE : U21 9, U26 15
+\_ARxD\_ : J1 A5, R33 5, U6 5
+\_ATxD\_ : J1 B5, R33 4, U6 4
+\_CRxD\_ : J1 B4, R33 3, U6 3
+\_CTxD\_ : J1 A4, R33 2, U6 2
+\_CYCLE\_ : U21 6, U31 5, U41 11, U42 10
+\_DO_C\_ : U29 11, U30 13
+\_DO_D\_ : U29 14, U39 13
+\_DO_E\_ : U27 14, U30 9
+\_FPGA_BUF_INH\_ : U31 12, U32 5
+\_HALT\_ : R61 9, U1 2, U32 2, U34 18
+\_INT\_ : R33 7, U6 7, U34 16, U38 11
+\_IORQ\_ : R61 6, U1 5, U13 5, U20 12, U21 4, U34 20, U42 5
+\_IO_BUF_EN\_ : U23 19, U30 3
+\_LV_IORQ\_ : J1 A15, U13 15
+\_LV_IOWAIT\_ : J1 A8, R64 2, U42 4
+\_LV_IO_BUF_EN\_ : J1 A21, U32 6
+\_LV_M1\_ : J1 A13, U13 17
+\_LV_MREQ\_ : J1 A14, U13 16
+\_LV_PNL_DAT_RD\_ : J1 B7, R5 4, U30 4
+\_LV_RD\_ : J1 A16, U13 14
+\_LV_WR\_ : J1 A17, U13 13
+\_M1\_ : R61 8, U1 3, U13 3, U34 27, U40 12
+\_MMAP_EN\_ : J1 B8, R5 8, U24 11, U25 11
+\_MMAP_IO_SEL\_ : J1 A7, R5 7, U24 12, U25 12
+\_MREQ\_ : R61 7, U1 4, U11 13, U13 4, U21 5, U34 19
+\_MREQ_NV\_ : U11 12, U15 5, U15 9
+\_NMI\_ : R33 8, U6 8, U32 11, U34 17
+\_PNL_IO_BUF_EN\_ : U19 6, U30 1, U40 1
+\_PNL_LATCH_OE\_ : U30 6, U43 1
+\_PNL_LATCH_OE_RQ\_ : U30 5, U40 3
+\_POW_RST\_ : U11 15, U16 1, U17 2
+\_RAM_CS0\_ : U15 8, U35 22
+\_RAM_CS1\_ : U15 6, U36 22
+\_RAM_OE\_ : U35 24, U36 24, U42 3
+\_RAM_WE\_ : U21 3, U35 29, U36 29
+\_RD\_ : R61 5, U1 6, U13 6, U31 11, U34 21, U42 2
+\_RESET\_ : J1 B9, R33 9, U6 9, U16 5, U27 1, U30 10, U34 26
+\_RFSH\_ : U31 1, U32 1, U34 28
+\_RUN\_ : U17 1, U17 5, U41 8
+\_S0\_ : J1 A3, R61 2, U1 9
+\_S1\_ : J1 B3, R61 3, U1 8
+\_STOP_1\_ : U16 15, U16 17, U19 1, U41 12
+\_STOP_2\_ : U16 16, U19 2, U41 13
+\_SW_MAN\_ : J4 11, R4 2, U7 9
+\_SW_NEXT_NO\_ : J4 15, R4 4, U7 5
+\_SW_NMI_NO\_ : J4 22, R4 7, U7 1
+\_SW_RESET_NO\_ : J4 24, R4 8, U16 3
+\_SW_STEP_NO\_ : J4 17, R4 5, U7 3
+\_SW_STOP\_ : J4 18, R4 6, U16 13
+\_SW_WRITE_NO\_ : J4 13, R4 3, U7 11
+\_WAIT\_ : R33 6, U6 6, U34 24, U41 6
+\_WR\_ : R61 4, U1 7, U13 7, U20 2, U32 9, U34 22, U42 13
+unnamed_net1 : J7 B1, U9 3
+unnamed_net2 : U8 8, U9 1
+unnamed_net5 : U9 6, U9 13
+unnamed_net6 : U9 8, U10 10
+unnamed_net7 : J7 B3, U10 9
+unnamed_net21 : J7 B2, U14 13, U31 9
+unnamed_net22 : U16 2, U16 4
+unnamed_net23 : U16 12, U16 14
+unnamed_net25 : U7 2, U16 7
+unnamed_net26 : U16 6, U16 8
+unnamed_net27 : U7 4, U26 3
+unnamed_net28 : U26 2, U26 4
+unnamed_net29 : U17 3, U26 1
+unnamed_net30 : U7 10, U26 13
+unnamed_net31 : U26 12, U26 14
+unnamed_net32 : U7 8, U26 17
+unnamed_net33 : U26 16, U26 18
+unnamed_net34 : U7 6, U26 7
+unnamed_net35 : U26 6, U26 8
+unnamed_net36 : U19 3, U41 10
+unnamed_net38 : U38 3, U40 13
+unnamed_net39 : U27 3, U38 2
+unnamed_net40 : U28 6, U38 6
+unnamed_net41 : U27 6, U38 5
+unnamed_net42 : U28 11, U28 12, U38 8
+unnamed_net43 : U27 11, U38 10
+unnamed_net44 : U21 8, U27 12, U38 9
+unnamed_net49 : U28 2, U28 3, U40 11
+unnamed_net50 : U28 10, U30 8
+unnamed_net52 : U18 11, U29 4
+unnamed_net53 : U29 10, U29 13
+unnamed_net56 : U18 3, U39 5
+unnamed_net57 : U19 5, U39 11
+unnamed_net58 : U31 13, U39 8, U42 1
+unnamed_net59 : U19 8, U40 4
+unnamed_net60 : U21 2, U40 6
+unnamed_net61 : U19 9, U19 10, U30 11
+unnamed_net62 : U17 4, U19 11
+unnamed_net63 : U21 1, U42 11
+unnamed_net65 : U7 13, U42 6
+unnamed_net66 : U7 12, U40 10
+unnamed_net67 : U20 5, U32 10
+unnamed_net69 : U20 9, U30 2
+unnamed_net70 : U20 8, U32 4
+unnamed_net74 : D1 1, D2 1, R1 1
+unnamed_net75 : C1 2, C2 1, D2 2, D3 2, U44 2
+unnamed_net76 : D3 1, R2 2
+unnamed_net77 : B1 1, R2 1
+unnamed_net78 : B1 2, B2 1
+unnamed_net88 : D5 1, D6 2
+unnamed_net95 : U14 2, U24 14, U25 14
+unnamed_net96 : U14 4, U24 13, U25 13
+unnamed_net97 : U14 6, U24 5, U25 5
+unnamed_net98 : U14 8, U24 4, U25 4
+unnamed_net99 : R6 2, U15 1, U15 12, U32 3
+unnamed_net100 : R7 2, U14 10, U15 2
+unnamed_net101 : U15 3, U15 4
+unnamed_net102 : U15 10, U15 11
+unnamed_net103 : R25 1, U6 18
+unnamed_net104 : R29 1, U6 17
+unnamed_net105 : R26 1, U6 16
+unnamed_net106 : R30 1, U6 15
+unnamed_net107 : R27 1, U6 14
+unnamed_net108 : R31 1, U6 13
+unnamed_net109 : R28 1, U6 12
+unnamed_net110 : R32 1, U6 11
+unnamed_net111 : R9 1, U4 18
+unnamed_net112 : R13 1, U4 17
+unnamed_net113 : R10 1, U4 16
+unnamed_net114 : R14 1, U4 15
+unnamed_net115 : R11 1, U4 14
+unnamed_net116 : R15 1, U4 13
+unnamed_net117 : R12 1, U4 12
+unnamed_net118 : R16 1, U4 11
+unnamed_net119 : R17 1, U5 18
+unnamed_net120 : R21 1, U5 17
+unnamed_net121 : R18 1, U5 16
+unnamed_net122 : R22 1, U5 15
+unnamed_net123 : R19 1, U5 14
+unnamed_net124 : R23 1, U5 13
+unnamed_net125 : R20 1, U5 12
+unnamed_net126 : R24 1, U5 11
+unnamed_net127 : R34 1, U1 18
+unnamed_net128 : R38 1, U1 17
+unnamed_net129 : R35 1, U1 16
+unnamed_net130 : R39 1, U1 15
+unnamed_net131 : R36 1, U1 14
+unnamed_net132 : R40 1, U1 13
+unnamed_net133 : R37 1, U1 12
+unnamed_net134 : R41 1, U1 11
+unnamed_net135 : R42 1, U2 18
+unnamed_net136 : R46 1, U2 17
+unnamed_net137 : R43 1, U2 16
+unnamed_net138 : R47 1, U2 15
+unnamed_net139 : R44 1, U2 14
+unnamed_net140 : R48 1, U2 13
+unnamed_net141 : R45 1, U2 12
+unnamed_net142 : R49 1, U2 11
+unnamed_net143 : R50 1, U3 18
+unnamed_net144 : R54 1, U3 17
+unnamed_net145 : R51 1, U3 16
+unnamed_net146 : R55 1, U3 15
+unnamed_net147 : R52 1, U3 14
+unnamed_net148 : R56 1, U3 13
+unnamed_net149 : R53 1, U3 12
+unnamed_net150 : R57 1, U3 11
+unnamed_net151 : J1 A2, R67 2
+
+END nets
+

@@ -1,0 +1,173 @@
+Initial test programmes toggled in from the front panel.
+
+Assembled with https://www.asm80.com/onepage/asmz80.html
+
+Source:
+ZERO:
+DEC bc
+LD a,b
+OR c
+JR nz,zero
+HALT
+
+Listing:
+0000                ZERO:     
+0000   0B                     DEC   bc   
+0001   78                     LD   a,b   
+0002   B1                     OR   c   
+0003   20 FB                  JR   nz,zero   
+0005   76                     HALT   
+
+
+9/5/2020 (Saturday)
+
+Adding console write:
+
+Source:
+ZERO:
+DEC bc
+LD a,c
+OUT (0x11),a
+OR b
+JR nz,zero
+HALT
+
+Listing:
+0000                ZERO:     
+0000   0B                     DEC   bc   
+0001   79                     LD   a,c   
+0002   D3 11                  OUT   (0x11),a   
+0004   B0                     OR   b   
+0005   20 F9                  JR   nz,zero   
+0007   76                     HALT   
+
+
+10/5/2020 (Sunday)
+
+Loading memory from console:
+
+Source:
+
+org 0x20
+ld bc,0x0011
+ld hl,0x0100
+inir
+halt
+
+Listing:
+
+0020                          .ORG   0x20   
+0020   01 11 00               LD   bc,0x0011   
+0023   21 00 01               LD   hl,0x0100   
+0026   ED B2                  INIR   
+0028   76                     HALT   
+
+
+Console serial loopback (with increment!)
+
+Source:
+
+org 0x10
+loop:
+in a,0x11
+inc a
+out 0x11,a
+jr loop
+
+Listing:
+
+0010                          .ORG   0x10   
+0010                LOOP:     
+0010   DB 11                  IN   a,0x11   
+0012   3C                     INC   a   
+0013   D3 11                  OUT   0x11,a   
+0015   18 F9                  JR   loop   
+
+
+Memory mapping initialisation and short binary download from console port.
+
+Source:
+
+org 0x0000
+ld a,0x7f	; Page 0x3f with SUPER=1 and PROT=0
+out 0x04,a	; Page and protection for 0x0000 to 0x3fff
+ld a,0x01
+out 0x02,a	; Enable memory mapping
+ld bc,0x0011
+ld hl,0x0100
+inir
+halt
+
+Listing:
+
+0000   3E 7F                  LD   a,0x7f   ; Page 0x3f with SUPER=1 and PROT=0
+0002   D3 04                  OUT   0x04,a   ; Page and protection for 0x0000 to 0x3fff
+0004   3E 02                  LD   a,0x02   
+0006   D3 02                  OUT   0x02,a   ; Enable memory mapping
+0008   01 11 00               LD   bc,0x0011   
+000B   21 00 01               LD   hl,0x0100   
+000E   ED B2                  INIR   
+0010   76                     HALT   
+
+
+11/5/2020 (Monday)
+
+Mapping register access:
+
+Source:
+
+org 0x30
+ld a,0x7f	; Page 0x3f with SUPER=1 and PROT=0
+out 0x04,a	; Page and protection for 0x0000 to 0x3fff
+ld a,0x02
+out 0x02,a	; Enable memory mapping
+ld hl,0x0100
+loop:
+inc a
+ld (hl),a
+jr loop
+
+Listing:
+
+0030                          .ORG   0x30   
+0030   3E 7F                  LD   a,0x7f   ; Page 0x3f with SUPER=1 and PROT=0
+0032   D3 04                  OUT   0x04,a   ; Page and protection for 0x0000 to 0x3fff
+0034   3E 02                  LD   a,0x02
+0036   D3 02                  OUT   0x02,a   ; Enable memory mapping
+0038   21 00 01               LD   hl,0x0100   
+003B                LOOP:     
+003B   3C                     INC   a   
+003C   77                     LD   (hl),a   
+003D   18 FC                  JR   loop
+
+
+14/5/2020 (Thursday)
+
+Serial boot stage 1. This loads raw binary data from the serial port into memory starting at location zero. Press reset to stop the loader and run the newly downloaded code.
+
+Source:
+
+org 0x3fe0  ; Use top of page
+ld a,0x7f	; Page 0x3f with SUPER=1 and PROT=0
+out 0x04,a	; Page and protection for 0x0000 to 0x3fff
+ld a,0x02
+out 0x02,a	; Enable memory mapping
+ld c,0x11   ; Select console input port
+ld hl,0x0000    ; Start address
+loop:
+ini
+jr loop     ; Load data until reset
+
+Listing:
+
+3FE0                          .ORG   0x3fe0   ; Use top of page
+3FE0   3E 7F                  LD   a,0x7f   ; Page 0x3f with SUPER=1 and PROT=0
+3FE2   D3 04                  OUT   0x04,a   ; Page and protection for 0x0000 to 0x3fff
+3FE4   3E 02                  LD   a,0x02
+3FE6   D3 02                  OUT   0x02,a   ; Enable memory mapping
+3FE8   0E 11                  LD   c,0x11    ; Select console input port
+3FEA   21 00 00               LD   hl,0x0000    ; Start address 
+3FED                LOOP:     
+3FED   ED A2                  INI   
+3FEF   18 FC                  JR   loop   ; Load data until reset
+

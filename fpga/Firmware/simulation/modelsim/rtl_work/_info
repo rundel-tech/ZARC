@@ -1,0 +1,643 @@
+m255
+K3
+13
+cModel Technology
+Z0 dD:\merli\Documents\Merlin\ZARC_Z80_Box\FPGA\Firmware\simulation\modelsim
+Easyncser_rx
+Z1 w1621715726
+Z2 DPx4 ieee 11 numeric_std 0 22 O3PF8EB`?j9=z7KT`fn941
+Z3 DPx4 work 11 definitions 0 22 g0mXHeoXXDUH77OAJBj7e0
+Z4 DPx3 std 6 textio 0 22 5>J:;AW>W0[[dW0I6EN1Q0
+Z5 DPx4 ieee 14 std_logic_1164 0 22 5=aWaoGZSMWIcH0i^f`XF1
+Z6 dD:\merli\Documents\Merlin\ZARC_Z80_Box\FPGA\Firmware\simulation\modelsim
+Z7 8D:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/AsyncSerRx.vhd
+Z8 FD:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/AsyncSerRx.vhd
+l0
+L17
+VL16Wmm5zcMQVX8IfCAFfl3
+Z9 OV;C;10.1d;51
+31
+Z10 !s108 1637440197.360000
+Z11 !s90 -reportprogress|300|-93|-work|work|D:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/AsyncSerRx.vhd|
+Z12 !s107 D:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/AsyncSerRx.vhd|
+Z13 o-93 -work work -O0
+Z14 tExplicit 1
+!s100 [LZlhJ_U3L7E`;z_[WTL70
+!i10b 1
+Alogic
+R2
+R3
+R4
+R5
+DEx4 work 11 asyncser_rx 0 22 L16Wmm5zcMQVX8IfCAFfl3
+l69
+L31
+V?iQ;T3U>U;=G=SA;Udel=3
+R9
+31
+R10
+R11
+R12
+R13
+R14
+!s100 A^dI4I9fa:`15:Q?[HmB[3
+!i10b 1
+Easyncser_tx
+Z15 w1589960178
+R2
+R3
+R4
+R5
+R6
+Z16 8D:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/AsyncSerTx.vhd
+Z17 FD:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/AsyncSerTx.vhd
+l0
+L17
+VM<GgS7c_BE:CFb2fB:=o<2
+R9
+31
+Z18 !s108 1637440197.248000
+Z19 !s90 -reportprogress|300|-93|-work|work|D:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/AsyncSerTx.vhd|
+Z20 !s107 D:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/AsyncSerTx.vhd|
+R13
+R14
+!s100 N1RbCo2U1dojmm`3_HW7E3
+!i10b 1
+Alogic
+R2
+R3
+R4
+R5
+DEx4 work 11 asyncser_tx 0 22 M<GgS7c_BE:CFb2fB:=o<2
+l42
+L29
+VcDgJ5?7zX<I`aR11nQT;72
+R9
+31
+R18
+R19
+R20
+R13
+R14
+!s100 17MYd7UWZoHiLB1hRZ:ab2
+!i10b 1
+Ecrc16_xmodem
+Z21 w1623238472
+R2
+R3
+R4
+R5
+R6
+Z22 8D:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/CRC16_XModem.vhd
+Z23 FD:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/CRC16_XModem.vhd
+l0
+L16
+VbP<NJg]LnKiiW15A`<lA83
+R9
+31
+Z24 !s108 1637440196.306000
+Z25 !s90 -reportprogress|300|-93|-work|work|D:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/CRC16_XModem.vhd|
+Z26 !s107 D:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/CRC16_XModem.vhd|
+R13
+R14
+!s100 FSiD5MmP1>6T?Vag<ThJa3
+!i10b 1
+Alogic
+R2
+R3
+R4
+R5
+DEx4 work 12 crc16_xmodem 0 22 bP<NJg]LnKiiW15A`<lA83
+l42
+L29
+VOUTU<_CzPddNeEVGfmjVU3
+R9
+31
+R24
+R25
+R26
+R13
+R14
+!s100 QL^f6CGj9_M;MWk`ggJLn1
+!i10b 1
+Pdefinitions
+R2
+R4
+R5
+w1637188350
+R6
+8D:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/Definitions.vhd
+FD:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/Definitions.vhd
+l0
+L13
+Vg0mXHeoXXDUH77OAJBj7e0
+R9
+31
+R13
+R14
+!s100 9KiO;3TCzH^F4??Qn3kNC0
+!i10b 1
+!s108 1637440196.096000
+!s90 -reportprogress|300|-93|-work|work|D:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/Definitions.vhd|
+!s107 D:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/Definitions.vhd|
+Edenoise
+Z27 w1589134128
+R2
+R3
+R4
+R5
+R6
+Z28 8D:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/DeNoise.vhd
+Z29 FD:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/DeNoise.vhd
+l0
+L23
+VBa_NoQIOlnM]6OKPY9b`i1
+R9
+31
+Z30 !s108 1637440197.018000
+Z31 !s90 -reportprogress|300|-93|-work|work|D:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/DeNoise.vhd|
+Z32 !s107 D:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/DeNoise.vhd|
+R13
+R14
+!s100 BGo:LzH:>?9VGI=aGNz8W1
+!i10b 1
+Alogic
+R2
+R3
+R4
+R5
+DEx4 work 7 denoise 0 22 Ba_NoQIOlnM]6OKPY9b`i1
+l51
+L34
+VjK7e9_a:_cLU`[X5i=_J_3
+R9
+31
+R30
+R31
+R32
+R13
+R14
+!s100 jUh1M5bcD2oDc@0E[>BQk3
+!i10b 1
+Efifo_ram
+Z33 w1589957492
+R4
+R5
+R6
+Z34 8D:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/FIFO_RAM.vhd
+Z35 FD:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/FIFO_RAM.vhd
+l0
+L42
+V0bLTa_k0]cdm5ie;@=1O:3
+R9
+31
+Z36 !s108 1637440196.194000
+Z37 !s90 -reportprogress|300|-93|-work|work|D:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/FIFO_RAM.vhd|
+Z38 !s107 D:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/FIFO_RAM.vhd|
+R13
+R14
+!s100 Z<daj87z[J6E;Kg<MHGz70
+!i10b 1
+Asyn
+R4
+R5
+DEx4 work 8 fifo_ram 0 22 0bLTa_k0]cdm5ie;@=1O:3
+l85
+L54
+VGAm3_kd[cLXdQjU?QE<_n1
+R9
+31
+R36
+R37
+R38
+R13
+R14
+!s100 8c1Ag`_<HoI<eO^cSJI]B1
+!i10b 1
+Efifos
+Z39 w1590389390
+R3
+Z40 DPx4 ieee 9 math_real 0 22 :iME`dTX54_U49lJNF5JI3
+R2
+R4
+R5
+R6
+Z41 8D:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/FIFOs.vhd
+Z42 FD:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/FIFOs.vhd
+l0
+L22
+VXXMd<:Qdk<=k]X^2I@e9S0
+R9
+31
+Z43 !s108 1637440196.911000
+Z44 !s90 -reportprogress|300|-93|-work|work|D:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/FIFOs.vhd|
+Z45 !s107 D:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/FIFOs.vhd|
+R13
+R14
+!s100 BQlc`jZnT4D0JEXo=AD062
+!i10b 1
+Alogic
+R3
+R40
+R2
+R4
+R5
+DEx4 work 5 fifos 0 22 XXMd<:Qdk<=k]X^2I@e9S0
+l145
+L40
+VTndT22QCnGlha0gGB=l1=3
+R9
+31
+R43
+R44
+R45
+R13
+R14
+!s100 ;SPXo053aNP:VjZnU9YPV0
+!i10b 1
+Ei2c_master
+Z46 w1633287510
+R2
+R3
+R4
+R5
+R6
+Z47 8D:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/I2C_Master.vhd
+Z48 FD:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/I2C_Master.vhd
+l0
+L33
+VK>5]<^3UN6[FkcUf[Gbm^3
+R9
+31
+Z49 !s108 1637440196.531000
+Z50 !s90 -reportprogress|300|-93|-work|work|D:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/I2C_Master.vhd|
+Z51 !s107 D:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/I2C_Master.vhd|
+R13
+R14
+!s100 lme]Yk<ZW[<D_Jzd=zWN<0
+!i10b 1
+Alogic
+R2
+R3
+R4
+R5
+DEx4 work 10 i2c_master 0 22 K>5]<^3UN6[FkcUf[Gbm^3
+l74
+L51
+V4oW^Yk=m7RN;YdUWjXEVg0
+R9
+31
+R49
+R50
+R51
+R13
+R14
+!s100 N8?>e>zXWdi0XGCNc2dL40
+!i10b 1
+Eintcontrol
+Z52 w1633289008
+R3
+R40
+R2
+R4
+R5
+R6
+Z53 8D:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/IntControl.vhd
+Z54 FD:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/IntControl.vhd
+l0
+L31
+VS_<<:W^88]dBdL;<4o1Y02
+R9
+31
+Z55 !s108 1637440196.786000
+Z56 !s90 -reportprogress|300|-93|-work|work|D:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/IntControl.vhd|
+Z57 !s107 D:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/IntControl.vhd|
+R13
+R14
+!s100 Z=ezoJi@=]Gj1ZVIe@9_F3
+!i10b 1
+Alogic
+R3
+R40
+R2
+R4
+R5
+DEx4 work 10 intcontrol 0 22 S_<<:W^88]dBdL;<4o1Y02
+l68
+L50
+Von387k>WSW^NTD`m1z=]F2
+R9
+31
+R55
+R56
+R57
+R13
+R14
+!s100 0ZUS@dkN?<meRf_c?BzB92
+!i10b 1
+Emain
+Z58 w1636924112
+R3
+R2
+R4
+R5
+R6
+Z59 8D:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/Main.vhd
+Z60 FD:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/Main.vhd
+l0
+L15
+V_j=Xed0oL`SVnUZl=N9>o3
+R9
+31
+Z61 !s108 1637440197.581000
+Z62 !s90 -reportprogress|300|-93|-work|work|D:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/Main.vhd|
+Z63 !s107 D:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/Main.vhd|
+R13
+R14
+!s100 `Q7DfSHVIF3zhFQ;V5mV?3
+!i10b 1
+Alogic
+R3
+R2
+R4
+R5
+DEx4 work 4 main 0 22 _j=Xed0oL`SVnUZl=N9>o3
+l431
+L83
+V8=khcG?1QUE2dBQ1N[SIi0
+R9
+31
+R61
+R62
+R63
+R13
+R14
+!s100 0RZO^aK12V_RWcYmNWNT]1
+!i10b 1
+Emainpll
+Z64 w1636911526
+R4
+R5
+R6
+Z65 8D:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/MainPLL.vhd
+Z66 FD:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/MainPLL.vhd
+l0
+L42
+VoDWj30A55QBbXMHh9XfRU3
+R9
+31
+Z67 !s108 1637440195.981000
+Z68 !s90 -reportprogress|300|-93|-work|work|D:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/MainPLL.vhd|
+Z69 !s107 D:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/MainPLL.vhd|
+R13
+R14
+!s100 8A`lFUg_BSIDjUnMG=BQS2
+!i10b 1
+Asyn
+R4
+R5
+DEx4 work 7 mainpll 0 22 oDWj30A55QBbXMHh9XfRU3
+l134
+L53
+VSl3bbFRoM]Yd9V]1H=6QG0
+R9
+31
+R67
+R68
+R69
+R13
+R14
+!s100 RL<zkz1Xe0LdDz;cGMXV11
+!i10b 1
+Enmi_control
+Z70 w1637440681
+R3
+R40
+R2
+R4
+R5
+R6
+Z71 8D:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/NMI_Control.vhd
+Z72 FD:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/NMI_Control.vhd
+l0
+L56
+VYGcgW?;aIcK`Nal9M0m:E2
+!s100 hbn4Zd?laSPLoRRHooOR[0
+R9
+32
+!i10b 1
+Z73 !s108 1637440696.616000
+Z74 !s90 -reportprogress|300|-work|work|D:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/NMI_Control.vhd|
+Z75 !s107 D:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/NMI_Control.vhd|
+Z76 o-work work -O0
+R14
+Alogic
+R3
+R40
+R2
+R4
+R5
+DEx4 work 11 nmi_control 0 22 YGcgW?;aIcK`Nal9M0m:E2
+l137
+L86
+V=zSn3aW^kRR8YRn92fif>3
+!s100 =Xa36e;ka1f0PzDG:F=mY3
+R9
+32
+!i10b 1
+R73
+R74
+R75
+R76
+R14
+Eoutexpander
+Z77 w1633294370
+R2
+R3
+R4
+R5
+R6
+Z78 8D:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/OutExpander.vhd
+Z79 FD:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/OutExpander.vhd
+l0
+L17
+VXMH^lzoBdocO[jV=U>eWQ1
+R9
+31
+Z80 !s108 1637440197.126000
+Z81 !s90 -reportprogress|300|-93|-work|work|D:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/OutExpander.vhd|
+Z82 !s107 D:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/OutExpander.vhd|
+R13
+R14
+!s100 Qncl?JL4DR]`FA_8l1_Yo2
+!i10b 1
+Alogic
+R2
+R3
+R4
+R5
+DEx4 work 11 outexpander 0 22 XMH^lzoBdocO[jV=U>eWQ1
+l42
+L31
+VKM:C53IRnd:C8Zc>?:khf1
+R9
+31
+R80
+R81
+R82
+R13
+R14
+!s100 DjVBR=a9Z?n^:f`BmBhOc2
+!i10b 1
+Espi_master
+Z83 w1633375582
+R2
+R3
+R4
+R5
+R6
+Z84 8D:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/SPI_Master.vhd
+Z85 FD:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/SPI_Master.vhd
+l0
+L31
+Vj9RPf>4UIE@5a4Zl>lzkm1
+R9
+31
+Z86 !s108 1637440196.413000
+Z87 !s90 -reportprogress|300|-93|-work|work|D:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/SPI_Master.vhd|
+Z88 !s107 D:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/SPI_Master.vhd|
+R13
+R14
+!s100 [^djE_@_QD<aVjN63QnO=2
+!i10b 1
+Alogic
+R2
+R3
+R4
+R5
+DEx4 work 10 spi_master 0 22 j9RPf>4UIE@5a4Zl>lzkm1
+l70
+L46
+V@>ebW9@d:Mm]Q95ciBZ]m0
+R9
+31
+R86
+R87
+R88
+R13
+R14
+!s100 AlgQZFg:V1FMaL2a?ARZV2
+!i10b 1
+Esync2ff
+Z89 w1621590660
+R4
+R5
+R6
+Z90 8D:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/Sync2FF.vhd
+Z91 FD:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/Sync2FF.vhd
+l0
+L11
+V_R@GbB1T[j`J11z2Y[;UZ3
+R9
+31
+Z92 !s108 1637440195.876000
+Z93 !s90 -reportprogress|300|-93|-work|work|D:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/Sync2FF.vhd|
+Z94 !s107 D:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/Sync2FF.vhd|
+R13
+R14
+!s100 22cd2`h8M2z0jBlb=Z;`Q3
+!i10b 1
+Alogic
+R4
+R5
+DEx4 work 7 sync2ff 0 22 _R@GbB1T[j`J11z2Y[;UZ3
+l26
+L23
+Vzb=<NcXgRlWN?;;V8iLj^1
+R9
+31
+R92
+R93
+R94
+R13
+R14
+!s100 VS^A1Z:RFEhhUOIL[UB8]3
+!i10b 1
+Etiming
+Z95 w1624745550
+R2
+R3
+R4
+R5
+R6
+Z96 8D:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/Timing.vhd
+Z97 FD:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/Timing.vhd
+l0
+L18
+V@lVGFbK?HXSTC?>@5oGlF1
+R9
+31
+Z98 !s108 1637440197.471000
+Z99 !s90 -reportprogress|300|-93|-work|work|D:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/Timing.vhd|
+Z100 !s107 D:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/vhdl/Timing.vhd|
+R13
+R14
+!s100 E@Hj^BZZ<@e:N;lVXaVi=2
+!i10b 1
+Alogic
+R2
+R3
+R4
+R5
+DEx4 work 6 timing 0 22 @lVGFbK?HXSTC?>@5oGlF1
+l39
+L29
+V_bV0[==UP5CdkD0c>V?_?1
+R9
+31
+R98
+R99
+R100
+R13
+R14
+!s100 ^Wz]6gBC1nnCPQPRzj8i03
+!i10b 1
+Etrace_pre_tb
+Z101 w1637439741
+R3
+R2
+R4
+R5
+R6
+Z102 8D:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/simulation/trace_pre_tb.vhd
+Z103 FD:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/simulation/trace_pre_tb.vhd
+l0
+L22
+VQE]j9Qe_ZnZ?[^Id;<]A71
+R9
+31
+Z104 !s108 1637440197.699000
+Z105 !s90 -reportprogress|300|-93|-work|work|D:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/simulation/trace_pre_tb.vhd|
+Z106 !s107 D:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/simulation/trace_pre_tb.vhd|
+R13
+R14
+!s100 z>ezWD<:5VFfY6R6gda4L1
+!i10b 1
+Abeh
+R3
+R2
+R4
+R5
+DEx4 work 12 trace_pre_tb 0 22 QE]j9Qe_ZnZ?[^Id;<]A71
+l154
+L25
+V07KW@E5W4F:BT=Re[bZ3>2
+R9
+31
+R104
+R105
+R106
+R13
+R14
+!s100 E3Ic4>10_Z<0@91H`;24E2
+!i10b 1

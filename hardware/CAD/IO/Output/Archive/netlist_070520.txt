@@ -1,0 +1,202 @@
+START header
+
+gEDA's netlist format
+Created specifically for testing of gnetlist
+
+END header
+
+START components
+
+U5 device=SN75152
+U7 device=SN75150
+C1 device=POLARIZED_CAPACITOR
+R8 device=RESISTOR
+R7 device=RESISTOR
+U4 device=SN75152
+U6 device=SN75150
+J1 device=HEADER_14x2
+J4 device=HEADER_14x2
+J3 device=HEADER_14x2
+J2 device=HEADER_14x2
+U3 device=74LS595
+U1 device=74LVC245
+R6 device=RESISTORPACK_9
+R5 device=RESISTORPACK_9
+U2 device=74LS05
+J5 device=CONNECTOR_26
+P1 device=DIN41612_64_AB-1
+
+END components
+
+START renamed-nets
+
+
+END renamed-nets
+
+START nets
+
+unnamed_net84 : U5 1 
+unnamed_net83 : U5 4 
+unnamed_net82 : U5 13 
+unnamed_net81 : U2 13, U5 15 
+unnamed_net80 : U2 11, U5 2 
+unnamed_net79 : U4 1 
+unnamed_net78 : U4 4 
+RX_BIAS : U5 11, U5 6, U5 5, U5 12, U4 11, U4 6, C1 P, R7 1, R8 2, U4 5, U4 12 
+unnamed_net77 : U4 13 
+unnamed_net76 : U2 9, U4 15 
+unnamed_net75 : U2 5, U4 2 
+unnamed_net74 : J1 1 
+unnamed_net73 : J4 22 
+unnamed_net72 : J4 18 
+unnamed_net71 : J4 14 
+unnamed_net70 : J4 6 
+unnamed_net69 : J4 21 
+unnamed_net68 : J4 17 
+unnamed_net67 : J4 13 
+unnamed_net66 : J4 5 
+unnamed_net65 : J4 24 
+unnamed_net64 : J4 20 
+unnamed_net63 : J4 16 
+unnamed_net62 : J4 12 
+unnamed_net61 : J4 4 
+unnamed_net60 : J4 23 
+unnamed_net59 : J4 19 
+unnamed_net58 : J4 15 
+unnamed_net57 : J4 7 
+unnamed_net56 : J4 3 
+unnamed_net55 : J3 22 
+unnamed_net54 : J3 18 
+unnamed_net53 : J3 14 
+LV_ACTS : U2 12, J3 10 
+unnamed_net52 : J3 25 
+unnamed_net51 : J3 21 
+unnamed_net50 : J3 17 
+unnamed_net49 : J3 13 
+\_LV_ARTS\_ : U7 3, J3 9 
+\_LV_CRTS\_ : U6 3, J3 5 
+unnamed_net48 : J3 24 
+unnamed_net47 : J3 20 
+unnamed_net46 : J3 16 
+unnamed_net45 : J3 12 
+LV_ARxD : U2 10, J3 8 
+unnamed_net44 : J3 23 
+unnamed_net43 : J3 19 
+unnamed_net42 : J3 15 
+unnamed_net41 : J3 11 
+\_LV_ATxD\_ : U7 2, J3 7 
+\_LV_CTxD\_ : U6 2, J3 3 
+unnamed_net40 : J2 14 
+unnamed_net39 : J2 6 
+unnamed_net38 : J2 25 
+unnamed_net37 : J2 13 
+unnamed_net36 : J2 9 
+unnamed_net35 : J2 24 
+unnamed_net34 : J2 12 
+unnamed_net33 : J2 8 
+unnamed_net32 : J2 4 
+unnamed_net31 : J2 23 
+unnamed_net30 : J2 15 
+unnamed_net29 : J2 3 
+unnamed_net28 : U3 9 
+unnamed_net27 : U3 6 
+unnamed_net26 : U3 7 
+OX_DATA : J2 20, U3 14 
+OX_SRCLK : J2 21, U3 11 
+OX_RCLK : J2 22, U3 12 
+LV_D7 : J1 8, U1 11 
+LV_D6 : J1 9, U1 12 
+LV_D5 : J1 6, U1 13 
+LV_D4 : J1 7, U1 14 
+LV_D3 : J1 4, U1 15 
+LV_D2 : J1 5, U1 16 
+LV_D1 : J1 2, U1 17 
+LV_D0 : J1 3, U1 18 
+unnamed_net25 : R6 8 
+unnamed_net24 : R6 7 
+unnamed_net23 : R6 6 
+unnamed_net22 : R6 5 
+unnamed_net21 : R6 4 
+PUP_5V : U5 3, U5 14, U7 1, U4 3, U4 14, U6 1, R6 3, R6 2 
+unnamed_net20 : R5 8 
+unnamed_net19 : R5 7 
+unnamed_net18 : R5 6 
+LV_CCTS : U2 8, J3 6, R5 5 
+LV_CRxD : U2 6, J3 4, R5 4 
+LV_RESET : J2 7, R5 3, U2 4 
+VCC : U3 16, U2 14 
+\_LV_NMI_SWITCH\_ : J2 5, R5 2, U2 2 
+unnamed_net17 : J5 26 
+unnamed_net16 : J5 25 
+unnamed_net15 : J5 24 
+unnamed_net14 : J5 23 
+unnamed_net13 : J5 22 
+unnamed_net12 : J5 21 
+unnamed_net11 : J5 20 
+unnamed_net10 : J5 19 
+unnamed_net9 : J5 18 
+unnamed_net8 : J5 17 
+unnamed_net7 : J5 16 
+unnamed_net6 : J5 15 
+unnamed_net5 : J5 14 
+unnamed_net4 : J5 13 
+unnamed_net3 : J5 12 
+ACTS : U5 10, J5 10 
+ATxD : U7 7, J5 9 
+ARTS : U7 6, J5 8 
+ARxD : U5 7, J5 7 
+unnamed_net2 : J5 6 
+CCTS : U4 10, J5 4 
+CTxD : U6 7, J5 3 
+CRTS : U6 6, J5 2 
+CRxD : U4 7, J5 1 
+LV_A7 : J1 16, P1 B31 
+LV_A3 : J1 12, P1 B29 
+BD5 : U1 7, P1 B25 
+BD1 : U1 3, P1 B23 
+\_RESET\_ : U3 10, U2 3, P1 B9 
+\_LV_PNL_DAT_RD\_ : J2 17, P1 B7 
+\_PNL_ARxD\_ : U3 5, P1 B5 
+\_PNL_S1\_ : U3 1, P1 B3 
+LV_A6 : J1 17, P1 A31 
+LV_A2 : J1 13, P1 A29 
+BD4 : U1 6, P1 A25 
+BD0 : U1 2, P1 A23 
+\_LV_IO_BUF_EN\_ : U1 19, P1 A21 
+LV_PROT : J1 24, P1 A19 
+\_LV_WR\_ : J1 21, P1 A17 
+\_LV_IORQ\_ : J1 19, P1 A15 
+\_LV_M1\_ : J1 18, P1 A13 
+LV_CPU_CLK : J4 11, P1 A11 
+NMI_SWITCH : U2 1, P1 A9 
+\_MMAP_IO_SEL\_ : J2 16, P1 A7 
+\_PNL_ATxD\_ : U3 4, P1 A5 
+\_PNL_S0\_ : U3 15, P1 A3 
+-12V : U5 9, U7 5, U4 9, U6 5, P1 B1 
++12V : U5 16, U7 8, U4 16, U6 8, P1 A1 
+LV_A5 : J1 14, P1 B30 
+LV_A1 : J1 10, P1 B28 
+BD7 : U1 9, P1 B26 
+BD3 : U1 5, P1 B24 
+GND : U5 8, U7 4, C1 N, R8 1, U4 8, U6 4, J1 26, J1 25, J4 25, J4 9, J4 1, J4 26, J4 10, J4 2, J4 8, J3 26, J3 2, J3 1, J3 27, J2 26, J2 2, J2 1, J2 27, U3 8, U3 13, U1 10, U2 7, J5 11, J5 5, P1 B11, P1 B21, P1 B20, P1 B19, P1 B18, P1 B17, P1 B16, P1 B15, P1 B14, P1 B13, P1 B27, P1 B32, P1 B22, P1 B12 
+\_MMAP_EN\_ : J2 11, P1 B8 
+LV_NMI : J2 19, P1 B6 
+\_PNL_CRxD\_ : U3 3, P1 B4 
+unnamed_net1 : P1 B2 
+LV_A4 : J1 15, P1 A30 
+LV_A0 : J1 11, P1 A28 
+BD6 : U1 8, P1 A26 
+BD2 : U1 4, P1 A24 
+IO_BUF_DIR : U1 1, P1 A20 
+LV_SUPER : J1 23, P1 A18 
+\_LV_RD\_ : J1 22, P1 A16 
+\_LV_MREQ\_ : J1 20, P1 A14 
++3.3V : J1 28, J1 27, J4 28, J4 27, J3 28, J2 28, U1 20, R5 1, P1 A27, P1 A32, P1 A22, P1 A12 
+Vcc : R7 2, R6 1, P1 B10, P1 A10 
+\_LV_IOWAIT\_ : J2 10, P1 A8 
+LV_INT : J2 18, P1 A6 
+\_PNL_CTxD\_ : U3 2, P1 A4 
+STBY_3V3 : P1 A2 
+
+END nets
+

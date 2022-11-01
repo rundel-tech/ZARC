@@ -1,0 +1,213 @@
+; *******************************************************
+; * ZARC Z80 Computer CP/M Utilities                    *
+; * Version: V1.0                                       *
+; * Merlin Skinner, 1/7/2021                            *
+; *******************************************************
+;
+; This programme is intended to run under CP/M 2.2 and provides utilities useful
+; for that system. The first command line option determines which utilities is
+; invoked. Current options are:
+;   zarc help               Display terse help
+;   zarc exit               Exit CP/M system and return to monitor
+;
+                title ZARC CP/M Utilities
+;
+;
+;
+; ************
+; * Includes *
+; ************
+;
+;
+                include "macros.i"
+                include "z80.i"
+                include "zarc.i"        ; Hardware definitions
+                include "monitor.i"
+                include "io_map.i"      ; I/O addresses mapping
+                include "terminal.i"    ; Terminal constants
+                include "cpm.i"
+                include "zarc_utils.i"  ; Project include file
+;
+;
+;
+; None.
+;
+;
+;
+; *************
+; * Externals *
+; *************
+;
+;
+; Variables
+;                public brkflg   ; Non-zero if break character detected
+;
+; From utility.z80
+; CP/M specific.
+                include "cpm_utility.i" ; CP/M utilities
+;                include "cpm_files.i"   ; CP/M file handling
+;
+;
+;
+; *************
+; * Main Code *
+; *************
+;
+;
+; The CP/M transient area start address is set in the linker invokation (see makefile).
+                cseg                    ; Code segment
+;
+; The default stack space is very small (8 deep), which would almost certainly
+; cause issues, particularly with interrupts running. The initial code should
+; not assume a Z80 so we can exit cleanly if this is run on something else.
+                ld (bdos_sp), sp
+                ld sp, app_stack_top    ; Switch to our stack space
+;
+; Determine CPU type.
+                call z80det             ; Detect Z80 (instead of 8080 / 8085)
+                jp nc, on_z80           ; Jump if we have a Z80
+;
+; 8080 / 8085 detected. Print message and exit. We can't use conwms as this
+; assumes a Z80.
+                ld de, no_z80_msg       ; "Z80 CPU required"
+                ld c, BDOS_PRINT_STRING ; Print String
+                call BDOS
+                jp 0                    ; Warm boot
+;
+; The following code is not 8080 / 8085 safe.
+on_z80          ld hl, signon_msg
+                call conwms             ; Print $-terminated string to the console
+;
+; Are we running on a ZARC system?
+                call zrcdet
+                jr nc, on_zarc          ; Jump if we are on ZARC
+;
+                ld hl, no_zarc_msg      ; "ZARC BIOS not detected."
+                call conwms             ; Print $-terminated string to the console
+                jp exit
+;
+; Examine the command tail, looking for operands. This is stored in the default
+; buffer. "The first byte at 0080H contains the length of the command tall, while
+; the command tail itself begins at 0081H. The command tail is terminated by a
+; byte containing a binary zero value." (http://www.cpm.z80.de/manuals/cpm22-m.pdf
+; appendix H).
+on_zarc         ld hl, DEF_BUFFER + 1
+                call skpspc             ; Step hl past spaces
+;
+; Attempt to match the operand with an item in the list.
+                ld de, cmd_list
+; Ignore case and allow abbreviations.
+                ld a, MTWDLI_ABBREV_MASK | MTWDLI_ICASE_MASK
+                call mtwdli             ; Match against list of options
+                and a
+                jr z, op_error
+;
+; Find address of command code
+                push hl                 ; Save command buffer pointer
+                ld hl, cmd_vectors
+                dec a                   ; Start index from zero
+                add a                   ; Convert index to a word offset
+                add l                   ; Add low byte
+                ld l,a
+                ld a, 0
+                adc a, h                ; Add carry to high byte
+                ld h, a
+; HL is cmd_vectors + 2 * index
+                ld e, (hl)              ; Read address
+                inc hl
+                ld d, (hl)
+                pop hl                  ; Restore command buffer pointer
+                call skpspc             ; Skip any leading spaces
+                push de
+; HL points to the separator after the command word or the terminator.
+                ret                     ; Go to command routine
+;
+;
+; Go here if we don't like the operands supplied.
+op_error        ld hl, op_err_msg
+                call conwms             ; Print $-terminated string to the console
+                jp exit
+;
+;
+; Print terse help text.
+cmd_help        ld hl, help_msg
+                call conwms             ; Print message
+                jp exit
+;
+;
+; Exit CP/M and return to monitor.
+cmd_exit        xor a
+                cp (hl)
+                jp nz, op_error         ; Error if text follows
+;
+                ld hl, exit_msg
+                call conwms             ; Print message
+;
+; Call monitor via BIOS to flush the MMC sector cache.
+                ld de, MCALL_CAFLUS     ; Flush cache (write dirty buffers)
+                ld hl, BIOS_MON_CALL    ; Call monitor function
+; No parameters required (would be in alternate register set).
+                call cbios              ; Call BIOS
+;
+; Enter the monitor.
+                ld de, MCALL_MON_ENTRY  ; Normal monitor entry
+                ld hl, BIOS_MON_CALL    ; Call monitor function
+; No parameters required (would be in alternate register set).
+                call cbios              ; Call BIOS
+;
+;
+; Return to CP/M. Going here is always safe as it does not rely on the stack
+; state.
+exit            ld sp, (bdos_sp)
+                ret                     ; Return to BDOS
+;               jp 0                    ; Warm boot
+;
+;
+;
+; ***************
+; * Subroutines *
+; ***************
+;
+;
+
+;
+;
+;
+; *************
+; * Constants *
+; *************
+;
+;
+signon_msg      byte "*** ZARC Z80 Computer CP/M Utilities V1.0 ***", 0x0d, 0x0a, "$"
+no_z80_msg      byte "Z80 CPU required", 0x0d, 0x0a, "$"
+op_err_msg      byte "Operand error. Try ""zarc help"".", 0x0d, 0x0a, "$"
+no_zarc_msg     byte "ZARC BIOS not detected.", 0x0d, 0x0a, "$"
+; The ordered list of commands in cmd_list corresponds to the list of vectors
+; in cmd_vectors.
+cmd_list        byte "HELP EXIT", 0
+cmd_vectors     word cmd_help, cmd_exit
+;
+help_msg        byte "help", 0x0d, 0x0a
+                byte "zarc exit (exit CP/M and return to monitor)", 0x0d, 0x0a
+                byte "$"
+;
+exit_msg        byte "Exiting CP/M", 0x0d, 0x0a, "$"
+;
+;
+;
+; *************
+; * Variables *
+; *************
+;
+;
+; Note: linker "-c" option is used, so no data is initialised here.
+                dseg                ; Data segment
+;
+bdos_sp         defs 2              ; BDOS's stack pointer
+
+;
+                defs STACK_SIZE     ; Stack space
+app_stack_top
+;
+                end
+

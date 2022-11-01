@@ -1,0 +1,606 @@
+; *******************************************************
+; * Low-level I/O for ZARC Z80 Computer                 *
+; * Written by: Merlin Skinner                          *
+; * Date Started: 16/5/2020                             *
+; *******************************************************
+;
+; Simple I/O support routines for use with the monitor program or other
+; code that may find it useful.
+;
+; Serial I/O operates in one of two modes. The flag itenfl (interrupt enable)
+; determines which mode is in use. In basic mode, characters are read and or
+; written to the hardware without any full / empty checks in software. The
+; hardware "wait" mechanism will extend cycles to prevent data loss. This is
+; useful for initial bringup and simple programs, for example the serial
+; bootstrap. It is also useful to allow the monitor to operate if there are issues
+; with the interrupt system.
+;
+; Basic mode doesn't work well with interrupts, however. It completely stops the
+; machine and prevents it from servicing interrupts. In normal mode, the software
+; polls the serial hardware before transferring characters so the wait mechanism
+; is never invoked. Interrupts can then run unhindered.
+;
+; I2C support is initially for the RTC (DS1672), but could be used with other
+; devices if required.
+;
+;
+monitor         equ 1                   ; Flag part of monitor build
+io              equ 1                   ; Flag module for includes
+;
+;
+;
+; ************
+; * Includes *
+; ************
+;
+                include "macros.i"
+                include "z80.i"
+                include "monitor.i"
+                include "zarc.i"        ; Hardware definitions
+                include "io_map.i"      ; I/O addresses mapping
+                include "terminal.i"
+                include "interrupts.i"  ; Interrupts
+                include "i2c.i"         ; I2C master interface
+                include "spi.i"         ; SPI master interface
+                include "io.i"          ; I/O routines
+;
+;
+;
+; *************
+; * Externals *
+; *************
+;
+; Variables
+                public coport   ; Current console port (PRT_xxx)
+                public trport   ; Current data transfer port (PRT_xxx)
+;
+; Routines
+                public conwch   ; Write character to the console
+                public conrch   ; Read character from the console
+                public consta   ; Fetch console port status
+                public trawch   ; Write character to the data transfer port
+                public trarch   ; Read character from the data transfer port
+                public s1wch    ; Write character to serial port 1
+                public s1rch    ; Read character from serial port 1
+                public s1sta    ; Fetch serial port 1 status
+                public s2wch    ; Write character to serial port 2
+                public s2rch    ; Read character from serial port 2
+                public s2sta    ; Fetch serial port 2 status
+                public i2cwr    ; Write to I2C device
+                public i2crd    ; Read from I2C device
+                public spiini   ; Initialise SPI interface and set speed
+                public spiss    ; Set SPI slave select(s)
+                public spitr    ; Transfer byte to / from SPI device
+;
+;
+;
+; *************
+; * Constants *
+; *************
+;
+;spi_debug       equ 1           ; Enable reporting of all SPI traffic to console
+;
+;
+                cseg                    ; Code segment
+;
+;
+;
+; ***************
+; * Console I/O *
+; ***************
+;
+;
+; Monitor console I/O is directed to the appropriate port. These routines are
+; available from outside of the monitor for applications that would benefit from
+; the console port selection mechanism.
+;
+conwch          push af
+                ld a, (coport)
+; The following code is also used by the transfer port redirection code.
+wch_redirect    cp PORT_SER1            ; Serial port 1
+                jr z, cw_ser1
+                cp PORT_SER2            ; Serial port 2
+                jr z, cw_ser2
+; If not valid, set console port to serial port 1 and panic.
+con_invalid     ld a, PORT_SER1         ; Serial port 1
+                ld (coport), a          ; Set default console port
+                call panic
+;
+; Write to serial port 1.
+cw_ser1         pop af
+                jr s1wch
+;
+; Write to serial port 2.
+cw_ser2         pop af
+                jr s2wch
+;
+conrch          ld a, (coport)
+; The following code is also used by the transfer port redirection code.
+rch_redirect    cp PORT_SER1        ; Serial port 1
+                jr z, s1rch
+                cp PORT_SER2        ; Serial port 2
+                jp z, s2rch
+                jr con_invalid      ; Handle invalid ports
+;
+consta          ld a, (coport)
+                cp PORT_SER1        ; Serial port 1
+                jr z, s1sta
+                cp PORT_SER2        ; Serial port 2
+                jp z, s2sta
+                jr con_invalid      ; Handle invalid ports
+;
+;
+;
+; *****************
+; * Transfer Port *
+; *****************
+;
+;
+; Data transfer I/O is directed to the appropriate port. This is likely to be
+; useful only within the monitor, so is not made externally available.
+;
+trawch          push af
+                ld a, (trport)
+                jr wch_redirect     ; Use console redirection code
+;
+trarch          ld a, (trport)
+                jr rch_redirect     ; Use console redirection code
+;
+;
+;
+; ********************************
+; * Asynchronous Serial (RS-232) *
+; ********************************
+;
+;
+; *** Serial port 1 ***
+;
+; Write character in A to serial port 1. This will wait if the transmitter FIFO
+; is full.
+s1wch           push af
+                ld a, (itenfl)          ; Fetch int. enable flag (I/O mode)
+                and a
+                jr z, s1wch_out
+; In normal mode, we will poll the serial transmitter to await space in the FIFO
+; rather than having the hardware stop the machine. This latter method prevents
+; interrupts from being serviced. Basic mode is useful if there are issues with
+; the interrupt system. If the interrupts are disabled, this clearly cannot work
+; so the system panics.
+                ld a, (itdsct)          ; DI nest count
+                and a
+                call nz, panic          ; Panic if count != 0
+;
+; The objective of this code is to have the machine halted until we can complete
+; the operation. A simple wait loop would be simpler, but would give no indication
+; that the machine is stalled.
+; We can enable and disable interrupts directly here because we know the DI nest
+; count is zero.
+                di
+s1wch_loop      in a, (IOA_SER1_CSR)    ; Read status
+                and a, SER_CSR_TX_FULL_MASK
+                jr z, s1wch_out_ei      ; Jump if there is space in the FIFO
+; There is no space in the FIFO. Enable the transmitter interrupt before halting
+; so we exit from the halt state when the buffer has some space. The interrupt
+; service routine simply disables the interrupt, but will also release us from the
+; halt state.
+                in (IOA_INT_EN)
+                or INT_SER1_TX_MASK
+                out (IOA_INT_EN)
+; Interrupts are only enabled for the halt, so the rest is atomic.
+                ei
+                halt                    ; Halt until the next interrupt
+                di
+                jr s1wch_loop
+;
+s1wch_out_ei    ei
+s1wch_out       pop af
+                out (IOA_SER1_DATA), a
+                ret
+;
+;
+; Read character from serial port 1 and return it in A. This will wait if no
+; character is available.
+s1rch           ld a, (itenfl)          ; Fetch int. enable flag (I/O mode)
+                and a
+                jr z, s1rch_in
+; In normal mode, we will poll the serial receiver to await a character
+; rather than having the hardware stop the machine. This latter method prevents
+; interrupts from being serviced. Basic mode is useful if there are issues with
+; the interrupt system. If the interrupts are disabled, this clearly cannot work
+; so the system panics.
+                ld a, (itdsct)          ; DI nest count
+                and a
+                call nz, panic          ; Panic if count != 0
+;
+; The objective of this code is to have the machine halted until we can complete
+; the operation. A simple wait loop would be simpler, but would give no indication
+; that the machine is stalled.
+; We can enable and disable interrupts directly here because we know the DI nest
+; count is zero.
+                di
+s1rch_loop      in a, (IOA_SER1_CSR)     ; Read status
+                and a, SER_CSR_RX_EMPTY_MASK
+                jr z, s1rch_in_ei        ; Jump if the FIFO is not empty
+; There is nothing to read in the FIFO. Enable the receiver interrupt before
+; halting so we exit from the halt state when a character arrives. The interrupt
+; service routine simply disables the interrupt, but will also release us from the
+; halt state.
+                in (IOA_INT_EN)
+                or INT_SER1_RX_MASK
+                out (IOA_INT_EN)
+; Interrupts are only enabled for the halt, so the rest is atomic.
+                ei
+                halt                    ; Halt until the next interrupt
+                di
+                jr s1rch_loop
+;
+s1rch_in_ei     ei
+s1rch_in        in (IOA_SER1_DATA)
+                ret
+;
+;
+; Fetch serial port 1 status.
+; Returns with:
+; A - IOA_SER1_CSR (see SER_CSR_xxx in io_map.i)
+s1sta           in a, (IOA_SER1_CSR)     ; Read status
+                ret
+;
+;
+; *** Serial port 2 ***
+;
+; Write character in A to serial port 2. This will wait if the transmitter FIFO
+; is full.
+s2wch           push af
+                ld a, (itenfl)          ; Fetch int. enable flag (I/O mode)
+                and a
+                jr z, s2wch_out
+; In normal mode, we will poll the serial transmitter to await space in the FIFO
+; rather than having the hardware stop the machine. This latter method prevents
+; interrupts from being serviced. Basic mode is useful if there are issues with
+; the interrupt system. If the interrupts are disabled, this clearly cannot work
+; so the system panics.
+                ld a, (itdsct)          ; DI nest count
+                and a
+                call nz, panic          ; Panic if count != 0
+;
+; The objective of this code is to have the machine halted until we can complete
+; the operation. A simple wait loop would be simpler, but would give no indication
+; that the machine is stalled.
+; We can enable and disable interrupts directly here because we know the DI nest
+; count is zero.
+                di
+s2wch_loop      in a, (IOA_SER2_CSR)    ; Read status
+                and a, SER_CSR_TX_FULL_MASK
+                jr z, s2wch_out_ei      ; Jump if there is space in the FIFO
+; There is no space in the FIFO. Enable the transmitter interrupt before halting
+; so we exit from the halt state when the buffer has some space. The interrupt
+; service routine simply disables the interrupt, but will also release us from the
+; halt state.
+                in (IOA_INT_EN)
+                or INT_SER2_TX_MASK
+                out (IOA_INT_EN)
+; Interrupts are only enabled for the halt, so the rest is atomic.
+                ei
+                halt                    ; Halt until the next interrupt
+                di
+                jr s2wch_loop
+;
+s2wch_out_ei    ei
+s2wch_out       pop af
+                out (IOA_SER2_DATA), a
+                ret
+;
+;
+; Read character from serial port 2 and return it in A. This will wait if no
+; character is available.
+s2rch           ld a, (itenfl)          ; Fetch int. enable flag (I/O mode)
+                and a
+                jr z, s2rch_in
+; In normal mode, we will poll the serial receiver to await a character
+; rather than having the hardware stop the machine. This latter method prevents
+; interrupts from being serviced. Basic mode is useful if there are issues with
+; the interrupt system. If the interrupts are disabled, this clearly cannot work
+; so the system panics.
+                ld a, (itdsct)          ; DI nest count
+                and a
+                call nz, panic          ; Panic if count != 0
+;
+; The objective of this code is to have the machine halted until we can complete
+; the operation. A simple wait loop would be simpler, but would give no indication
+; that the machine is stalled.
+; We can enable and disable interrupts directly here because we know the DI nest
+; count is zero.
+                di
+s2rch_loop      in a, (IOA_SER2_CSR)     ; Read status
+                and a, SER_CSR_RX_EMPTY_MASK
+                jr z, s2rch_in_ei        ; Jump if the FIFO is not empty
+; There is nothing to read in the FIFO. Enable the receiver interrupt before
+; halting so we exit from the halt state when a character arrives. The interrupt
+; service routine simply disables the interrupt, but will also release us from the
+; halt state.
+                in (IOA_INT_EN)
+                or INT_SER2_RX_MASK
+                out (IOA_INT_EN)
+; Interrupts are only enabled for the halt, so the rest is atomic.
+                ei
+                halt                    ; Halt until the next interrupt
+                di
+                jr s2rch_loop
+;
+s2rch_in_ei     ei
+s2rch_in        in (IOA_SER2_DATA)
+                ret
+;
+;
+; Fetch serial port 2 status.
+; Returns with:
+; A - IOA_SER2_CSR (see SER_CSR_xxx in io_map.i)
+s2sta           in a, (IOA_SER2_CSR)     ; Read status
+                ret
+;
+;
+;
+; *******
+; * I2C *
+; *******
+;
+;
+; Initially for the RTC (DS1672), but could be used with other devices if required.
+;
+;
+; Write to I2C device.
+; Call with:
+; B - number of data bytes to send (1 to 256).
+; D - 7-bit slave address (bit 7 is ignored).
+; E - register address.
+; HL - points to start of data to send.
+; Returns with:
+; A - zero (OK) or error code (I2C_ERR_xxx)
+; Note - C is reserved for future use if larger block sizes (>256) are required.
+; This is a blocking routine. It will not return until the transfer is complete,
+; or has terminated due to error.
+i2cwr           call i2c_wtbusy         ; Ensure master interface is not busy
+                and a
+                ret nz                  ; On error, return with code in A.
+; Generate a start sequence
+                ld a, I2C_CSR_START_MASK + I2C_CSR_ACKN_MASK
+                out IOA_I2C_CSR
+                call i2c_wtbusy
+                and a
+                ret nz
+; Send slave device address.
+                ld a, d                 ; Fetch 7-bit address
+                add a                   ; Make space for R/nW bit
+                call i2c_wr_byte        ; Send it
+                and a
+                ret nz                  ; On error, return with code in A.
+; Send register address.
+                ld a, e
+                call i2c_wr_byte        ; Send it
+                and a
+                ret nz                  ; On error, return with code in A.
+; Send data.
+i2c_wrloop      ld a, (hl)              ; Fetch data byte
+                call i2c_wr_byte        ; Send it
+                and a
+                ret nz                  ; On error, return with code in A.
+                inc hl
+                djnz i2c_wrloop
+; Data sent. Generate an I2C stop to terminate the transfer. This code is also
+; used by i2crd.
+i2cwr_done      ld a, I2C_CSR_STOP_MASK + I2C_CSR_ACKN_MASK
+                out IOA_I2C_CSR
+; Wait for busy to go and return with zero or error code.
+                jp i2c_wtbusy
+;
+;
+; Read from I2C device
+; Call with:
+; B - number of data bytes to receive (1 to 256).
+; D - 7-bit slave address (bit 7 is ignored).
+; E - register address.
+; HL - points to start of receive buffer.
+; Returns with:
+; A - zero (OK) or error code (I2C_ERR_xxx)
+; Note - C is reserved for future use if larger block sizes (>256) are required.
+; This is a blocking routine. It will not return until the transfer is complete,
+; or has terminated due to error.
+i2crd           call i2c_wtbusy         ; Ensure master interface is not busy
+                and a
+                ret nz                  ; On error, return with code in A.
+; Generate a start sequence
+                ld a, I2C_CSR_START_MASK + I2C_CSR_ACKN_MASK
+                out IOA_I2C_CSR
+                call i2c_wtbusy
+                and a
+                ret nz
+; We need to do a write before the read to set the register address in the slave.
+; Send slave device address.
+                ld a, d                 ; Fetch 7-bit address
+                add a                   ; Make space for R/nW bit
+                call i2c_wr_byte        ; Send it
+                and a
+                ret nz                  ; On error, return with code in A.
+; Send register address.
+                ld a, e
+                call i2c_wr_byte        ; Send it
+                and a
+                ret nz                  ; On error, return with code in A.
+; Send a restart
+                ld a, I2C_CSR_START_MASK + I2C_CSR_ACKN_MASK
+                out IOA_I2C_CSR
+                call i2c_wtbusy
+                and a
+                ret nz
+; Send slave device address.
+                ld a, d                 ; Fetch 7-bit address
+                scf
+                adc a                   ; Make space for R/nW bit and set it (signal read)
+                call i2c_wr_byte        ; Send it
+                and a
+                ret nz                  ; On error, return with code in A.
+; Receive data. In this case, we (the master) generate the acknowledges. For the
+; last byte, however, no acknowledge is sent.
+i2c_rdloop      ld d, 0                 ; Initially assume acknowledge is required
+                ld a, b
+                dec a
+                jr nz, i2c_rdsack
+                ld d, I2C_CSR_ACKN_MASK ; Disable acknowledge for last byte
+i2c_rdsack      ld a, d
+                out IOA_I2C_CSR         ; Set ACKN state
+                ld a, 0xff
+                out IOA_I2C_DATA        ; Send all '1's to allow slave to respond
+                call i2c_wtbusy
+                and a
+                ret nz
+                in IOA_I2C_DATA
+                ld (hl), a              ; Save received byte
+                inc hl
+                djnz i2c_rdloop
+                jr i2cwr_done           ; Use write termination code
+;
+;
+; Write a byte to an I2C device.
+; Call with:
+; A - byte to send
+; Returns with:
+; A - zero (OK) or error code (I2C_ERR_xxx)
+i2c_wr_byte     push bc
+                ld c, a                 ; Save data for checking later
+                out IOA_I2C_DATA        ; Send byte
+                call i2c_wtbusy
+                and a
+                jr nz, i2c_wrexit       ; Exit on error
+; Verify received byte (wrap-around). A failure here likely indicates that
+; another device is holding SDA low.
+                in IOA_I2C_DATA         ; Fetch received data
+                cp c
+                ld a, I2C_ERR_LB        ; Set loopback error code
+                jr nz, i2c_wrexit
+; Verify acknowlege received                
+                in IOA_I2C_CSR
+                and I2C_CSR_ACKN_MASK
+                jr z, i2c_wrexit        ; Return with OK code if ACK received
+; Else set NACK code.
+                ld a, I2C_ERR_NACK
+; Restore registers and exit with zero or error code in A.
+i2c_wrexit      pop bc
+                ret
+;
+;
+; Wait while the I2C interface is busy. The timeout is crude, but will prevent
+; the system completely stalling if there is a problem with the I2C.
+; Returns with:
+; A - zero (OK) or error code (I2C_ERR_BUSY)
+i2c_wtbusy      push bc
+                ld bc, 0                ; Set timer
+i2cwb_loop      in IOA_I2C_CSR
+                and I2C_CSR_BUSY_MASK
+                jr z, i2cwb_done
+                dec bc
+                ld a, b
+                or c
+                jr nz, i2cwb_loop
+;Timed out
+                ld a, I2C_ERR_BUSY
+                pop bc
+                ret
+; Not busy
+i2cwb_done      xor a                   ; Flag no error
+                pop bc
+                ret
+;
+;
+;
+; *******
+; * SPI *
+; *******
+;
+;
+; Initialise SPI interface and set speed.
+; Call with:
+; A - 0 for slow speed and 1 for high
+spiini          assert SPI_CSR_FAST_BIT = 0 ; Error if not in the right bit
+                push af
+                and low not (SPI_CSR_FAST_MASK) ; Remove valid bits
+                call nz, panic          ; Panic if result is non-zero
+                pop af
+                ld (spi_mode), a
+                out IOA_SPI_CSR         ; Setup interface
+                ret
+;
+;
+; Set SPI slave select(s).
+; At the moment, there is only the memory card but who knows what the future will
+; hold.
+; Call with:
+; A - zero (to disable) or bit mask for selected slave (e.g. SPI_CSR_MC_SS_MASK)
+spiss           push hl
+                push af
+                and low not (SPI_CSR_MC_SS_MASK)    ; Remove valid select bits
+                call nz, panic          ; Panic if result is non-zero
+                ld hl, spi_mode
+                ld a, SPI_CSR_FAST_BIT
+                and (hl)                ; Isolate speed select bit
+                ld (hl), a
+                pop af
+                or (hl)                 ; Merge fast bit and new slave selects
+                ld (hl), a
+                out IOA_SPI_CSR         ; Setup interface
+                pop hl
+                ret
+;
+;
+; Transfer byte to / from SPI device
+; Call with:
+; A - byte to send
+; Returns with:
+; A - zero (OK) or error code (SPI_ERR_xxx)
+; C - received byte
+spitr           push bc                 ; Save B register
+                out IOA_SPI_DATA        ; Send data
+                ifdef spi_debug
+                    push af
+                    ld a, 'T'
+                    call conwch         ; Echo it
+                    pop af
+                    call cwphby         ; Print byte in hexadecimal
+                endif
+                ld b, 0                 ; Crude timeout
+spitr_busywait  in IOA_SPI_CSR
+                and SPI_CSR_BUSY_MASK
+                jr z, spitr_done
+                djnz spitr_busywait
+; Timed out waiting for SPI interface.
+                pop bc
+                ld a, SPI_ERR_BUSY
+                ret                     ; Return with error code
+; Transfer complete
+spitr_done      pop bc
+                in IOA_SPI_DATA
+                ld c, a
+                ifdef spi_debug
+                    ld a, 'R'
+                    call conwch         ; Echo it
+                    ld a, c
+                    call cwphby         ; Print byte in hexadecimal
+                    call cwnwln         ; Write new line characters to console
+                endif
+                xor a
+                ret                     ; Return with data and success code
+;
+;
+;
+; *************
+; * Variables *
+; *************
+;
+;
+; Note: linker "-c" option is used, so no data is initialised here.
+                dseg                ; Data segment
+;
+spi_mode        defs 1              ; SPI speed and slave selects
+coport          defs 1              ; Current console port (PRT_xxx)
+trport          defs 1              ; Current data transfer port (PRT_xxx)
+;
+                end

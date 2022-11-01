@@ -1,0 +1,1237 @@
+; *******************************************************
+; * Memory Card Routines for ZARC Z80 Computer          *
+; * Written by: Merlin Skinner                          *
+; * Date Started: 7/8/2020                              *
+; *******************************************************
+;
+; Routines associated with the MMC memory card.
+;
+; The interface uses the SPI mode of communication described in these references:
+; 1) file:///tmp/mozilla_merlin0/MMC-System-Spec-v3.31.pdf
+; 2) http://alumni.cs.ucr.edu/~amitra/sdcard/Additional/sdcard_appnote_foust.pdf
+; 3) https://openlabpro.com/guide/interfacing-microcontrollers-with-sd-card/
+;
+; Routines preserve all registers not required as operands or return values except
+; AF unless otherwise stated below.
+;
+;
+monitor         equ 1                   ; Flag part of monitor build
+mmc             equ 1                   ; Flag module for includes
+;
+; Set the following to one to enable the corresponding optimisation.
+hw_crc          equ 1                   ; Use hardware CRC
+;
+;
+;
+; ************
+; * Includes *
+; ************
+;
+                include "macros.i"
+                include "z80.i"
+                include "monitor.i"
+                include "zarc.i"        ; Hardware definitions
+                include "io_map.i"      ; I/O addresses mapping
+                include "terminal.i"    ; Terminal constants
+                include "io.i"          ; I/O routines
+                include "maths.i"       ; Mathematical functions
+                include "spi.i"         ; SPI master interface
+                include "mmc.i"         ; Memory card
+                include "heap.i"
+                include "utility.i"     ; Utility functions
+;
+;
+; *************
+; * Externals *
+; *************
+;
+; Routines
+                public mcinit       ; Initialise memory card
+                public mcprer       ; Print memory card error text
+                public mcrrs        ; Raw read sector
+                public mcrws        ; Raw write sector
+;
+; Variables
+;
+                public mcstat       ; Card state (MMC_STAT_xxx)
+;
+;
+; *************
+; * Constants *
+; *************
+;
+; (None)
+;
+;
+; *************
+; * Main Code *
+; *************
+;
+                cseg                    ; Code segment
+;
+;
+; Initialise card.
+; Returns with:
+; A - zero (OK) or SPI error code (SPI_ERR_xxx)
+mcinit          push bc
+                push de
+                push hl
+                ld hl, init_msg
+                call conwms       ; Print message
+; Clock speed is limited to 400 KHz in Identification Mode.
+; At least 74 clocks must be issued (with SS inactive) by the master before any
+; attempt is made to communicate with the card (reference 1 section 6.4.1.1).
+                xor a                   ; Set slow mode
+                call spiini             ; Initialise SPI interface and set speed
+                ld b, 10                ; 10 bytes generate 80 clocks
+init_clk_loop   ld a, 0xff
+                call spitr              ; Send / receive byte
+                and a
+                jp nz, init_exit        ; Jump on error
+                djnz init_clk_loop
+;
+                call select             ; Set slave select
+; Send a reset command (CMD0)
+                ld ix, cmd_buff         ; Point to command buffer
+                call clr_cmd_buff       ; Clear command buffer
+                ld (ix + MMC_CMD), MMC_CMD_GO_IDLE_STATE
+                call command
+                and a
+                jp nz, init_exit        ; Jump on error
+;
+                call wait_r1_resp       ; Await R1 response.
+                and a
+                jp nz, init_exit        ; Jump on error
+                call deselect           ; Remove slave select
+                ld a, c
+                cp MMC_R1_IDLE_MASK     ; We should have only idle set
+                jp nz, init_fail        ; Initialisation failure if not
+;
+; The card is continuously polled with the commands CMD55 and ACMD41 until the idle
+; bit becomes clear, indicating that the card is fully initialized and ready to
+; respond to general commands.
+                ld b, 0                 ; Try up to 256 times
+init_acmd41_lp  call select             ; Set slave select
+                ld (ix + MMC_CMD), MMC_CMD_APP_CMD   ; ACMD follows
+                call command
+                and a
+                jp nz, init_exit        ; Jump on error
+                call wait_r1_resp
+                and a
+                jp nz, init_exit        ; Jump on error
+                call deselect           ; Remove slave select
+; C - received byte
+                bit MMC_R1_ILL_CMD_BIT, c    ; Illegal command
+                jr nz, init_mmc_init    ; Try alternate init if bad command
+                ld a, c
+                ld (r1_err_resp), a
+                call mcperr             ; Display any errors
+                ld a, c
+; We may or may not be in the idle state at this point, but any other bits indicate
+; an error.
+                and not (MMC_R1_IDLE_MASK)
+                jp nz, init_fail
+;
+                call select             ; Set slave select
+                ld (ix + MMC_CMD), MMC_ACMD_MC_SEND_OP_COND   ; Send details & init
+                call command
+                and a
+                jp nz, init_exit        ; Jump on error
+                call wait_r1_resp       ; Await R1 response.
+                and a
+                jp nz, init_exit        ; Jump on error
+; There is no further response in SPI mode.
+                call deselect           ; Remove slave select
+; C - received byte
+                bit MMC_R1_ILL_CMD_BIT, c    ; Illegal command
+                jr nz, init_mmc_init    ; Try alternate init if bad command
+                ld a, c
+                and a
+                jr z, init_ok_fast      ; OK if response is zero
+                djnz init_acmd41_lp
+; Too many retries.
+                jp init_fail
+;
+; Alternate initialisation for use if ACMD_MC_SEND_OP_COND is not recognised. The
+; card is continuously polled with the command CMD1 until the idle bit becomes
+; clear, indicating that the card is fully initialised.
+init_mmc_init   ld b, 0                 ; Try up to 256 times
+init_cmd1_lp    call select             ; Set slave select
+                ld (ix + MMC_CMD), MMC_CMD_SEND_OP_COND  ; Send details & init
+                call command
+                and a
+                jp nz, init_exit        ; Jump on error
+                call wait_r1_resp       ; Await R1 response.
+                and a
+                jp nz, init_exit        ; Jump on error
+                call deselect           ; Remove slave select
+; C - received byte
+                ld a, c
+                and a
+                jr z, init_ok_slow      ; OK if response is zero
+                djnz init_cmd1_lp
+; Too many retries.
+                jp init_fail
+;
+; Card initialisation is complete.
+; The maximum clock speed in this state is 20 MHz. Set clock speed to normal
+; (CPU clock / 2 = 4 MHz).
+init_ok_fast    ld a, SPI_CSR_FAST_MASK ; Set fast mode
+                call spiini             ; Initialise SPI interface and set speed
+; Entry point for MMC cards as we need to remain at low clock speed.
+; Enable CRC (disabled by default in SPI mode).
+init_ok_slow    call select             ; Set slave select
+                ld (ix + MMC_CMD), MMC_CMD_CRC_ON_OFF   ; CMD59 CRC_ON_OFF
+                ld (ix + MMC_ARG4), 1   ; Enable CRC
+                call command
+                and a
+                jp nz, init_exit        ; Jump on error
+                call wait_r1_resp       ; Await R1 response.
+                and a
+                jp nz, init_exit        ; Jump on error
+                call deselect           ; Remove slave select
+; Check the response itself.
+                ld a, c
+                and a
+                jp nz, init_bad_r1      ; Initialisation failure if not
+                call clr_cmd_buff       ; Clear command buffer (remove arguments)
+;
+; Read Card Specific Data (CSD)
+                call select             ; Set slave select
+                ld (ix + MMC_CMD), MMC_CMD_SEND_CSD   ; CMD9 Read card specific data (CSD)
+                call command
+                and a
+                jp nz, init_exit        ; Jump on error
+                call wait_r1_resp       ; Await R1 response.
+                and a
+                jp nz, init_exit        ; Jump on error
+; Check the response itself.
+                ld a, c
+                and a
+                jp nz, init_bad_r1      ; Initialisation failure if not
+;
+                ld hl, csd              ; Point to buffer
+                ld bc, MMC_CSD_SIZE
+                call read_block         ; Read a block of data
+                and a
+                jp nz, init_exit        ; Jump on error
+                call deselect           ; Remove slave select
+; CSD read complete.
+;
+; Read Card IDentification number
+                call select             ; Set slave select
+                ld (ix + MMC_CMD), MMC_CMD_SEND_CID ; CMD10 Read card identification (CID)
+                call command
+                and a
+                jp nz, init_exit        ; Jump on error
+                call wait_r1_resp       ; Await R1 response.
+                and a
+                jp nz, init_exit        ; Jump on error
+; Check the response itself.
+                ld a, c
+                and a
+                jp nz, init_bad_r1      ; Initialisation failure if not
+;
+                ld hl, cid              ; Point to buffer
+                ld bc, MMC_CID_SIZE
+                call read_block         ; Read a block of data
+                and a
+                jp nz, init_exit        ; Jump on error
+                call deselect           ; Remove slave select
+;
+; Display some of this information.
+                ld hl, prod_name_msg    ; "Product name: "
+                call conwms             ; Print message
+                ld hl, cid + MMC_CID_PNM
+                ld b, MMC_CID_PNM_SIZE
+init_prn_loop   ld a, (hl)
+                ld c, '.'               ; Substitution character
+                call cwvich             ; Print visible characters only
+                inc hl
+                djnz init_prn_loop
+                call cwnwln             ; Write new line characters to console
+;
+; Product serial number.
+                ld hl, prod_serial_msg  ; "Serial number: "
+                call conwms             ; Print message
+; Display as a 32-bit hexadecimal number, as Linux "disk" does.
+                ld hl, cid + MMC_CID_PSN ; Product serial number
+                ld b, 4
+init_psn_loop   ld a, (hl)
+                call cwphby             ; Print byte
+                inc hl
+                djnz init_psn_loop
+                call cwnwln             ; Write new line characters to console
+;
+; Manufacturing date.
+                ld hl, man_date_msg     ; "Manufactured: "
+                call conwms             ; Print message
+                ld a, (cid + MMC_CID_MDT) ; Fetch manufacturing date byte
+                ld c, a
+; Month
+                rrca                    ; Move month to MSN
+                rrca
+                rrca
+                rrca
+                and 0x0f
+; Result should be 1 to 12.
+                jr z, init_mdt_year     ; Skip month if zero
+                call cwpdby             ; Print A in decimal
+                ld a, '/'
+                call conwch             ; Print separator
+; Year
+init_mdt_year   ld hl, 1997             ; Year zero
+                ld a, c
+                and 0x0f                ; Isolate year offset
+                add a, l
+                ld l, a
+                ld a, h
+                adc 0                   ; Propagate carry
+                ld h, a
+                call cwpdwd             ; Print year in decimal
+                call cwnwln             ; Write new line characters to console
+;
+; Calculate overall capacity. This is calculated from C_SIZE, C_SIZE_MULT and
+; READ_BL_LEN.
+; memory capacity = BLOCKNR * BLOCK_LEN
+; BLOCKNR = (C_SIZE + 1) * MULT
+; MULT = 2 ^ (C_SIZE_MULT + 2), (C_SIZE_MULT < 8)
+; BLOCK_LEN = 2 ^ READ_BL_LEN, (READ_BL_LEN < 12)
+                ld iy, csd
+; Read C_SIZE ("device size", bits [73:62]), which inconveniently spans three
+; bytes.
+                ld a, (iy + MMC_CSD_79_72)    ; Flags and C_SIZE bits 10 and 11
+                and 0x03
+                ld d, a                 ; Build result in DE
+                ld e, (iy + MMC_CSD_71_64)    ; C_SIZE bits 2 to 9
+                ld a, (iy + MMC_CSD_63_56)    ; C_SIZE bits 1 to 0
+                rrca                    ; Move C_SIZE bit 1 into carry
+                rrca
+; A bit 7 = C_SIZE bit 0
+                rl e                    ; Rotate into DE
+                rl d
+                rlca                    ; Move C_SIZE bit 0 into carry
+                rl e                    ; Rotate into DE
+                rl d
+; DE = C_SIZE
+; Read C_SIZE_MULT ("device size multiplier", bits [49:47]), which inconveniently
+; spans two bytes.
+                ld a, (iy + MMC_CSD_55_48)  ; Currents & C_SIZE_MULT (MS 2 bits)
+                and 0x03
+                ld b, a
+                ld a, (iy + MMC_CSD_47_40)  ; C_SIZE_MULT (LS bit) and erase size (part)
+                rlca                    ; Move C_SIZE_MULT bit 0 into carry
+                rl b
+                inc b
+                inc b
+                inc de
+; B = C_SIZE_MULT + 2 (4 bits)
+; DE = C_SIZE + 1 (13 bits)
+; Calculate BLOCKNR = (C_SIZE + 1) * 2 ^ (C_SIZE_MULT+2)
+; Another way of saying this is to shift C_SIZE + 1 left (C_SIZE_MULT + 2) times.
+; 24 bits is sufficient for BLOCKNR (up to 8 GB with 512-byte blocks).
+                ld l, 0                 ; MS 8 bits
+init_cm_loop    sla e                   ; Shift LDE left
+                rl d
+                rl l
+                jp c, init_range
+                djnz init_cm_loop
+                ld (blknr), de          ; Save BLOCKNR
+                ld a, l
+                ld (blknr + 2), a
+; LDE = BLOCKNR
+; BLOCK_LEN = 2 ^ READ_BL_LEN, (READ_BL_LEN < 12)
+; memory capacity = BLOCKNR * BLOCK_LEN
+; Another way of saying this is to shift DEHL left READ_BL_LEN times.
+                ld a, (iy + MMC_CSD_87_80)
+                and 0x0f                ; Isolate READ_BL_LEN
+                inc a                   ; Allow for initial jump
+                ld b, a
+                ld c, a                 ; Save for later
+                ld h, 0                 ; Extend to 32 bits
+                jr init_calc_blne
+; Perform 0 to 15 shifts as required.
+init_calc_bln   sla e                   ; Shift HLDE left
+                rl d
+                rl l
+                rl h
+                jp c, init_range
+init_calc_blne  djnz init_calc_bln
+; HLDE - capacity in bytes
+                ld b, 20                ; Scale to MB
+init_calc_mb    srl h
+                rr l
+                rr d
+                rr e
+                djnz init_calc_mb
+; C - READ_BL_LEN + 1 (for later)
+; DE - capacity in MB
+                ld hl, capacity_msg     ; "Total capacity: "
+                call conwms             ; Print message
+                ex de, hl
+                call cwpdwd             ; Print HL in decimal
+                ld hl, mb_msg           ; " MB"
+                call conwms             ; Print message
+;
+; Find block size in bytes. The data block length is computed as 2 READ_BL_LEN.
+; C - READ_BL_LEN + 1
+                ld de, 1                ; 2 ^ 0
+                ld b, c
+                jr init_calc_secse
+; Perform 0 to 15 shifts as required.
+init_calc_secs  sla e                   ; Shift DE left (multiply by 2)
+                rl d
+init_calc_secse djnz init_calc_secs
+; DE - block size in bytes
+                ld hl, block_size_msg   ; "Block size: "
+                call conwms             ; Print message
+                ex de, hl
+                call cwpdwd      ; Print size in decimal
+                ld hl, bytes_msg        ; " bytes"
+                call conwms             ; Print message
+;
+; Complain if READ_BL_LEN <> WRITE_BL_LEN.
+; C - READ_BL_LEN + 1
+                dec c                   ; Remove loop offset
+; Read WRITE_BL_LEN ([25:22]).
+                ld b, (iy + MMC_CSD_31_24)  ; WRITE_BL_LEN bits 3 and 2
+                ld a, (iy + MMC_CSD_23_16)  ; WRITE_BL_LEN bits 1 and 0
+                rlca                    ; Move WRITE_BL_LEN bit 1 into carry
+                rl b                    ; Rotate into B
+                rlca                    ; Move WRITE_BL_LEN bit 0 into carry
+                rl b                    ; Rotate into B
+; B = WRITE_BL_LEN
+; C - READ_BL_LEN
+                ld a, b
+                and 0x0f                ; Isolate WRITE_BL_LEN bits
+                ld (log2_blk_size), a   ; Save number of shifts
+                cp c
+                jr nz, init_bad_sec_sz
+;
+; Find total number of sectors on device. We know the number of blocks (blknr),
+; so can scale from this.
+                ld a, (log2_blk_size)
+                sub MMC_LOG2_SEC_SIZE
+                call m, panic           ; Panic if block < sector
+; [log(x/y) = log(x) - log(y)], so we have the (log of the number of sectors per
+; block. We can shift blknr accordingly to find the number of sectors.
+                ld b, a
+                inc b                   ; Allow for initial pass
+                ld de, (blknr)
+                ld a, (blknr + 2)
+                ld l, a
+; B - shifts required + 1
+; LDE - BLOCKNR
+                jr init_secs_lpend
+init_secs_loop  sla e                   ; Shift LDE left
+                rl d
+                rl l
+                jp c, init_range
+init_secs_lpend djnz init_secs_loop
+; LDE = sectors
+                ld (sectors), de        ; Save BLOCKNR
+                ld a, l
+                ld (sectors + 2), a
+;
+; Set block length (sector size). This appears to be the default length anyway,
+; despite what is reported above. In any case, it is better to be explicit. Values
+; larger than 512 seem to cause an argument error. Having a fixed sector size is
+; much more convenient for us.
+                call select             ; Set slave select
+                ld (ix + MMC_CMD), MMC_CMD_SET_BLOCKLEN   ; CMD16 Set block length
+                ld (ix + MMC_ARG4), low (MMC_SECTOR_SIZE)
+                ld (ix + MMC_ARG3), high (MMC_SECTOR_SIZE)
+                call command
+                and a
+                jp nz, init_exit        ; Jump on error
+                call wait_r1_resp       ; Await R1 response.
+                and a
+                jp nz, init_exit        ; Jump on error
+                call deselect           ; Remove slave select
+                ld a, c
+                and a
+                jp nz, init_bad_r1      ; Initialisation failure if not
+                call clr_cmd_buff       ; Clear command buffer (remove arguments)
+;
+; Set memory card state to initialised.
+                ld a, MMC_STAT_INIT
+                ld (mcstat), a
+;
+                xor a                   ; Flag success!
+                jr init_exit
+
+;
+; Can't allocate heap space.
+init_heap_err   ld a, SPI_ERR_HEAP
+                jr init_exit
+;
+; Parameter out of range
+init_range      ld a, SPI_ERR_RANGE
+                jr init_exit
+;
+; Bad sector size.
+init_bad_sec_sz ld a, SPI_ERR_BADSEC
+                jr init_exit
+;
+; Initialisation failures.
+init_badcrc     ld a, SPI_ERR_BADCRC
+                jr init_exit
+;
+; Go here with R1 response in A.
+init_bad_r1     ld (r1_err_resp), a
+                call mcperr             ; Display any errors
+init_fail       ld a, SPI_ERR_BADINIT
+;
+; Exit with error code or zero in A.
+init_exit       push af                 ; Save error code
+                call deselect           ; Remove slave select
+                pop af
+                pop hl
+                pop de
+                pop bc
+                ret                     ; Return with code in A
+;
+;
+; Read a sector (CMD17 - READ_SINGLE_BLOCK)
+; Length is MMC_SECTOR_SIZE bytes
+; Call with:
+; CDE - sector number (0 to (sectors - 1))
+; HL - buffer start address
+; Returns with:
+; A - zero (OK) or error code (SPI_ERR_xxx)
+; HL - updated pointer to buffer (points to location after last written)
+mcrrs           push bc
+                push ix
+                ld ix, cmd_buff         ; Point to command buffer
+                call select             ; Set slave select
+; CMD17 - READ_SINGLE_BLOCK
+                ld (ix + MMC_CMD), MMC_CMD_READ_SINGLE_BLOCK
+                call set_addr_arg       ; Set start address
+                call command
+                and a
+                jp nz, init_exit        ; Jump on error
+                call wait_r1_resp       ; Await R1 response.
+                and a
+                jr nz, rrs_exit         ; Jump on error
+; Check the response itself.
+                ld a, c
+                and a
+                jp nz, rrs_r1_err       ; Jump on error
+                ld bc, MMC_SECTOR_SIZE
+                call read_block
+                jr rrs_exit
+;
+; R1 response contained an error. The saved response can be displayed with mcperr.
+rrs_r1_err      ld (r1_err_resp), a     ; Save response
+                ld a, SPI_ERR_BAD_R1
+;
+; Exit with return code in A.
+rrs_exit        ld c, a                 ; Save return code
+                call deselect           ; Remove slave select
+                ld a, c
+                pop ix
+                pop bc
+                ret
+;
+;
+; Write a sector (CMD24 - WRITE_BLOCK)
+; Length is defined by CMD16 - SET_BLOCKLEN
+; Length is MMC_SECTOR_SIZE bytes
+; Call with:
+; CDE - sector number (0 to (sectors - 1))
+; HL - buffer start address
+; Returns with:
+; A - zero (OK) or error code (SPI_ERR_xxx)
+mcrws           push bc
+                push ix
+                ld ix, cmd_buff         ; Point to command buffer
+                call select             ; Set slave select
+; CMD24 - WRITE_BLOCK
+                ld (ix + MMC_CMD), MMC_CMD_WRITE_BLOCK
+                call set_addr_arg       ; Set start address
+                call command
+                and a
+                jr nz, rws_exit         ; Jump on error
+                call wait_r1_resp       ; Await R1 response.
+                and a
+                jr nz, rws_exit         ; Jump on error
+; Check the response itself.
+                ld a, c
+                and a
+                jr nz, rws_r1_err       ; Jump on error
+                ld bc, MMC_SECTOR_SIZE
+                call write_block
+                and a
+                jr nz, rws_exit         ; Jump on error
+;
+; Check card status
+                call clr_cmd_buff       ; Clear the command buffer
+                call select             ; Set slave select
+; CMD13 - SEND_STATUS
+                ld (ix + MMC_CMD), MMC_CMD_SEND_STATUS
+                call command
+                and a
+                jr nz, rws_exit         ; Jump on error
+; Response is R2. This is R1 followed by one more byte.
+                call wait_r1_resp       ; Await R1 response.
+                and a
+                jr nz, rws_exit         ; Jump on error
+                ld b, c                 ; Save the response
+; Fetch second byte.
+                ld a, 0xff
+                call spitr              ; Send / receive byte
+                and a
+                jr nz, rws_exit         ; Jump on error
+; B - R2 byte 1 (same as R1)
+; C - R2 byte 2
+                ld a, b
+                and a
+                jr nz, rws_r1_err       ; Jump on error
+                ld a, c
+                and a
+                jr nz, rws_r2_err       ; Jump on error
+; No errors.
+                jr rws_exit
+;
+; R2 response contained an error. The saved response can be displayed with mcpr2.
+rws_r2_err      ld (r2_err_resp), a     ; Save response
+                ld a, SPI_ERR_BAD_R2
+                jr rws_exit
+;
+; R1 response contained an error. The saved response can be displayed with mcperr.
+rws_r1_err      ld (r1_err_resp), a     ; Save response
+                ld a, SPI_ERR_BAD_R1
+;
+; Exit with return code in A.
+rws_exit        ld c, a                 ; Save return code
+                call deselect           ; Remove slave select
+                ld a, c
+                pop ix
+                pop bc
+                ret
+
+
+; Set address argument ("data address") in command for read or write.
+; Call with:
+; IX - pointer to command structure (SDC)
+; CDE - sector number (0 to (sectors - 1))
+set_addr_arg    push bc
+                push hl
+; Check sector number range. Subtracting "sectors" should cause a carry.
+                ld hl, sectors
+                ld a, e
+                sub (hl)
+                inc hl
+                ld a, d
+                sbc (hl)
+                inc hl
+                ld a, c
+                sbc (hl)
+                call nc, panic          ; System panic if out of range
+; Prepare HLDE for result.
+                ld h, 0
+                ld l, c
+; Multiply HLDE by MMC_SECTOR_SIZE, which is the same as shifting left
+; MMC_LOG2_SEC_SIZE times.
+                ld a, MMC_LOG2_SEC_SIZE
+                ld b, a
+                inc b                   ; Add offset for initial pass
+                jr saa_loop_end
+; Perform 0 to 15 shifts as required.
+saa_loop        sla e                   ; Shift HLDE left (multiply by 2)
+                rl d
+                rl l
+                rl h
+                call c, panic           ; System panic on overflow
+saa_loop_end    djnz saa_loop
+                ld (ix + MMC_ARG1), h
+                ld (ix + MMC_ARG2), l
+                ld (ix + MMC_ARG3), d
+                ld (ix + MMC_ARG4), e
+                pop hl
+                pop bc
+                ret
+;
+;
+; Send a command to the memory card and receive the response. Start and end bits
+; plus CRC are inserted before transmission.
+; Call with;
+; IX - pointer to command structure (SDC)
+; Returns with:
+; A - zero (OK) or error code (SPI_ERR_xxx)
+; IX is preserved by this routine.
+command         push bc
+                push hl
+; Reset error codes.
+                xor a
+                ld (r1_err_resp), a     ; MMC R1 error response
+                ld (r2_err_resp), a     ; MMC R2 error response
+; Insert start bits
+                ld a, MMC_CMD_START
+                or (ix + MMC_CMD)
+                ld (ix + MMC_CMD), a
+;
+; Send the command and generate CRC. This is required for first command, but
+; ignored thereafter unless we explicitly enable it.
+                ld c, 0                 ; Set initial CRC
+                ld b, MMC_SIZE - 1      ; Set length excluding CRC
+                push ix
+                pop hl
+cmd_byteloop    ld a, (hl)
+                push bc                 ; Save length and CRC
+                call spitr              ; Send / receive byte
+                pop bc
+                and a
+                jr nz, cmd_exit         ; Jump on error
+                ld a, (hl)
+                call crc7               ; Include in CRC
+                inc hl
+                djnz cmd_byteloop
+;
+                ld a, c
+; Insert CRC and end bit.
+                scf                     ; End bit
+                rla                     ; Move CRC to bits 1 to 7
+                ld (ix + MMC_CRC), a
+; Result should be 0x95 for CMD0
+                call spitr              ; Send / receive byte
+                and a
+                jr nz, cmd_exit         ; Jump on error
+;
+; Exit with error code or zero in A.
+cmd_exit        pop hl
+                pop bc
+                ret
+;
+;
+; Await R1 response.
+; Returns with:
+; A - zero (OK) or error code (SPI_ERR_xxx)
+; C - received byte
+wait_r1_resp    push de
+                push bc
+                ld b, 0                 ; Crude timeout
+wr1_waitresp    ld a, 0xff
+                call spitr              ; Send / receive byte
+                and a
+                jr nz, wr1_exit         ; Jump on error
+                bit MMC_R1_START_BIT, c
+                jr z, wr1_exit          ; Jump if response received
+                djnz wr1_waitresp
+; No response found - timed out
+                ld a, SPI_ERR_NORESP
+;
+; Exit with error code or zero in A and received byte in C.
+wr1_exit        ld d, c                 ; Save byte
+                pop bc
+                ld c, d
+                pop de
+                ret                     ; Return with error code in A
+;
+;
+; Receive a block of data from the SD card. This may be a register (e.g. CID) or
+; sector data.
+; Call with:
+; HL - pointer to buffer
+; BC - block length
+; Returns with:
+; A - zero (OK) or error code (SPI_ERR_xxx)
+; HL - updated pointer to buffer (points to location after last written)
+read_block      push de
+                call wait_strt_token    ; Await start token
+                and a
+                jr nz, rb_exit          ; Jump if no or error token found
+                if hw_crc == 1
+                    xor a
+                    out IOA_CRC_0           ; CRC register (low)
+                    out IOA_CRC_1           ; CRC register (high)
+                else
+                    ld de, 0                ; Initial CRC
+                endif
+; This code originally used spitr (io.z80) to transfer bytes, but in this loop
+; we can process while the hardware is running by accessing the hardware directly.
+; At 400 kHz, each byte transfer takes about 22 µs.
+                ld a, 0xff
+                out IOA_SPI_DATA        ; Start SPI transfer of first byte
+;
+; Loop for each byte.
+rb_read_loop    call spi_busy_wait      ; Wait for transfer to complete
+; Fetch and process the received byte.
+                in IOA_SPI_DATA         ; Read next byte
+                ld (hl), a
+                ld a, 0xff
+                out IOA_SPI_DATA        ; Start transfer of next byte
+; Update CRC (in DE or hardware)
+                ld a, (hl)              ; Recover received byte
+                if hw_crc == 1
+                    out IOA_CRC_DATA    ; Send data to hardware CRC generator
+                else
+                    ex de, hl
+                    call crc16x         ; CRC-16/XMODEM
+                    ex de, hl
+                endif
+                inc hl
+                dec bc
+                ld a, b
+                or c
+                jr nz, rb_read_loop
+
+; Read and check CRC. The tranfer of the first byte has already been started.
+                call spi_busy_wait      ; Wait for transfer to complete
+                in IOA_SPI_DATA         ; Read next byte
+                ld c, a
+                if hw_crc == 1
+                    in IOA_CRC_1        ; CRC register (high)
+                else
+                    ld a, d
+                endif
+                cp c                    ; Compare high byte
+                jr nz, rb_badcrc
+; We can use the SPI library here to do the transfer as it has not yet been
+; started.
+                ld a, 0xff
+                call spitr              ; Send / receive byte
+                and a
+                jr nz, rb_exit          ; Jump on error
+                if hw_crc == 1
+                    in IOA_CRC_0        ; CRC register (low)
+                else
+                    ld a, e
+                endif
+                cp c                    ; Compare low byte
+                jr nz, rb_badcrc
+; CRC read complete.
+                call deselect           ; Remove slave select
+                xor a                   ; Flag success
+                jr rb_exit
+;
+; CRC failed.
+rb_badcrc       call deselect           ; Remove slave select
+                ld a, SPI_ERR_BADCRC
+;
+; Exit with return code in A.
+rb_exit         pop de
+                ret
+;
+;
+; Wait for an SPI transfer to complete. The system will panic if the SPI transfer
+; times out. This is most unlikey, as we have exercised the interface and it
+; doesn't depend on anything external.
+spi_busy_wait   push bc
+                ld b, 0                 ; Crude timeout
+; Wait for the SPI transfer to complete.
+rb_busywait     in IOA_SPI_CSR
+                and SPI_CSR_BUSY_MASK
+                jr z, sbw_exit
+                djnz rb_busywait
+; Timed out waiting for SPI interface.
+                call panic              ; System panic if timed out
+;
+sbw_exit        pop bc
+                ret
+;
+;
+; Transmit a block of data to the SD card. This may be a register (e.g. CID) or
+; sector data.
+; Call with:
+; HL - pointer to buffer
+; BC - block length
+; Returns with:
+; A - zero (OK) or error code (SPI_ERR_xxx)
+; HL - updated pointer to buffer (points to location after last read)
+write_block     push de
+                push bc
+; Send 8 clocks.
+                ld a, 0xff
+                call spitr              ; Send / receive byte
+                and a
+                jr nz, wb_exit          ; Jump on error
+; Send start token.
+                ld a, 0xfe
+                call spitr              ; Send / receive byte
+                and a
+                jr nz, wb_exit          ; Jump on error
+;
+; Send the block.
+                if hw_crc == 1
+                    xor a
+                    out IOA_CRC_0           ; CRC register (low)
+                    out IOA_CRC_1           ; CRC register (high)
+                else
+                    ld de, 0                ; Initial CRC
+                endif
+wb_write_loop   ld a, (hl)              ; Fetch data
+                ld c, a
+; Update CRC (in DE)
+                if hw_crc == 1
+                    out IOA_CRC_DATA    ; Input data
+                else
+                    ex de, hl
+                    call crc16x             ; CRC-16/XMODEM
+                    ex de, hl
+                endif
+                ld a, c                 ; Restore byte
+                call spitr              ; Send / receive byte
+                and a
+                jr nz, wb_exit          ; Jump on error
+                inc hl
+                pop bc
+                dec bc
+                push bc
+                ld a, b
+                or c
+                jr nz, wb_write_loop
+; Send CRC
+                if hw_crc == 1
+                    in IOA_CRC_1        ; CRC register (high)
+                else
+                    ld a, d
+                endif
+                call spitr              ; Send / receive byte
+                and a
+                jr nz, wb_exit          ; Jump on error
+                if hw_crc == 1
+                    in IOA_CRC_0        ; CRC register (low)
+                else
+                    ld a, e
+                endif
+                call spitr              ; Send / receive byte
+                and a
+                jr nz, wb_exit          ; Jump on error
+;
+; Fetch data response.
+                ld a, 0xff
+                call spitr              ; Send / receive byte
+                and a
+                jr nz, wb_exit          ; Jump on error
+                ld a, c
+                and 0x1f
+                cp 00101b
+                jr z, wb_data_acc       ; Data accepted
+                cp 01011b
+                jr z, wb_badcrc         ; CRC error
+                cp 01101b
+                jr z, wb_writeerr       ; "Write error"
+                ld a, SPI_ERR_UNKN      ; Unknown error
+                jr wb_exit
+;
+; Wait for write to complete.
+wb_data_acc     ld bc, 10000            ; Crude timeout
+wb_busy_loop    ld a, 0xff
+                call spitr              ; Send / receive byte
+                and a
+                jr nz, wb_exit          ; Jump on error
+                ld a, c
+                cp 0xff
+                jr z, wb_not_busy
+                dec bc
+                ld a, b
+                or c
+                jr nz, wb_busy_loop
+                jr wb_busy_to
+;
+; Card has finished.
+wb_not_busy     call deselect           ; Remove slave select
+                xor a                   ; Flag success
+                jr wb_exit
+;
+; Write error.
+wb_writeerr     ld a, SPI_ERR_WRITE
+                jr wb_exit
+; CRC failed.
+wb_badcrc       ld a, SPI_ERR_BADCRC
+                jr wb_exit
+;
+; Timed out waiting for the write to complete.
+wb_busy_to      ld a, SPI_ERR_TIMEOUT
+;
+; Exit with return code in A.
+wb_exit         pop bc
+                pop de
+                ret
+;
+;
+; Wait for a Single Block Read, Single Block Write and Multiple Block Read start
+; token, or a Data Error Token.
+; Returns with:
+; A - zero (OK) or error code (SPI_ERR_xxx)
+; data_err is set to the data error token byte if no data is returned. See
+; reference 1 section 7.6.4.
+wait_strt_token push bc
+                ld b, 0                 ; Retry count
+wst_loop        ld a, 0xff
+                call spitr              ; Send / receive byte
+                and a
+                jr nz, wst_exit         ; Jump on error
+                ld a, c
+                cp 0xfe
+                jr z, wst_ok            ; Found start block token
+                and 0xe0
+                jr z, wst_err_token     ; Found error token
+                djnz wst_loop
+; Too many attempts.
+                ld a, SPI_ERR_NORESP
+                jr wst_exit
+;
+; Error token found.
+wst_err_token   ld a, c
+                ld (data_err), a
+                ld a, SPI_ERR_DATAERR
+                jr wst_exit
+
+wst_ok          xor a                   ; Token found
+                ld (data_err), a        ; No data error
+;
+; Exit with return code in A.
+wst_exit        pop bc
+                ret
+;
+;
+; Clear command buffer.
+; Call with;
+; IX - pointer to command structure (SDC)
+; Note - IX is preserved
+clr_cmd_buff    push bc
+                push hl
+                push ix                 ; Move IX to HL
+                pop hl
+                ld b, MMC_SIZE
+                xor a
+; HL - buffer pointer
+; B - loop counter
+ccb_loop        ld (hl), a
+                inc hl
+                djnz ccb_loop
+                pop hl
+                pop bc
+                ret
+;
+;
+; Assert SPI slave select (card CS).
+select          ld a, SPI_CSR_MC_SS_MASK    ; Set slave select
+                call spiss              ; Set SPI slave select(s)
+                ret
+;
+;
+; Remove SPI slave select (card CS).
+deselect        xor a                   ; Remove slave select
+                call spiss              ; Set SPI slave select(s)
+; Send some clocks. Failure to do this seems to lead to byte misalignment between
+; the card and us.
+                push bc
+                ld a, 0xff
+                call spitr              ; Send / receive byte (generate some clocks)
+                pop bc
+                ret
+;
+;
+; Print memory card error text, or nothing if no error (A = 0)
+; Call with:
+; A - zero (OK) or SPI error code (SPI_ERR_xxx)
+mcprer          and a
+                ret z                   ; Return if no error
+                push bc
+                push hl
+                push af
+                ld hl, err_pre_msg
+                call conwms             ; Print "*** MMC error: " message
+                ld hl, err_msgs
+                pop af
+                dec a                   ; Errors start from 1
+                ld c, "|"               ; Separator
+                call conwmn             ; Print message <n> in a list
+                ld hl, err_post_msg
+                call conwms             ; Print " *** " message
+                pop hl
+                pop bc
+                ret
+;
+;
+; Print R1 / R2 response error bits stored in r1_err_resp and r2_err_resp. Nothing
+; is printed if there are no errors. The idle and start bits are ignored, as they
+; are not errors.
+mcperr          push bc
+                push de
+                push hl
+;
+; Display any R1 errors.
+                ld a, (r1_err_resp)
+; Discard non-error bits
+                and low not (MMC_R1_START_MASK + MMC_R1_IDLE_MASK)
+                jr z, pr1_done          ; Jump if nothing to report
+                ld c, a
+                ld hl, r1_err_pre_msg
+                call conwms             ; Print "*** MMC R1 errors: " message
+                ld d, 0
+                ld b, 6
+; B - loop counter
+; C - R1 bits
+; D - report count
+; Loop for each error bit, writing the corresponding message if appropriate.
+pr1_loop        rl c
+                bit 7, c
+                jr z, pr1_nomsg
+; Print a separator if not the first report
+                ld a, d
+                and a
+                jr z, pr1_sep_done
+                ld a, ','
+                call conwch             ; Print separator 
+                call cwpspc             ; Print a space
+pr1_sep_done    ld hl, r1_err_msgs
+                ld a, b
+                dec a                   ; Adjust counter to range 5 to 0
+                push bc
+                ld c, "|"               ; Separator
+                call conwmn             ; Print message <n> in a list
+                pop bc
+                inc d                   ; Count reports
+pr1_nomsg       djnz pr1_loop
+                ld hl, err_post_msg
+                call conwms             ; Print " *** " message
+;
+; Now for the R2 bits.
+pr1_done        ld a, (r2_err_resp)
+                and a
+                jr z, pr2_done          ; Jump if nothing to report
+                ld c, a
+                ld hl, r2_err_pre_msg
+                call conwms             ; Print "*** MMC R2 errors: " message
+                ld d, 0
+                ld b, 8
+; B - loop counter
+; C - R1 bits
+; D - report count
+; Loop for each error bit, writing the corresponding message if appropriate.
+pr2_loop        bit 7, c
+                jr z, pr2_nomsg
+; Print a separator if not the first report
+                ld a, d
+                and a
+                jr z, pr2_sep_done
+                ld a, ','
+                call conwch             ; Print separator 
+                call cwpspc             ; Print a space
+pr2_sep_done    ld hl, r2_err_msgs
+                ld a, b
+                dec a                   ; Adjust counter to range 7 to 0
+                push bc
+                ld c, "|"               ; Separator
+                call conwmn             ; Print message <n> in a list
+                pop bc
+                inc d                   ; Count reports
+pr2_nomsg       rl c
+                djnz pr2_loop
+                ld hl, err_post_msg
+                call conwms             ; Print " *** " message
+;
+pr2_done        pop hl
+                pop de
+                pop bc
+                ret
+;
+;
+; Update CRC according to the MultiMediaCard CRC7 algorithm (reference 1 section
+; 8.2). This is unlikely to find other uses, so is included in this code rather
+; than in utilities.
+; Call with:
+; A - byte to be included
+; C - CRC
+; Returns with:
+; C - updated CRC
+crc7            push bc
+                push de
+                ld d, a
+                ld b, 8                 ; Bit count
+; B - bit count
+; C - CRC
+; D - data to include
+c7_bit_loop     rlc d                   ; Rotate next bit to bit 0
+                ld a, c
+                rlca
+                rlca
+; CRC bit 6 is now in bit 0
+                xor d
+                ld e, a
+; E bit 0 = <CRC bit 6> xor <new bit> = <new CRC bit 0>
+                ld a, c
+                rrca
+                rrca
+; CRC bit 2 is now in bit 0
+                xor e
+; Bit 0 = <CRC bit 6> xor <new bit> xor <CRC bit 2> = <new CRC bit 3>
+                push af
+                ld a, e
+                rrca                    ; Rotate new bit into carry
+                rl c                    ; Rotate into CRC
+; We need to replace CRC bit 3 with the newly calculated bit.
+                ld a, c
+                and 0x77                ; Reset bits 3 and 7
+                ld c, a
+                pop af                  ; Restore new bit 3
+                rlca
+                rlca
+                rlca
+                and 0x08                ; Isolate bit 3
+                or c
+                ld c, a
+; Bit processing complete.
+                djnz c7_bit_loop
+                ld a, c
+                pop de
+                pop bc
+                ld c, a
+                ret
+;
+;
+;
+; *************
+; * Constants *
+; *************
+;
+init_msg        byte "Initialising memory card", 0x0d, 0x0a, 0
+err_pre_msg     byte "*** MMC error: ", 0
+err_msgs        byte "SPI busy|no response from MMC|initialisation failure|"
+                byte "CRC error|Bad sector size|Parameter out of range|"
+                byte "Data error|Card error in R1 response|Card error in R2 response|"
+                byte "Out of heap space|Busy timeout|Write error|Unknown error", 0
+err_post_msg    byte " ***", 0x0d, 0x0a, 0
+r1_err_pre_msg  byte "*** MMC R1 errors: ", 0
+r1_err_msgs     byte "erase reset|illegal command|bad command CRC|"
+                byte "erase sequence error|bad address|bad parameter", 0
+r2_err_pre_msg  byte "*** MMC R2 errors: ", 0
+r2_err_msgs     byte "card locked|erase skip or lock/unlock cmd failed|"
+                byte "general error|CC error|ECC failed|WP violation|erase param"
+                byte "out of range or csd_overwrite", 0
+prod_name_msg   byte "Product name: ", 0
+prod_serial_msg byte "Serial number: ", 0
+man_date_msg    byte "Manufactured: ", 0
+capacity_msg    byte "Total capacity: ", 0
+mb_msg          byte " MB", 0x0d, 0x0a, 0
+block_size_msg  byte "Block size: ", 0
+bytes_msg       byte " bytes", 0x0d, 0x0a, 0
+;
+;
+;
+; *************
+; * Variables *
+; *************
+;
+;
+; Note: linker "-c" option is used, so no data is initialised here.
+                dseg                ; Data segment
+;
+cmd_buff        defs MMC_SIZE       ; Command buffer
+csd             defs MMC_CSD_SIZE   ; Card-Specific Data (CSD) register buffer
+cid             defs MMC_CID_SIZE   ; Card IDentification (CID) register buffer
+log2_blk_size   defs 1              ; AKA READ_BL_LEN and WRITE_BL_LEN
+blknr           defs 3              ; Number of blocks (BLOCKNR)
+sectors         defs 3              ; Number of sectors
+data_err        defs 1              ; Value returned by data error token
+r1_err_resp     defs 1              ; MMC R1 error response
+r2_err_resp     defs 1              ; MMC R2 error response
+mcstat          defs 1              ; Card state (MMC_STAT_xxx)
+sec_buffer      defs MMC_SECTOR_SIZE ; Sector buffer
+;
+                end
+

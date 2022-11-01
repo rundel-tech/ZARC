@@ -1,0 +1,62 @@
+digraph CPU_Block {
+#    node [shape=box]; course; institute; student;
+#    node [shape=ellipse]; {node [label="name"] name0; name1; name2;}
+#        code; grade; number;
+#    node [shape=diamond,style=filled,color=lightgrey]; "C-I"; "S-C"; "S-I";
+
+#    code -- course;
+#    course -- "C-I" [label="n"];
+#   "AM-AC-2WT1" -- "AM-AF-3330" [label="F1303\n61611937AA00",len=1\n00];
+
+    graph [rankdir=LR]
+    edge [color=black];
+
+    node [shape=ellipse color=aquamarine style=filled];
+
+    {
+        node [shape=box color=lightskyblue]
+        rank=source;
+        "Start";
+    }
+
+    {
+        node [shape=box color=lightskyblue]
+        rank=sink;
+        "End";
+        node [color=firebrick1]
+        "Error";
+    }
+
+
+    "Start" -> "Send Tx0\n(Filename)";
+
+    "Send Tx0\n(Filename)" -> "Tx0 Await\nResponse";
+    "Tx0 Await\nResponse" -> "Send Tx0\n(Filename)" [label = "Timeout,\nretry"];
+    "Tx0 Await\nResponse" -> "Error" [label = "Timeout\nOut of retries"];
+    "Tx0 Await\nResponse" -> "Build next\nTxn (data)\npacket" [label = "ACK"]
+    "Tx0 Await\nResponse" -> "Send Tx0\n(Filename)" [label = "NAK\n(CRC)"]
+    "Tx0 Await\nResponse" -> "Error" [label = "NAK (not CRC)\nor unexpected packet type"]
+    "Tx0 Await\nResponse" -> "Error" [label = "A (abort)"]
+
+    "Build next\nTxn (data)\npacket" -> "Send\npacket"
+    "Send\npacket" -> "Txn Await\nResponse";
+
+    "Txn Await\nResponse" -> "Send\npacket" [label = "Timeout,\nretry"];
+    "Txn Await\nResponse" -> "Error" [label = "Timeout\nOut of retries"];
+    "Txn Await\nResponse" -> "Build next\nTxn (data)\npacket" [label = "ACK not\nlast block"]
+    "Txn Await\nResponse" -> "Send Exit" [label = "ACK\nlast block"]
+    "Txn Await\nResponse" -> "Send\npacket" [label = "NAK\n(CRC)"]
+    "Txn Await\nResponse" -> "Error" [label = "NAK (not CRC)\nor unexpected packet type"]
+    "Txn Await\nResponse" -> "Error" [label = "A (abort)"]
+
+    "Send Exit" -> "Exit Await\nResponse"
+    "Exit Await\nResponse" -> "Send Exit" [label = "Timeout,\nretry"];
+    "Exit Await\nResponse" -> "Error" [label = "Timeout\nOut of retries"];
+    "Exit Await\nResponse" -> "End" [label = "ACK"]
+    "Exit Await\nResponse" -> "Send Exit" [label = "NAK\n(CRC)"]
+    "Exit Await\nResponse" -> "Error" [label = "NAK (not CRC)\nor unexpected packet type"]
+
+    label = "Linux Side Transmit File State Diagram";
+    fontsize=20;
+}
+

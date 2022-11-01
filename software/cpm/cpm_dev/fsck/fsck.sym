@@ -1,0 +1,36 @@
+Addr  Length Typ Name       Module   File
+=====================================================================
+0100   09a8   P  -          FSCK.Z   fsck.rel
+0aa8   0387   P  -          CPM_UT   ../shared/cpm_utility.rel
+0e2f   006e   D  -          FSCK.Z   fsck.rel
+0e9d   000a   D  -          CPM_UT   ../shared/cpm_utility.rel
+
+Symbol   Value Module   File
+======================================================================
+CBDOS    0aa8  CPM_UT   ../shared/cpm_utility.rel
+CBIOS    0ab4  CPM_UT   ../shared/cpm_utility.rel
+CONRCH   0b27  CPM_UT   ../shared/cpm_utility.rel
+CONST    0b3e  CPM_UT   ../shared/cpm_utility.rel
+CONWCH   0b19  CPM_UT   ../shared/cpm_utility.rel
+CONWMN   0c9e  CPM_UT   ../shared/cpm_utility.rel
+CONWMS   0b4b  CPM_UT   ../shared/cpm_utility.rel
+CWNWLN   0b34  CPM_UT   ../shared/cpm_utility.rel
+CWPDBY   0bba  CPM_UT   ../shared/cpm_utility.rel
+CWPDLO   0c01  CPM_UT   ../shared/cpm_utility.rel
+CWPDWD   0bc4  CPM_UT   ../shared/cpm_utility.rel
+CWPHBY   0ba6  CPM_UT   ../shared/cpm_utility.rel
+CWPHNB   0b99  CPM_UT   ../shared/cpm_utility.rel
+CWPHWD   0bb2  CPM_UT   ../shared/cpm_utility.rel
+CWPSPC   0b74  CPM_UT   ../shared/cpm_utility.rel
+CWVICH   0b79  CPM_UT   ../shared/cpm_utility.rel
+FSTFRE   0ea7  CPM_TO   ../shared/cpm_top.rel
+MTWDLI   0cc2  CPM_UT   ../shared/cpm_utility.rel
+PANIC    0ac8  CPM_UT   ../shared/cpm_utility.rel
+RDDULO   0d92  CPM_UT   ../shared/cpm_utility.rel
+RDDUWD   0d5a  CPM_UT   ../shared/cpm_utility.rel
+RDHXWD   0d1c  CPM_UT   ../shared/cpm_utility.rel
+SKPSPC   0b5b  CPM_UT   ../shared/cpm_utility.rel
+TOLOCA   0b6b  CPM_UT   ../shared/cpm_utility.rel
+TOUPCA   0b62  CPM_UT   ../shared/cpm_utility.rel
+Z80DET   0aff  CPM_UT   ../shared/cpm_utility.rel
+ZRCDET   0adb  CPM_UT   ../shared/cpm_utility.rel

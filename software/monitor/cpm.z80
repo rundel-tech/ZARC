@@ -1,0 +1,307 @@
+; *******************************************************
+; * CP/M Launcher and Support for ZARC Z80 Computer     *
+; * Written by: Merlin Skinner                          *
+; * Date Started: 21/11/2020                            *
+; *******************************************************
+;
+; Configures the system and loads the BIOS from the MMC. The first partition of
+; an appropriate type is made available to the CP/M sub-system by means of
+; sector read and write functions. These are located in cache.z80 (cacrs and
+; cacws). There operate with CP/M (128-byte) sectors. The code attempts to
+; minimise MMC sector writes to avoid unnecessarily wearing out the card.
+;
+;
+monitor         equ 1                   ; Flag part of monitor build
+cpm             equ 1                   ; Flag module for includes
+;
+;
+;
+; ************
+; * Includes *
+; ************
+;
+                include "macros.i"
+                include "z80.i"
+                include "zarc.i"        ; Hardware definitions
+                include "monitor.i"
+                include "io_map.i"      ; I/O addresses mapping
+                include "mmc.i"         ; Memory card
+                include "disks.i"       ; Disk parameters
+                include "interrupts.i"  ; Interrupts
+                include "cache.i"       ; MMC sector cache
+                include "utility.i"     ; Utility functions
+                include "time.i"        ; Routines associated with time
+                include "cpm.i"         ; CP/M support
+                include "maths.i"       ; Mathematical functions
+                include "memory.i"      ; Memory page allocation
+;
+;
+;
+; *************
+; * Externals *
+; *************
+;
+; Routines
+                public cpinit           ; Load and start CP/M
+                public cpmem            ; Allocate CP/M pages
+; From monitor.z80
+                extern mcrun            ; Switch context to user code
+; From commands.z80
+                extern mcprot           ; Write protection error reporting
+;
+; From monitor.z80
+                extern mstate           ; Machine state structure
+;
+; Variables
+                public cppags           ; CP/M page allocations
+;
+;
+;
+; *************
+; * Constants *
+; *************
+;
+;
+BIOS_SECTS      equ BIOS_MAX_SIZE / CPM_SECTOR_SIZE   ; Number of sectors in BIOS
+;
+; The entry point for the BIOS is at offset BIOS_STARTUP, but we must allow for
+; the missing first entry ("BOOT") and the start address of the BIOS. The include
+; file is written more for use within CP/M, where this format makes more sense.
+bios_ident_abs  equ BIOS_START + BIOS_ID + 3        ; ZARC BIOS ID
+bios_start_abs  equ BIOS_START + BIOS_STARTUP + 3   ; ZARC CP/M startup entry point
+;
+;
+;
+; *************
+; * Main Code *
+; *************
+;
+                cseg                    ; Code segment
+;
+;
+; Load and start CP/M. No registers are saved. No return is anticipated unless an
+; error occurs.
+; A - options. See BIOS_OPT_xxx definitions in cpm.i.
+cpinit          ld (options), a
+                ld a, (mcstat)          ; Fetch card state (MMC_STAT_xxx)
+                cp MMC_STAT_INIT
+                jr z, in_mmc_ok
+; MMC not initialised.
+                ld hl, no_mmc_msg       ; "MMC not initialised"
+                jp in_error
+;
+; Load the Master Boot Record (MBR).
+in_mmc_ok       ld c, 0
+                ld de, 0
+                ld hl, mbr_sect_buff    ; MBR buffer
+; CDE - sector number
+; HL - buffer start address
+                call cars               ; Read sector
+; A - zero (OK) or error code (SPI_ERR_xxx)
+; HL - updated pointer to buffer (points to location after last written)
+                and a
+                jp nz, mcprer           ; Print error and return
+;
+; Verify we have an MBR.
+                ld hl, mbr_sect_buff + DSK_BOOT_SIGN_OFFSET
+                ld a, low DSK_BOOT_SIGN
+                cp (hl)
+                jp nz, in_sign_err
+                inc hl
+                ld a, high DSK_BOOT_SIGN
+                cp (hl)
+                jp nz, in_sign_err
+;
+; Look for the first "experimental" partition, which we are using for CP/M.
+                ld b, DSK_MAX_PARTS
+                ld ix, mbr_sect_buff + DSK_PART1_OFFSET
+                ld de, DPART_SIZE
+in_part_loop    ld a, (ix + DPART_TYPE) ; Fetch partition type
+                cp DSK_PART_TYP_EXPER
+                jr z, in_part_found
+                add ix, de
+                djnz in_part_loop
+                ld hl, no_part_msg      ; "CP/M partition not found"
+                jp in_error
+;
+; "Experimental" partition found (no CP/M 2.2 type coded, so I used this).
+; IX - base address of partition table entry.
+in_part_found   ld (cpm_part_entry), ix
+;
+                call cpmem              ; Allocate CP/M pages
+                ret c                   ; Give up on error
+;
+; Load BIOS into memory. Map the relevant page.
+                ld a, (cppags + 3)
+                out (IOA_MMAP_3), a     ; Map C000 - FFFF to the relevant page
+;
+                ld b, BIOS_SECTS        ; Sector count
+                ld ix, (cpm_part_entry) ; Point to partition table entry
+                ld c, 0                 ; Starting sector
+                ld de, BIOS_CPM_START_SEC
+                ld hl, BIOS_START       ; Destination address
+in_load_loop    push bc
+                push de
+; CDE - CP/M (128-byte) sector number (offset into partition)
+; HL - destination address
+; IX - pointer to partition table entry structure
+                call cacrs              ; Read CP/M sector
+; A - zero (OK) or error code (SPI_ERR_xxx)
+; HL - updated pointer to buffer (points to location after last written)
+                pop de
+                pop bc
+                and a
+                jp nz, mcprer           ; Halt system on error
+; Increment sector.
+                inc de
+                ld a, d
+                or e
+                jr nz, in_ldlp_nc
+                inc c                   ; Increment if carry occurred
+in_ldlp_nc      djnz in_load_loop
+;
+; Calculate and display CRC if debugging is enabled.
+                ld a, (options)         ; See BIOS_OPT_xxx definitions.
+                and BIOS_OPT_DEBUG_MASK
+                jr z, in_debug_done
+;
+; Debugging messages.
+                ld hl, BIOS_CRC_msg     ; "BIOS CRC: "
+                call conwms             ; Print message
+; Generate CRC.
+                ld de, BIOS_START
+                ld bc, BIOS_MAX_SIZE    ; Length
+                ld hl, 0                ; Initial CRC
+in_crc_loop     ld a, (de)
+                call crc16x             ; CRC-16 (XMODEM)
+                inc de
+                dec bc
+                ld a, b
+                or c
+                jr nz, in_crc_loop
+; HL - required CRC.
+                call cwphwd             ; Print HL in hexadecimal
+                call cwnwln             ; Write new line characters to console
+;
+; Check that this is a ZARC BIOS.
+in_debug_done   ld hl, bios_ident_abs   ; ZARC BIOS ID
+                ld a, (hl)
+                cp "Z"
+                jp nz, in_no_bios       ; Jump if not plausible
+                inc hl
+                ld a, (hl)
+                cp "R"
+                jp nz, in_no_bios       ; Jump if not plausible
+                inc hl
+                ld a, (hl)
+                cp "C"
+                jp nz, in_no_bios       ; Jump if not plausible
+;
+; Jump to BIOS startup jump table entry after a crude check.
+                ld hl, bios_start_abs
+                ld a, (hl)
+; A - first byte of BIOS startup vector
+                cp jp
+                jp nz, in_no_bios       ; Jump if not plausible
+;
+                ld a, (options)         ; Options. See BIOS_OPT_xxx definitions.
+                ld hl, cppags           ; Pointer to memory page numbers
+                jp bios_start_abs       ; Jump to BIOS
+;
+; No plausible BIOS loaded.
+in_no_bios      ld hl, no_bios_msg      ; "BIOS not loaded"
+                jr in_error
+;
+;
+; MBR signature error.
+in_sign_err     ld hl, bad_sign_msg     ; "MBR signature not found"
+;
+; Go here to exit.
+; HL - pointer to error message.
+in_error        call conwms             ; Print message
+                call cwnwln             ; Write new line characters to console
+                ret
+;
+;
+;
+; ***************
+; * Subroutines *
+; ***************
+;
+;
+; Allocate memory pages. Pages are named "CPM0", "CPM1" and so on. cppags
+; will contain the four page numbers, one for each bank in the 64 kB space.
+; Returns with carry set on error.
+cpmem           push bc
+                push de
+                push hl
+;
+                ld hl, page_name        ; Initialise the name
+                ld (hl), 'C'
+                inc hl
+                ld (hl), 'P'
+                inc hl
+                ld (hl), 'M'
+                inc hl
+                ld (hl), '0'
+;
+                ld de, cppags           ; Store for page numbers
+                ld b, MMAP_CPM_PAGES
+; Loop for each page.
+mem_page_loop   ld hl, page_name        ; Point to name
+                call mpall
+                jp c, mem_error
+                ld (de), a              ; Save new page number
+                inc de
+                ld hl, page_name + 3    ; Point to last character
+                inc (hl)                ; Increment digit
+                djnz mem_page_loop
+;
+; Set the supervisor bit for the upper bank so the BIOS can access I/O.
+                ld hl, cppags + 3
+                set MMAP_SUPER_BIT, (hl)
+                and a                   ; Normal return
+;
+mem_exit        pop hl
+                pop de
+                pop bc
+                ret
+;
+; Insufficient free pages.
+mem_error       ld hl, no_mem_msg       ; "Insufficient memory pages"
+                call conwms             ; Print message
+                scf                     ; Flag error
+                jr mem_exit
+;
+;
+;
+; *************
+; * Constants *
+; *************
+;
+;
+no_mmc_msg      byte "MMC not initialised", 0
+bad_sign_msg    byte "MBR signature not found", 0
+no_part_msg     byte "CP/M partition not found", 0
+no_bios_msg     byte "No valid BIOS", 0
+BIOS_CRC_msg    byte "BIOS CRC: ", 0
+no_mem_msg      byte "Insufficient memory pages", 0x0d, 0x0a, 0
+;
+;
+;
+; *************
+; * Variables *
+; *************
+;
+;
+; Note: linker "-c" option is used, so no data is initialised here.
+                dseg                ; Data segment
+;
+cpm_part_entry  defs 2              ; Pointer to partition table entry
+mbr_sect_buff   defs MMC_SECTOR_SIZE ; MBR sector buffer
+options         defs 1              ; See BIOS_OPT_xxx definitions.
+cppags          defs MMAP_CPM_PAGES ; Pages numbers allocated
+page_name       defs MPA_NAME_LEN   ; Name buffer
+;
+                end
+

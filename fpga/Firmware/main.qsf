@@ -1,0 +1,212 @@
+# -------------------------------------------------------------------------- #
+#
+# Copyright (C) 1991-2013 Altera Corporation
+# Your use of Altera Corporation's design tools, logic functions 
+# and other software and tools, and its AMPP partner logic 
+# functions, and any output files from any of the foregoing 
+# (including device programming or simulation files), and any 
+# associated documentation or information are expressly subject 
+# to the terms and conditions of the Altera Program License 
+# Subscription Agreement, Altera MegaCore Function License 
+# Agreement, or other applicable license agreement, including, 
+# without limitation, that your use is for the sole purpose of 
+# programming logic devices manufactured by Altera and sold by 
+# Altera or its authorized distributors.  Please refer to the 
+# applicable agreement for further details.
+#
+# -------------------------------------------------------------------------- #
+#
+# Quartus II 64-Bit
+# Version 13.0.1 Build 232 06/12/2013 Service Pack 1 SJ Web Edition
+# Date created = 19:48:47  July 18, 2019
+#
+# -------------------------------------------------------------------------- #
+#
+# Notes:
+#
+# 1) The default values for assignments are stored in the file:
+#		main_assignment_defaults.qdf
+#    If this file doesn't exist, see file:
+#		assignment_defaults.qdf
+#
+# 2) Altera recommends that you do not modify this file. This
+#    file is updated automatically by the Quartus II software
+#    and any changes you make may be lost or overwritten.
+#
+# -------------------------------------------------------------------------- #
+
+
+set_global_assignment -name FAMILY "Cyclone II"
+set_global_assignment -name DEVICE EP2C5T144C8
+set_global_assignment -name TOP_LEVEL_ENTITY Main
+set_global_assignment -name ORIGINAL_QUARTUS_VERSION "13.0 SP1"
+set_global_assignment -name PROJECT_CREATION_TIME_DATE "19:48:47  JULY 18, 2019"
+set_global_assignment -name LAST_QUARTUS_VERSION "13.0 SP1"
+set_global_assignment -name PROJECT_OUTPUT_DIRECTORY output_files
+set_global_assignment -name MIN_CORE_JUNCTION_TEMP 0
+set_global_assignment -name MAX_CORE_JUNCTION_TEMP 85
+set_global_assignment -name ERROR_CHECK_FREQUENCY_DIVISOR 1
+set_global_assignment -name EDA_SIMULATION_TOOL "ModelSim-Altera (VHDL)"
+set_global_assignment -name EDA_OUTPUT_DATA_FORMAT VHDL -section_id eda_simulation
+set_global_assignment -name POWER_PRESET_COOLING_SOLUTION "23 MM HEAT SINK WITH 200 LFPM AIRFLOW"
+set_global_assignment -name POWER_BOARD_THERMAL_MODEL "NONE (CONSERVATIVE)"
+set_global_assignment -name STRATIX_DEVICE_IO_STANDARD "3.3-V LVTTL"
+set_global_assignment -name PARTITION_NETLIST_TYPE SOURCE -section_id Top
+set_global_assignment -name PARTITION_FITTER_PRESERVATION_LEVEL PLACEMENT_AND_ROUTING -section_id Top
+set_global_assignment -name PARTITION_COLOR 16764057 -section_id Top
+set_location_assignment PIN_42 -to D[0]
+set_location_assignment PIN_43 -to D[3]
+set_location_assignment PIN_44 -to D[2]
+set_location_assignment PIN_45 -to D[5]
+set_location_assignment PIN_47 -to D[4]
+set_location_assignment PIN_48 -to D[7]
+set_location_assignment PIN_51 -to D[6]
+set_location_assignment PIN_52 -to A[1]
+set_location_assignment PIN_53 -to A[0]
+set_location_assignment PIN_55 -to A[3]
+set_location_assignment PIN_57 -to A[2]
+set_location_assignment PIN_58 -to A[5]
+set_location_assignment PIN_59 -to A[4]
+set_location_assignment PIN_60 -to A[7]
+set_location_assignment PIN_63 -to A[6]
+set_location_assignment PIN_64 -to M1n
+set_location_assignment PIN_65 -to IORQn
+set_location_assignment PIN_67 -to MREQn
+set_location_assignment PIN_69 -to WRn
+set_location_assignment PIN_70 -to RDn
+set_location_assignment PIN_71 -to SUPER
+set_location_assignment PIN_72 -to PROT
+set_location_assignment PIN_86 -to IOWAITn
+set_location_assignment PIN_87 -to MMAP_ENn
+set_location_assignment PIN_92 -to MMAP_IO_SELn
+set_location_assignment PIN_93 -to PNL_DAT_RDn
+set_location_assignment PIN_94 -to INT
+set_location_assignment PIN_96 -to NMI
+set_location_assignment PIN_18 -to CPU_CLK
+set_location_assignment PIN_17 -to RClk
+set_location_assignment PIN_41 -to D[1]
+set_location_assignment PIN_3 -to LED_D2n
+set_location_assignment PIN_7 -to LED_D4n
+set_location_assignment PIN_9 -to LED_D5n
+set_location_assignment PIN_75 -to NMI_SWITCHn
+set_location_assignment PIN_79 -to RESET
+set_location_assignment PIN_97 -to OX_DATA
+set_location_assignment PIN_99 -to OX_SRCLK
+set_location_assignment PIN_100 -to OX_RCLK
+set_location_assignment PIN_112 -to CTxDn
+set_location_assignment PIN_114 -to CRTSn
+set_location_assignment PIN_118 -to ATxDn
+set_location_assignment PIN_120 -to ARTSn
+set_global_assignment -name ENABLE_DRC_SETTINGS ON
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to OX_RCLK
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to OX_SRCLK
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to MMAP_ENn
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to LED_D5n
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to LED_D2n
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to D[0]
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to D[2]
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to D[4]
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to ARTSn
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to ATxDn
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to CRTSn
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to CTxDn
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to D[7]
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to D[6]
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to D[5]
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to D[3]
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to D[1]
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to INT
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to IOWAITn
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to LED_D4n
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to MMAP_IO_SELn
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to NMI
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to OX_DATA
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to PNL_DAT_RDn
+set_global_assignment -name ENABLE_SIGNALTAP OFF
+set_global_assignment -name USE_SIGNALTAP_FILE output_files/AllPins.stp
+set_location_assignment PIN_119 -to ARxDn
+set_location_assignment PIN_121 -to ACTSn
+set_location_assignment PIN_115 -to CCTSn
+set_location_assignment PIN_113 -to CRxDn
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to RTC_SCL
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to RTC_SDA
+set_location_assignment PIN_122 -to RTC_SCL
+set_location_assignment PIN_125 -to RTC_SDA
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to SPI_CSn
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to SPI_MOSI
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to SPI_SCLK
+set_location_assignment PIN_126 -to SPI_CSn
+set_location_assignment PIN_133 -to SPI_MISO
+set_location_assignment PIN_132 -to SPI_MOSI
+set_location_assignment PIN_129 -to SPI_SCLK
+set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to SPI_MISO
+set_global_assignment -name EDA_TEST_BENCH_ENABLE_STATUS TEST_BENCH_MODE -section_id eda_simulation
+set_global_assignment -name EDA_NATIVELINK_SIMULATION_TEST_BENCH "Trace Prefixed" -section_id eda_simulation
+set_global_assignment -name EDA_TEST_BENCH_NAME NMI -section_id eda_simulation
+set_global_assignment -name EDA_DESIGN_INSTANCE_NAME NA -section_id NMI
+set_global_assignment -name EDA_TEST_BENCH_RUN_SIM_FOR "20 us" -section_id NMI
+set_global_assignment -name EDA_TEST_BENCH_MODULE_NAME nmi_tb -section_id NMI
+set_global_assignment -name EDA_TEST_BENCH_NAME Trace -section_id eda_simulation
+set_global_assignment -name EDA_DESIGN_INSTANCE_NAME NA -section_id Trace
+set_global_assignment -name EDA_TEST_BENCH_MODULE_NAME trace_tb -section_id Trace
+set_global_assignment -name EDA_TEST_BENCH_NAME CRC -section_id eda_simulation
+set_global_assignment -name EDA_DESIGN_INSTANCE_NAME NA -section_id CRC
+set_global_assignment -name EDA_TEST_BENCH_MODULE_NAME crc_tb -section_id CRC
+set_global_assignment -name EDA_TEST_BENCH_NAME "Trace Prefixed" -section_id eda_simulation
+set_global_assignment -name EDA_DESIGN_INSTANCE_NAME NA -section_id "Trace Prefixed"
+set_global_assignment -name EDA_TEST_BENCH_MODULE_NAME trace_pre_tb -section_id "Trace Prefixed"
+set_global_assignment -name EDA_TEST_BENCH_NAME SPI -section_id eda_simulation
+set_global_assignment -name EDA_DESIGN_INSTANCE_NAME NA -section_id SPI
+set_global_assignment -name EDA_TEST_BENCH_MODULE_NAME spi_tb -section_id SPI
+set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to D[7]
+set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to D[6]
+set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to D[5]
+set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to D[4]
+set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to D[3]
+set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to D[2]
+set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to D[1]
+set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to D[0]
+set_global_assignment -name TIMEQUEST_DO_REPORT_TIMING ON
+set_global_assignment -name TIMEQUEST_DO_CCPP_REMOVAL OFF
+set_global_assignment -name VHDL_FILE vhdl/CRC16_XModem.vhd
+set_global_assignment -name VHDL_FILE vhdl/SPI_Master.vhd
+set_global_assignment -name VHDL_FILE vhdl/I2C_Master.vhd
+set_global_assignment -name VHDL_FILE vhdl/NMI_Control.vhd
+set_global_assignment -name VHDL_FILE vhdl/IntControl.vhd
+set_global_assignment -name VHDL_FILE vhdl/FIFOs.vhd
+set_global_assignment -name VHDL_FILE vhdl/DeNoise.vhd
+set_global_assignment -name VHDL_FILE vhdl/OutExpander.vhd
+set_global_assignment -name VHDL_FILE vhdl/AsyncSerTx.vhd
+set_global_assignment -name VHDL_FILE vhdl/AsyncSerRx.vhd
+set_global_assignment -name VHDL_FILE vhdl/PassStrobe.vhd
+set_global_assignment -name VHDL_FILE vhdl/Sync2FF.vhd
+set_global_assignment -name VHDL_FILE vhdl/Sync1FF.vhd
+set_global_assignment -name VHDL_FILE vhdl/CharGenLogic.vhd
+set_global_assignment -name VHDL_FILE vhdl/Timing.vhd
+set_global_assignment -name VHDL_FILE vhdl/Video.vhd
+set_global_assignment -name VHDL_FILE vhdl/VideoRAM.vhd
+set_global_assignment -name VHDL_FILE vhdl/MainPLL.vhd
+set_global_assignment -name VHDL_FILE vhdl/Main.vhd
+set_global_assignment -name VHDL_FILE vhdl/Definitions.vhd
+set_global_assignment -name VHDL_FILE vhdl/CharGen.vhd
+set_global_assignment -name SDC_FILE ZARC.sdc
+set_global_assignment -name QIP_FILE vhdl/CharGen.qip
+set_global_assignment -name CDF_FILE output_files/ZARC_IO_SOF.cdf
+set_global_assignment -name QIP_FILE vhdl/MainPLL.qip
+set_global_assignment -name SIGNALTAP_FILE output_files/stp1.stp
+set_global_assignment -name QIP_FILE vhdl/FIFO_RAM.qip
+set_global_assignment -name SIGNALTAP_FILE output_files/I2C_Debug.stp
+set_global_assignment -name SIGNALTAP_FILE output_files/Trace.stp
+set_global_assignment -name SIGNALTAP_FILE output_files/Interrupts.stp
+set_global_assignment -name EDA_TEST_BENCH_RUN_SIM_FOR "20 us" -section_id Trace
+set_global_assignment -name EDA_TEST_BENCH_RUN_SIM_FOR "20 us" -section_id CRC
+set_global_assignment -name EDA_TEST_BENCH_RUN_SIM_FOR "20 us" -section_id "Trace Prefixed"
+set_global_assignment -name EDA_TEST_BENCH_RUN_SIM_FOR "20 us" -section_id SPI
+set_global_assignment -name EDA_TEST_BENCH_FILE simulation/nmi_tb.vhd -section_id NMI
+set_global_assignment -name EDA_TEST_BENCH_FILE simulation/trace_tb.vhd -section_id Trace
+set_global_assignment -name EDA_TEST_BENCH_FILE simulation/crc_tb.vhd -section_id CRC
+set_global_assignment -name EDA_TEST_BENCH_FILE simulation/trace_pre_tb.vhd -section_id "Trace Prefixed"
+set_global_assignment -name EDA_TEST_BENCH_FILE simulation/spi_tb.vhd -section_id SPI
+set_global_assignment -name SIGNALTAP_FILE output_files/AllPins.stp
+set_global_assignment -name SLD_FILE "D:/merli/Documents/Merlin/ZARC_Z80_Box/FPGA/Firmware/output_files/AllPins_auto_stripped.stp"
+set_instance_assignment -name PARTITION_HIERARCHY root_partition -to | -section_id Top

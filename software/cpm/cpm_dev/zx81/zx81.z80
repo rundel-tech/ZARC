@@ -1,0 +1,1309 @@
+; *******************************************************
+; * ZX81 Emulator for ZARC Z80 Computer (ZX81)          *
+; * Version: V1.0                                       *
+; * Merlin Skinner, 11/12/2021                          *
+; *******************************************************
+;
+; This program is intended to run on a ZARC system under CP/M 2.2. It will not
+; work on a conventional CP/M system as this will not support the paged memory
+; provided by ZARC.
+;
+                title ZX81 Emulator for ZARC Z80 Computer (ZX81)
+;
+;
+;
+; ************
+; * Includes *
+; ************
+;
+;
+                include "macros.i"
+                include "cpm.i"
+                include "terminal.i"    ; Terminal constants
+                include "zx81.i"        ; Project include file
+                include "memory.i"      ; Memory page allocation
+                include "z80.i"
+                include "monitor.i"
+                include "io_map.i"      ; I/O addresses mapping
+                include "cpm_utility.i" ; CP/M utilities
+                include "cpm_files.i"   ; CP/M file handling
+                include "cpm_terminal.i"; Terminal control
+                include "cpm_top.i"     ; CP/M dummy top module
+;
+;
+;
+; *************
+; * Externals *
+; *************
+;
+;
+; Variables
+                public brkflg   ; Non-zero if break character detected
+;
+;
+;
+; *************
+; * Main Code *
+; *************
+;
+;
+; The CP/M transient area start address is set in the linker invocation (see
+; makefile).
+                cseg                    ; Code segment
+;
+; The default stack space is very small (8 deep), which would almost certainly
+; cause issues, particularly with interrupts running. The initial code should
+; not assume a Z80 so we can exit cleanly if this is run on something else.
+                ld (bdos_sp), sp
+                ld sp, app_stack_top    ; Switch to our stack space
+;
+; Determine CPU type.
+                call z80det             ; Detect Z80 (instead of 8080 / 8085)
+                jp nc, on_z80           ; Jump if we have a Z80
+;
+; 8080 / 8085 detected. Print message and exit. We can't use conwms as this
+; assumes a Z80.
+                ld de, no_z80_msg       ; "Z80 CPU required"
+                ld c, BDOS_PRINT_STRING ; Print String
+                call BDOS
+                jp 0                    ; Warm boot
+;
+; Are we running on a ZARC system?
+on_z80          call zrcdet
+                jr nc, on_zarc          ; Jump if we are on ZARC
+;
+                ld hl, no_zarc_msg      ; "ZARC BIOS not detected."
+                call conwms             ; Print $-terminated string to console
+                jp 0                    ; Warm boot
+;
+; Determine terminal type.
+on_zarc         call ccinit             ; Determine terminal capabilities
+                ld hl, concap           ; Console capabilities (CONCAP_xxx)
+                bit CONCAP_ANSI_BIT, (hl)
+                jr nz, term_ok
+; We need an ANSI terminal for this, but we don't appear to have one.
+                ld hl, bad_term_msg     ; "No compatible terminal detected."
+                call conwms             ; Print $-terminated string to console
+                jp 0                    ; Warm boot
+;
+; ANSI terminal detected.
+; Variable initialisation.
+; Clearing the screen may hide useful messages, do omit if debugging.
+term_ok
+                ifndef DEBUG
+                    call ccls               ; Clear screen
+                endif
+;
+                ld a, 0xff              ; Set unrealistic value to force load
+                ld (cursor_row), a
+                ld (cursor_col), a
+                xor a                   ; Flag normal video
+                ld (inv_video), a       ; Bit 7 set if inverse video
+                ld (diag_msg_row), a    ; Set initial message row
+;
+; Sign on. First locate the cursor in the diagnostic message area to the right
+; of the emulated display area.
+                call load_diag_pos
+                ld hl, signon_msg
+                call conwms             ; Print $-terminated string to console
+;
+; Complain if the terminal can't support Unicode, as without it we can't do
+; semigraphics.
+                ld hl, concap           ; Console capabilities (CONCAP_xxx)
+                bit CONCAP_UNICODE_BIT, (hl)
+                jr nz, init_fcbr
+; We can run without Unicode, but can't render graphics without it.
+                call load_diag_pos
+                ld hl, no_uni_msg       ; "Terminal won't support semigraphics"
+                call conwms             ; Print $-terminated string to console
+;
+;
+; Setup file structure.
+; IX - pointer to FCBR structure (FCB with record buffer). This is defined in
+; cpm_files.i
+init_fcbr       ld ix, fcbr
+                call finit              ; Initialise FCBR structure
+;
+; This application uses bank 2 (0x8000 to 0xdfff) to map pages in the emulated
+; system. Verify that we can do this without breaking anything.
+; The start of BDOS should be above MMAP_BANK2_END.
+                ld hl, (BDOS + 1)       ; Fetch first unusable address
+                ld de, MMAP_BANK2_END + 1
+                and a
+                sbc hl, de
+                ld hl, bad_mem_msg      ; "Memory space error"
+                jp c, msg_exit
+;
+; This programme and its data should end before MMAP_BANK2_START.
+                ld hl, fstfre           ; First location after end of data
+                ld de, MMAP_BANK2_START
+                and a
+                sbc hl, de
+                ld hl, bad_mem_msg      ; "Memory space error"
+                jp nc, msg_exit
+;
+; This programme and its data should end before the absolute locations required
+; for transfer to and from the emulated space.
+                ld hl, fstfre           ; First location after end of data
+                ld de, abs_toem
+                and a
+                sbc hl, de
+                ld hl, bad_mem_msg      ; "Memory space error"
+                jp nc, msg_exit
+;
+; Examine the command tail, looking for operands. This is stored in the default
+; buffer. "The first byte at 0080H contains the length of the command tall, while
+; the command tail itself begins at 0081H. The command tail is terminated by a
+; byte containing a binary zero value." (http://www.cpm.z80.de/manuals/cpm22-m.pdf
+; appendix H).
+mem_ok          ld hl, DEF_BUFFER + 1
+; No operands (yet).
+; The terminator should follow.
+op_check_term   call skpspc
+                ld a, (hl)
+                and a
+                ifdef DEBUG
+                    ; Ignore operands so we can run under ddtz27 or similar.
+                    jr operands_ok
+                endif
+                jr z, operands_ok       ; Normal behaviour
+;
+; Go here if we don't like the operands supplied.
+op_error        ld hl, op_err_msg
+                jp msg_exit
+;
+; Operand processing complete.
+operands_ok     xor a
+                ld (brkflg), a          ; No break detected yet
+;
+; Allocate memory pages. Pages are named "EMU0", "EMU1" and so on. em_pages
+; will contain the four page numbers, one for each bank in the 64 kB space.
+; The page name must be in bank 2 or 3 otherwise it will be paged out by the
+; BIOS mon_call function.
+                ld hl, MON_VIS_VAR + MVV_PAGE_NAME  ; Initialise the name
+                ld (hl), 'E'
+                inc hl
+                ld (hl), 'M'
+                inc hl
+                ld (hl), 'U'
+                inc hl
+                ld (hl), '0'
+                ld de, em_pages        ; Store for page numbers
+                ld b, MMAP_ZX81_PAGES
+; Loop for each page.
+all_page_loop   ld hl, MON_VIS_VAR + MVV_PAGE_NAME  ; Point to name
+                exx
+                ld de, MCALL_MPALL      ; Point to monitor function
+                ld hl, BIOS_MON_CALL    ; Point to BIOS call function
+; The BIOS function BIOS_MON_CALL swaps memory mapping to the monitor context
+; then calls the allocate new page function. Operands and result are in the
+; alternate register set.
+                call cbios
+                exx
+                ex af, af'              ; Restore C flag from monitor call
+                ld hl, no_mem_msg       ; "Insufficient memory pages"
+                jp c, msg_exit
+                ld (de), a              ; Save new page number
+                inc de
+                ld hl, MON_VIS_VAR + MVV_PAGE_NAME + 3  ; Point to last character
+                inc (hl)                ; Increment digit
+                djnz all_page_loop
+;
+; Request supervisor (I/O) access for banks 0 to 2. Bank 3 always has this as
+; it is required for the BIOS to function.
+                ld hl, BIOS_SUPER       ; Set supervisor state
+                ld a, 0xff              ; Request supervisor
+                call cbios
+; Now we can perform I/O operations and have full control of the system.
+;
+; Save currently mapped pages (CP/M context).
+                ld hl, cpm_pages
+                ld b, MMAP_BANKS
+                ld c, IOA_MMAP_0        ; First I/O address
+rd_cpm_page_lp  in a, (c)               ; Read currently mapped page
+                ld (hl), a
+                inc c
+                inc hl
+                djnz rd_cpm_page_lp
+;
+; None of the newly allocated pages should match the CP/M ones. If CP/M were
+; restarted after an abnormal emulator termination, this could happen and would
+; give strange results.
+                ld de, em_pages
+                ld b, MMAP_BANKS
+; Loop for each emulator page.
+chk_page_loop   push bc
+                ld a, (de)              ; Fetch emulated page
+                and MMAP_PAGE_MASK      ; Isolate page number
+                ld c, a
+                ld hl, cpm_pages        ; Point to CP/M page
+                ld b, MMAP_BANKS
+; Loop for each CP/M page.
+chk_page_loop1  ld a, (hl)
+                and MMAP_PAGE_MASK      ; Isolate page number
+                cp c
+                jr nz, chk_page_ok
+;
+; Emulator page in use!
+                pop bc                  ; Discard counter
+                ld hl, page_clash_msg   ; "Emulator page in use by CP/M!"
+                jp msg_exit
+;
+; No match, so all is well so far.
+chk_page_ok     inc hl
+                djnz chk_page_loop1
+                pop bc                  ; Recover emulator page counter
+                inc de
+                djnz chk_page_loop
+;
+; Set the supervisor bit for bank 0 so the modified ROM can access I/O. This
+; is required as otherwise there is no way for the system to return to CP/M or
+; access any I/O!
+                ld hl, em_pages + 0
+                set MMAP_SUPER_BIT, (hl)
+;
+; Load the modified ROM into memory. In the ZX81, this is 0x0000 to 0x1fff
+; (8 KB). We can extend into the following 8 KB if required as this is
+; normally just an "echo" of the lower 8 KB due to incomplete address decoding.
+; As we have supervisor access, we can change the memory map at will. However,
+; any monitor calls by the BIOS will revert our mapping to the CP/M one. This
+; includes BDOS file access, as the sector reads and writes are performed by
+; the monitor.
+                call load_diag_pos
+                ld hl, load_rom_msg     ; "Loading modified ROM. "
+                call conwms             ; Print $-terminated string to console
+; IX - pointer to FCBR structure (FCB with record buffer) was setup earlier.
+                ld hl, rom_fn           ; Filename
+                call fbfcb              ; Build the FCB.
+;
+                call fopen              ; Open file for reading
+; Carry set on error. A generic message will have been written to the console
+; if an error occurred.
+                ld hl, load_err_msg     ; "Error reading file"
+                jp c, msg_exit
+;
+; Initialise to 0xff. write_em_byte will map the relevant page into bank 2
+; (8000 - BFFF) to perform the writes.
+                ld hl, EM_ROM_START     ; Start of ROM
+                ld bc, EM_ROM_SIZE      ; Maximum size we can use
+; The Sinclair ROM is 0x2000 (8 KB), but we could extend into the following
+; 8 KB as well if required.
+romr_init_loop  ld a, 0xff
+                call write_em_byte
+                inc hl
+                dec bc
+                ld a, b
+                or c
+                jr nz, romr_init_loop
+;
+; Load the ROM image. We can't use the shared frdbk routine as we need to use
+; write_em_byte to address the emulator space.
+                ld hl, EM_ROM_START     ; Start of ROM
+                ld bc, EM_ROM_SIZE      ; Maximum size
+; The following code is adapted from frdblk.
+                ld de, 0                ; Counter
+;
+romr_loop       ld a, b
+                or c
+                jr z, romr_done         ; Exit if all done
+; Read a byte.
+                call frdby
+                jp c, romr_err          ; Finish on error
+                call write_em_byte      ; Write byte to emulated space
+                inc hl
+                inc de                  ; Count bytes read
+                dec bc
+                jr romr_loop
+;
+; BDOS error reported. An EOF is acceptable, but anything else is trouble.
+romr_err        ld hl, load_err_msg     ; "Error reading file"
+                cp BDOS_READ_SEQ_EOF
+                jp nz, msg_exit         ; Return with EOF error
+;
+; We have either read the entire file (to EOF) or 16 KB. If the latter, any
+; remaining data is ignored. Display the amount of data loaded.
+romr_done       call load_diag_pos
+                ld h, d
+                ld l, e
+                call cwpdwd             ; Print HL in decimal
+                ld hl, bytes_msg        ; " bytes"
+                call conwms             ; Print $-terminated string to console
+                call fclose             ; Close file
+                jp c, exit              ; Give up of the close failed
+;
+; Copy the relocatable code to the required location.
+                ld hl, rel_toem
+                ld de, abs_toem
+                ld bc, rel_code_len
+                ldir
+;
+                xor a
+                call csrvis             ; Hide cursor
+;
+; Save interrupt configuration so we can safely re-enable them when in CP/M
+; mode.
+                ld a, i
+                ld (cpm_ireg), a
+; The ZARC BIOS uses interrupt mode 2. There is no way of reading this.
+;
+; Setup registers for the emulated machine. These are kept on the stack for
+; relatively efficient storage and recovery.
+                ld hl, 0
+; AF, BC, DE and HL are not stored as they are used for commands and assocated
+; operands from the emulated system to CP/M. The interface code in the emulated
+; system is responsible for saving these registers where necessary. Saving the
+; alternate register set is almost certainly not necessary as the ZARC system
+; only currently uses it during BIOS monitor calls (BIOS_MON_CALL). However,
+; doing so does protect this programme against future modifications.
+                push hl                 ; A'F'
+                push hl                 ; B'C'
+                push hl                 ; D'E'
+                push hl                 ; H'L'
+                push hl                 ; IX
+                push hl                 ; IY
+                push hl                 ; I (in high byte)
+;
+; Display startup message
+                call load_diag_pos
+                ld hl, start_msg        ; "Starting ZX81 system"
+                call conwms             ; Print $-terminated string to console
+;
+; Run the emulated machine.
+                ld c, CTOE_RESET        ; Reset command
+                ld a, (cpm_pages + 0)   ; Fetch CP/M page for bank 0
+                ld b, a                 ; Pass this to allow return
+;
+; Pass control to the emulated machine.
+; Interrupts are disabled while running the emulator. This will cause issues
+; with timekeeping. All I/O requires that control be transferred back to CP/M
+; space, so I/O interrupts will be serviced eventually.
+; C - command code (CTOE_xxx).
+; Other registers except A and HL may contain parameters as required.
+em_loop         ld hl, BIOS_INT_DISABLE ; Disable interrupts and keep count
+                call cbios
+; Restore emulated system's registers.
+                pop af
+                ld i, a                 ; I
+                pop iy
+                pop ix
+                ex af, af'
+                exx
+                pop hl                  ; Alternate ("prime") registers
+                pop de
+                pop bc
+                pop af
+                ex af, af'
+                exx
+; Map all but bank 0 as this is the one in which we are currently running.
+                ld hl, em_pages + 1
+                ld a, (hl)              ; Fetch page for 0x4000 to 0x7fff
+                out (IOA_MMAP_1), a     ; Map bank 1
+                inc hl
+                ld a, (hl)              ; Fetch page for 0x8000 to 0xbfff
+                out (IOA_MMAP_2), a     ; Map bank 2
+                inc hl
+                ld a, (hl)              ; Fetch page for 0xc000 to 0xffff
+                out (IOA_MMAP_3), a     ; Map bank 3
+                ld a, (em_pages + 0)    ; Fetch page for bank 0
+                ld (cpm_sp), sp
+                jp abs_toem             ; Jump to absolute code
+;
+;
+; The emulated system will at some point pass control back to this code in
+; order to perform some I/O or terminate the session. At this point, only bank
+; 0 has been swapped.
+; C - command code (ETOC_xxx).
+; Other registers except A and HL may contain parameters as required.
+ret_em          ld sp, (cpm_sp)
+; Reinstate all but bank 0, as this has already been restored.
+                ld hl, cpm_pages + 1
+                ld a, (hl)              ; Fetch page for 0x4000 to 0x7fff
+                out (IOA_MMAP_1), a     ; Map bank 1
+                inc hl
+                ld a, (hl)              ; Fetch page for 0x8000 to 0xbfff
+                out (IOA_MMAP_2), a     ; Map bank 2
+                inc hl
+                ld a, (hl)              ; Fetch page for 0xc000 to 0xffff
+                out (IOA_MMAP_3), a     ; Map bank 3
+; Save emulated system's registers.
+                ex af, af'
+                exx
+                push af                 ; Alternate ("prime") registers
+                push bc
+                push de
+                push hl
+                ex af, af'
+                exx
+                push ix
+                push iy
+                ld a, i
+                push af
+; Restore interrupts configuration.
+                im 2
+                ld a, (cpm_ireg)
+                ld i, a
+                ld hl, BIOS_INT_ENABLE  ; Enable interrupts if safe
+                call cbios
+;
+; Perform the required action according to the code.
+                ld a, c                 ; Examine ETOC_xxx code
+                ld (etoc_code), a       ; Save command
+                cp ETOC_DISP            ; Display character
+                jp z, em_disp
+                cp ETOC_SCROLL          ; Scroll the display
+                jp z, em_scroll
+                cp ETOC_INKEY           ; Fetch keyboard state
+                jp z, em_key
+                cp ETOC_WAIT_KEY        ; Wait for a character from keyboard
+                jp z, em_key
+                cp ETOC_SAVE            ; Save BASIC programme
+                jp z, em_save
+                cp ETOC_LOAD            ; Load BASIC programme
+                jp z, em_load
+                ld hl, exit_msg         ; "Returning to CP/M"
+                cp ETOC_EXIT            ; Terminate the session?
+                jp z, msg_exit
+                call panic              ; Fatal error if not one of the above
+;
+;
+; Display a character.
+; B - ZX81 character to display.
+; D - S_POSN_y (line number for PRINT position)
+; E - S_POSN_x (column number for PRINT position)
+; Coordinates seem strange. Default cursor position is [33,1].
+em_disp         res 7, d                ; Reset expand flag
+; Check Y. Range should be 1 to 24. Bit 7 is set when printing spaces to expand
+; the display on machines with more RAM.
+                ld a, d
+                and a
+                jr z, emd_bad_loc
+                cp 25
+                jr nc, emd_bad_loc
+; Check X. Range should be 2 to 33.
+                ld a, e
+                cp 2
+                jr c, emd_bad_loc
+                cp 34
+                jr c, emd_good_loc
+;
+; Display the received coordinates if out of range.
+emd_bad_loc     ld a, "["
+                call conwch             ; Write character to console
+                ld a, e
+                call cwpdby             ; Print A in decimal
+                ld a, ","
+                call conwch             ; Write character to console
+                ld a, d
+                and 0x7f                ; Reset expand flag
+                call cwpdby             ; Print A in decimal
+                ld a, "]"
+                call conwch             ; Write character to console
+;
+; Convert row to origin at top left-hand corner (0, 0).
+emd_good_loc    ld a, 24
+                sub d
+                ld h, a
+; Now column.
+                ld a, 33
+                sub e
+                ld l, a
+; H - row
+; L - column
+; (0, 0) is the top left-hand corner.
+                call load_cursor_pos
+;
+; Display the character, considering reverse video where necessary.
+emd_loc_done    ld a, "?"               ; Substitution character
+                bit 6, b
+                jr nz, emd_ascii        ; Jump if unprintable
+; The substution character will be display with the current inverse video
+; state. This seems better than drawing attention to it by changing the state.
+                ld a, (inv_video)       ; Bit 7 set if inverse video
+                xor b
+                and 0x80
+                jr z, emd_no_rev_chg    ; Jump if no change
+; The reverse video state has toggled. Print the appropriate sequence.
+                ld a, b
+                rlca                    ; Move bit 7 to bit 0
+                and 1
+; A - zero for normal video, 1 for reverse.
+                call conrev             ; Set reverse video
+; Flag new inverse state.
+                ld a, b
+                ld (inv_video), a       ; Bit 7 set if inverse video
+;
+; Convert the character to ASCII and print.
+emd_no_rev_chg  ld a, 0x3f
+                and b
+;
+; Use lookup tables to convert the remaining characters. Handle codes 0 to 63.
+                ld c, a
+                ld b, 0
+                ld hl, zx81_to_ascii    ; Lookup table
+                add hl, bc
+                ld a, (hl)
+; If we read a zero, this requires a Unicode character.
+                and a
+                jr z, emd_unicode
+; Display the ASCII character.
+emd_ascii       call conwch             ; Write character to console
+; Writing a printable character will advance the cursor one position to the
+; right. The column can't overflow as the ZX81 has only 32 columns.
+emd_print_done  ld hl, cursor_col
+                inc (hl)                ; Update cursor position
+;
+emd_exit        ld c, CTOE_RET          ; Return
+                jp em_loop
+;
+;
+; Handle the low resolution graphics characters. These require Unicode.
+; BC - character code
+emd_unicode     ld hl, concap           ; Console capabilities (CONCAP_xxx)
+                bit CONCAP_UNICODE_BIT, (hl)
+                jr nz, emd_uni_ok
+; No Unicode, so we can't do semigraphics. Display a substitution character
+; instead.
+                ld a, "X"               ; Substitution character
+                jr emd_ascii
+; We have Unicode support.
+emd_uni_ok      ld h, b
+                ld l, c
+; Multiply by four to find offset.
+                add hl, hl
+                add hl, hl
+; Add base address of lookup table, allowing for the first entry being
+; character one not zero.
+                ld bc, zx81_to_unicode - 4
+                add hl, bc
+                ld b, 4                 ; Up to four characters
+emd_uni_loop    ld a, (hl)
+                and a
+                jr z, emd_print_done    ; Finished on zero
+                call conwch             ; Write character to console
+                inc hl
+                djnz emd_uni_loop
+; All done for this character.
+                jr emd_print_done
+;
+;
+; Scroll the display (ETOC_SCROLL). This will unavoidably scroll the
+; diagnostics messages as well.
+em_scroll       ld h, 0                 ; Entire display
+                ld l, 23
+                call cscrup             ; Scroll screen up
+                ld c, CTOE_RET          ; Return
+;
+; As the display has scrolled, the diagnostic message row can be moved up so
+; we don't miss a row.
+                ld a, (diag_msg_row)
+                and a
+; If we are at the top of the screen, remain there.
+                jr z, ems_diag_ok
+                dec a
+ems_diag_ok     ld (diag_msg_row), a    ; Store new row
+;
+                jp em_loop
+;
+;
+; ETOC_INKEY and ETOC_WAIT_KEY. The BASIC INKEY function returns the current
+; state of the keyboard and will not wait if no key has been pressed.
+; Unfortunately, we can't emulate this accurately as the terminal (emulated or
+; otherwise) does not report key release codes. The emulator will instead
+; return any key code received from the terminal. ETOC_WAIT_KEY is similar, but
+; will wait if no character has been received.
+em_key          call const              ; Fetch console input status
+                and a
+                jr nz, em_read_key      ; Fetch character if there is one
+; No character is ready. If the command was ETOC_WAIT_KEY, we must wait until
+; there is.
+                ld a, (etoc_code)       ; Fetch command
+                cp ETOC_WAIT_KEY
+                jr z, em_read_key
+; The command is ETOC_INKEY, so we return with code 0xffff to indicate that no
+; key was pressed.
+                ld de, 0xffff
+                jr egk_ret_key
+;
+; The BIOS is used for console I/O as the corresponding BDOS function echoes
+; the character to the display.
+em_read_key     call conrch             ; Read character from the console
+;
+                ifdef DEBUG_KEY
+; Display the character code.
+                    push af
+                    push af
+                    call load_diag_pos
+                    ld hl, dbg_key_msg  ; "key: "
+                    call conwms             ; Print $-terminated string to console
+                    pop af
+                    call cwphby             ; Print A in hexadecimal
+                    pop af
+                endif
+;
+; Exit if ^C pressed.
+                ld hl, break_msg        ; "Exiting due to ^C"
+                cp BREAK_CHAR
+                jp z, msg_exit          ; Exit on break
+;
+; Convert the character to ZX81. First handle special cases.
+                ld de, 0xfdbf           ; Newline column / row code
+                cp ASCII_CR
+                jr z, egk_ret_key       ; Handle carriage return ("newline")
+; In minicom, "£" will send 0xc2 0xa3. The previous code will be ignored and we
+; can simply look for the 0xa3 in this case.
+                ld de, 0xf6f7           ; shift 3 ("£") column / row code
+                cp 0xa3
+                jr z, egk_ret_key
+                bit 7, a
+                jr nz, em_key           ; Ignore out of range characters
+; Use lookup table of column / row codes for ASCII codes 0x20 to 0x7f. Codes
+; with no reasonable representation are flagged with 0xffff (no key pressed).
+                sub 0x20
+                jr c, em_key            ; Ignore control codes
+                add a, a
+                ld c, a
+                ld b, 0
+; BC - table offset (16-bit entries).
+                ld hl, ascii_to_key     ; Lookup table
+                add hl, bc
+                ld a, (hl)
+                cp 0xff
+                jr z, em_key            ; Ignore if 0xff
+                ld e, a
+                inc hl
+                ld a, (hl)
+                cp 0xff
+                jr z, em_key            ; Ignore if 0xff
+                ld d, a
+; Return to emulated environment with key code in DE.
+; DE is 0xffff if no key has been pressed (em_inkey only).
+egk_ret_key
+                ifdef DEBUG_KEY
+                    call load_diag_pos
+                    ld h, d
+                    ld l, e
+                    call cwphwd         ; Print HL in hexadecimal
+                endif
+                ld c, CTOE_RET          ; Return
+                jp em_loop
+;
+;
+; Save BASIC programme.
+; DE - points to filename in emulator space. Last character has bit 7 set.
+; Parse the filename.
+em_save         call load_diag_pos
+                ld ix, fcbr             ; Point to FCBR structure
+                call em_filename        ; Copy name to FCB
+; Carry - set on error.
+                jr c, els_error         ; Give up if name is bad
+                ifdef DEBUG_FILES
+                    call load_diag_pos
+                    call fdfcb          ; Display FCB
+                endif
+;
+                call fmake              ; Create new file and report errors
+; A - BDOS error code if carry = 1
+; Carry flag is set if BDOS reported an error.
+                jr c, els_error         ; Give up if can't make
+;
+; Save the data block. This runs from VERSN to the start of workspace pointed
+; to by E_LINE. "P" files do not contain the filename in the data block.
+                call load_diag_pos
+                ld hl, save_msg         ; "Saving file "
+                call conwms             ; Print $-terminated string to console
+                call fdnam              ; Display CP/M filename
+;
+; Set print position on a new line in readiness for any error messages that may
+; result.
+                call load_diag_pos
+;
+                ld hl, ZX81_E_LINE      ; System variable E_LINE
+                call read_em_word       ; Read 16-bit word
+; DE - data
+                ld hl, ZX81_VERSN       ; Start at VERSN system variable
+                ex de, hl
+                and a
+                sbc hl, de              ; Find length
+;
+                push hl
+                call load_diag_pos
+                call cwpdwd             ; Print HL in decimal
+                ld hl, bytes_msg        ; " bytes"
+                call conwms             ; Print $-terminated string to console
+                pop bc
+                ex de, hl               ; Move start address to HL
+;
+; BC - length
+; HL - start address
+esa_loop        ld a, b
+                or c
+                jr z, esa_done
+; Save a byte.
+                call read_em_byte       ; Read byte from emulated space
+                call fwrby              ; Write byte to file
+; Report error if this failed.
+                jp c, els_error
+                inc hl
+                dec bc
+                jr esa_loop
+;
+; All bytes written.
+esa_done        call fclose             ; Close file
+                ld b, 0                 ; Flag success
+                jr els_exit
+;
+; Common code for load and save.
+els_error       ld b, 0xff              ; Flag error
+; B - zero if successful. Also used by load routine.
+els_exit        ld c, CTOE_RET          ; Return
+                jp em_loop
+;
+;
+; Load BASIC programme. The ZX81 code traps null filenames, which are valid in
+; the original system but don't make sense in this case as they are required
+; for the disk filename.
+; DE - points to filename in emulator space. Last character has bit 7 set.
+em_load         call load_diag_pos
+                ld ix, fcbr             ; Point to FCBR structure
+                call em_filename        ; Copy name to FCB
+; Carry - set on error.
+                jr c, els_error         ; Give up if name is bad
+                ifdef DEBUG_FILES
+                    call load_diag_pos
+                    call fdfcb          ; Display FCB
+                endif
+;
+                call load_diag_pos
+                ld hl, load_msg         ; "Loading file "
+                call conwms             ; Print $-terminated string to console
+                call fdnam              ; Display CP/M filename
+;
+; Set print position on a new line in readiness for any error messages that may
+; result.
+                call load_diag_pos
+;
+                call fopen              ; Open existing file and report errors
+; A - BDOS error code if carry = 1
+; Carry flag is set if BDOS reported an error.
+                jr c, els_error         ; Give up if can't open the file
+;
+; Set E_LINE to an unrealistically large value so we keep loading until the
+; value loaded from the file is in place.
+                ld hl, ZX81_E_LINE      ; System variable E_LINE
+                ld de, 0xffff
+                call write_em_word      ; Write 16-bit word
+;
+                ld hl, ZX81_VERSN       ; Start at VERSN system variable
+                ld bc, 0                ; Reset counter
+;
+; Load the data block. This runs from VERSN to the start of workspace pointed
+; to by E_LINE. "P" files do not contain the filename in the data block.
+; BC - length counter
+; HL - start address
+elo_loop        push hl
+                ld hl, ZX81_E_LINE      ; System variable E_LINE
+                call read_em_word       ; Read 16-bit word
+                pop hl
+; DE - (E_LINE)
+; HL - load address
+                ex de, hl
+                and a
+                sbc hl, de
+                jr z, elo_done          ; Jump if last byte loaded
+                ex de, hl               ; Restore address to HL
+; Load a byte.
+                call frdby              ; Read byte from file
+; Report error if this failed. We don't expect to encounter even an EOF as we
+; should stop reading before this.
+                jp c, els_error
+                call write_em_byte      ; Write byte to emulated space
+                inc hl
+                inc bc                  ; Maintain counter
+                jr elo_loop
+;
+; All bytes written.
+elo_done        call fclose             ; Close file
+;
+                ld h, b
+                ld l, c
+                call cwpdwd             ; Print HL in decimal
+                ld hl, bytes_msg        ; " bytes"
+                call conwms             ; Print $-terminated string to console
+;
+                ld b, 0                 ; Flag success
+                jr els_exit
+;
+;
+rel_toem_len    equ (rel_now - rel_toem)    ; To em space code length
+abs_toem        equ EM_XFER_START - rel_toem_len    ; Abs to em code addr
+rel_code_len    equ (rel_end - rel_toem)    ; Relocatable code code length
+;
+; This is the final code required to swap modes. It must be relocated to the
+; appropriate location (clost to EM_XFER_START). This code must be relocatable.
+; C - command code (CTOE_xxx).
+; Other registers may contain parameters as required.
+rel_toem        out (IOA_MMAP_0), a     ; Map bank 0
+; The next instruction will code from the emulated space at EM_XFER_START. The
+; following jump instruction is never actually executed in the CP/M space, but
+; serves to allocate space for its counterpart in the emulated system's space.
+; Instructions marked "*" are not executed in this space. They claim space for
+; their counterparts in emulated space.
+rel_now         jp 0                    ; *
+; The emulated system will jump here to return to CP/M space.
+                out (IOA_MMAP_0), a     ; * Map bank 0 (in emulator space)
+; Execution will continue here in CP/M space when the emulated system returns.
+                jp ret_em
+rel_end                                ; End of code to copy
+;
+;
+; Print message pointed to by HL, then exit.
+msg_exit        call load_diag_pos
+                xor a
+                call conrev             ; Turn reverse off
+                call conwms             ; Print $-terminated string to console
+                jp exit
+;
+;
+; Return to CP/M.
+; Select normal video, just in case we are currently reversed.
+exit            ld a, 1
+                call csrvis             ; Show cursor
+                xor a
+                call conrev             ; Turn reverse off
+;
+; Rescind supervisor (I/O) access for banks 0 to 2. This returns the system to
+; the normal state for CP/M. Bank 3 always has supervisor as it is required for
+; the BIOS to function.
+                ld hl, BIOS_SUPER       ; Set supervisor state
+                xor a                   ; Rescind supervisor
+                call cbios
+; I/O operations are no longer permitted for banks 0 to 2.
+;
+                ld ix, fcbr
+                call fclose             ; Close file if it is open
+; Ignore any errors in this case as there is no sensible action we can take.
+;
+; Return
+                ld sp, (bdos_sp)
+; For this application a warm boot is required as we may have overwritten the
+; CCP.
+;                ret                     ; Return to BDOS
+                jp 0                    ; Warm boot
+;
+;
+;
+; ***************
+; * Subroutines *
+; ***************
+;
+;
+; Copy filename from emulator space and build the FCB.
+; DE - points to filename in emulator space. Last character has bit 7 set.
+; IX - pointer to FCBR structure (FCB with record buffer).
+; Returns with carry set on error.
+; No registers are preserved except IX.
+em_filename     ld b, FILENAME_SIZE
+                ld hl, load_save_name   ; ASCII name buffer
+                ex de, hl
+; B - character count
+; DE - ASCII name pointer
+; HL - ZX81 filename pointer
+emf_char_loop   call read_em_byte       ; Read byte from emulated space
+                ld c, a                 ; Save for later
+                and 0x7f                ; Reset last character flag
+; Character code should be 0 to 63.
+                bit 6, a
+                jr nz, emf_bad_char     ; Exit if character is illegal
+;
+; Index the table. We are only interested in the basic character set, so no
+; Unicode etc.
+                push bc
+                push hl
+                ld c, a
+                ld b, 0
+                ld hl, zx81_to_ascii    ; Lookup table
+                add hl, bc
+                ld a, (hl)
+                pop hl
+                pop bc
+;
+; If we read a zero, this requires a Unicode character so we abort.
+; A - ASCII character or zero
+; B - space left in ASCII name buffer
+; C - ZX81 character including last character flag
+; DE - ASCII name pointer
+; HL - points to filename in emulator space
+                and a
+                jr z, emf_bad_char      ; Exit if character is illegal
+; A - ASCII character
+                ld (de), a
+                inc de
+                inc hl
+                bit 7, c
+                jr nz, emf_name_done    ; Exit if this was the last character
+                djnz emf_char_loop
+;
+; Filename is too long.
+                call load_diag_pos
+                ld hl, emf_toolong_msg  ; "Filename too long"
+                call conwms             ; Print $-terminated string to console
+                jr emf_error            ; Return with error flag set
+;
+; Filename copying is complete. Pad any remainder with spaces.
+emf_name_done   ex de, hl               ; Move ASCII pointer to HL
+                dec b                   ; Allow for last character written
+emf_pad_loop    ld a, b
+                and a
+                jr z, emf_pad_done
+                ld (hl), " "
+                inc hl
+                dec b
+                jr emf_pad_loop
+;
+; Write extension. This is always "P"
+; HL - ASCII name pointer
+emf_pad_done    ld (hl), "P"
+                inc hl
+                ld (hl), " "
+                inc hl
+                ld (hl), " "
+;
+; IX - pointer to FCBR structure (FCB with record buffer) was setup earlier.
+                ld hl, load_save_name   ; Name buffer
+                call fbfcb              ; Build the FCB.
+;
+                and a
+                ret                     ; Return with success flag
+;
+; Illegal character found.
+emf_bad_char    call load_diag_pos
+                ld hl, emf_badchar_msg  ; "Bad character in filename"
+                call conwms             ; Print $-terminated string to console
+emf_error       scf
+                ret
+;
+;
+; Read 16-bit word from emulated machine's space. Derived from Monitor's ruswd
+; routine. Call with:
+; HL - pointer
+; Return with:
+; DE - data
+; HL - preserved
+read_em_word    call read_em_byte       ; Fetch LSB
+                ld e, a
+                inc hl
+                call read_em_byte       ; Fetch MSB
+                ld d, a
+                dec hl
+                ret
+;
+;
+; Read byte from emulated machine's space. Derived from Monitor's rusby
+; routine. Call with:
+; HL - pointer
+; Return with:
+; A - data
+; HL - preserved
+read_em_byte    push hl
+;
+                call map_em_addr        ; Map address to bank 2
+; We can ignore write protection in this application. Violations will result
+; in an unceremonious entry to the monitor.
+                ld a, (hl)              ; Fetch required byte
+; Restore the CP/M bank. Though inefficient, it minimises the change of
+; returning to CP/M with the emulator's page selected.
+                push af
+                ld hl, cpm_pages + 2
+                ld a, (hl)              ; Fetch page for 0x8000 to 0xbfff
+                out (IOA_MMAP_2), a     ; Map bank 2
+                pop af
+;
+                pop hl
+                ret
+;
+;
+; Write 16-bit word to emulated machine's space. Derived from Monitor's wuswd
+; routine. Call with:
+; DE - data
+; HL - pointer
+; Returns with:
+; HL - preserved
+write_em_word   ld a, e
+                call write_em_byte      ; Write LSB
+                inc hl
+                ld a, d
+                call write_em_byte      ; Write MSB
+                dec hl
+                ret
+;
+;
+; Write byte to emulated machine's space. Derived from Monitor's wusby
+; routine. Call with:
+; A - data
+; HL - pointer
+; Returns with:
+; HL - preserved
+write_em_byte   push hl
+;
+                push af                 ; Save data
+                call map_em_addr        ; Map address to bank 2
+; We can ignore write protection in this application. Violations will result
+; in an unceremonious entry to the monitor.
+                pop af
+                ld (hl), a              ; Store byte
+; Restore the CP/M bank. Though inefficient, it minimises the change of
+; returning to CP/M with the emulator's page selected.
+                ld hl, cpm_pages + 2
+                ld a, (hl)              ; Fetch page for 0x8000 to 0xbfff
+                out (IOA_MMAP_2), a     ; Map bank 2
+;
+                pop hl
+                ret                     ; Exit with error status in carry
+;
+;
+; Map emulated machine address to bank 2. Call with:
+; HL - address
+; Returns with:
+; HL - pointer to required address in bank 2.
+; Carry flag is set if the bank is write protected (MMAP_PROT set).
+map_em_addr     push hl
+                ld a, h                 ; Bits 15 and 14 are the bank number
+                rlca
+                rlca
+                and 3
+; A - bank number
+; Find the appropriate page for this bank.
+                ld hl, em_pages
+                add l
+                ld l, a
+                ld a, h
+                adc 0
+                ld h, a
+                ld a, (hl)              ; Fetch page
+; PROT and SUPER bits are set unaltered.
+                out (IOA_MMAP_2), a
+                pop hl                  ; Restore the address
+                push af                 ; Save page
+; Find the address as it appears in bank 2.
+                ld a, h
+                and (high MMAP_PAGE_SIZE) - 1   ; Clear bank bits
+                or high MMAP_BANK2_START ; Set to bank 3
+                ld h, a
+                pop af                  ; Restore page
+                and MMAP_PROT_MASK
+                ret z                   ; Exit with carry clear if R/W
+                scf                     ; Indicate write protection
+                ret                     ; Return with carry clear
+;
+;
+; Load cursor position with optimisation.
+; There is a significant overhead associated with the ANSI load cursor position
+; sequence. This is typically eight characters. We can omit this if the cursor
+; is already at the required position. This speeds up the output considerably
+; compared to loading the cursor position every time.
+; Call with:
+; H - row
+; L - column
+; (0, 0) is the top left-hand corner.
+load_cursor_pos ld a, (cursor_row)
+                cp h
+                jr nz, lcp_load
+                ld a, (cursor_col)
+                cp l
+                jr z, lcp_exit          ; Skip load if positions match
+; The cursor is not at the required position, so send the load cursor sequence.
+lcp_load        ld a, h
+                ld (cursor_row), a      ; Set position for next time
+                ld a, l
+                ld (cursor_col), a
+                call cldcur             ; Load cursor position
+lcp_exit        ret
+;
+;
+; Load cursor position for a diagnostic message and clear the line. Each call
+; loads the cursor with the position of the next row. When at the bottom of the
+; screen, the next message is set to the top. There is no scrolling as this
+; would disturb the emulator display.
+load_diag_pos   push hl
+                ld a, (diag_msg_row)
+                ld h, a
+                ld l, 0x21              ; Set position after emulator column
+                push af
+; H - row
+; L - column
+                call cldcur             ; Load cursor position
+                pop af
+                inc a
+; Wrap back to top of display if out of range.
+                cp VT100_ROWS
+                jr c, ldp_row_ok        ; 1 to 24 is OK
+                ld a, 0                 ; Set top row
+ldp_row_ok      ld (diag_msg_row), a
+; Set normal video (not reversed).
+                xor a
+                call conrev             ; Set normal video
+                xor a                   ; Flag normal video
+                ld (inv_video), a       ; Bit 7 set if inverse video
+; A space separates the emulator display and the messages.
+                ld hl, spc_era_msg      ; Space and erase to end of line
+                call conwms             ; Print "$" terminated string to the console
+                pop hl
+                ret
+;
+;
+;
+; *************
+; * Constants *
+; *************
+;
+;
+signon_msg      byte "ZX81 Emulator V1.0$"
+no_z80_msg      byte "Z80 CPU required", 0x0d, 0x0a, "$"
+no_zarc_msg     byte "ZARC BIOS not detected.", 0x0d, 0x0a, "$"
+bad_term_msg    byte "No compatible terminal detected.", 0x0d, 0x0a, "$"
+no_uni_msg      byte "Terminal won't support semigraphics.$"
+bad_mem_msg     byte "Memory space error.$"
+no_mem_msg      byte "Insufficient memory pages$"
+op_err_msg      byte "Unexpected operand(s).$"
+page_clash_msg  byte "Emulator page in use by CP/M!$"
+load_rom_msg    byte "Loading modified ROM. $"
+rom_fn          byte "ZX81ROM BIN"
+load_err_msg    byte "Error reading file.$"
+break_msg       byte 0x0d, 0x0a, "Exiting due to ^C", 0x0d, 0x0a, "$"
+exit_msg        byte "Returning to CP/M.", 0x0d, 0x0a, "$"
+spc_era_msg     byte " ", 0x1b, "[K$"   ; Space and erase to end of line
+start_msg       byte "Starting ZX81 system. Press ^C to exit.$"
+dbg_key_msg     byte "key: $"
+emf_badchar_msg byte "Bad character in filename$"
+emf_toolong_msg byte "Filename too long$"
+save_msg        byte "Saving file $"
+load_msg        byte "Loading file $"
+bytes_msg       byte " bytes$"
+;
+; Character lookup table. This table covers codes 0 to 63. When bit 7 is set,
+; the same codes are displayed in inverse video. Zero entries indicate that
+; a Unicode character is required.
+zx81_to_ascii   byte " ", 0, 0, 0, 0, 0, 0, 0
+                byte 0, 0, 0, 0x22, 0, "$:?"
+                byte "()><=+-*"
+                byte "/;,.0123"
+                byte "456789AB"
+                byte "CDEFGHIJ"
+                byte "KLMNOPQR"
+                byte "STUVWXYZ"
+;
+; Characters 1 to 10 and 12 require Unicode. All entries are four characters
+; long, padded with zeroes if necessary. The first seven characters are from
+; the Unicode "Block Elements" set.
+zx81_to_unicode byte 0xe2, 0x96, 0x98, 0    ; U+2598 Quadrant upper left
+                byte 0xe2, 0x96, 0x9d, 0    ; U+259D Quadrant upper right
+                byte 0xe2, 0x96, 0x80, 0    ; U+2580 Upper half block
+                byte 0xe2, 0x96, 0x96, 0    ; U+2596 Quadrant lower left
+                byte 0xe2, 0x96, 0x8c, 0    ; U+258C Left half block
+                byte 0xe2, 0x96, 0x9e, 0    ; U+259E Upper right and lower left
+;                byte 0xe2, 0x96, 0x9b, 0    ; U+259B Upper left, upper right, lower left
+; U+259B does not render properly in the minicom terminal regardless of font
+; selected. The following character is close, but not exactly what we want.
+                byte 0xf0, 0x9f, 0xac, 0x95 ; U+1FB15 Approximation of above
+; The next three characters are from the Unicode "Symbols for Legacy Computing"
+; set.
+                byte 0xf0, 0x9f, 0xae, 0x90 ; U+1FB90 Medium shade
+                byte 0xf0, 0x9f, 0xae, 0x8f ; U+1FB8F Lower Half Medium Shade
+                byte 0xf0, 0x9f, 0xae, 0x8e ; U+1FB8E Upper Half Medium Shade
+                byte 0, 0, 0, 0             ; Not used
+                byte 0xc2, 0xa3, 0, 0       ; U+00A3 "£"
+;
+;
+; ASCII to ZX81 key code table. These are the values returned by the ZX81 ROM
+; KEYBOARD routine and turned to character codes by DECODE. They are also
+; stored in LAST_K. Codes 0x20 to 0x7f are included. Codes with no reasonable
+; representation are flagged with 0xf fff (no key pressed). The ZX81 uses shift
+; space and shift newline, which are problematic for a terminal. For this
+; reason, these are represented as follows:
+; "#" - shift newline ("function")
+; "/" - shift space ("£")
+; Note: newline is 0xfdbf, which is not represented in this table. In addition,
+; shift 3 ("£") sends 0xa3 and should result in a code of 0xf6f7.
+ascii_to_key    word 0xfd7f, 0xfcf7, 0xfaf7, 0xfcbf ; | !"#|
+                word 0xeef7, 0xdef7, 0xeeef, 0xffff ; |$%&'|
+                word 0xfaef, 0xfcef, 0xf6ef, 0xffff ; |()*+|
+                word 0xffff, 0xffff, 0xfb7f, 0xfc7f ; |,-./|
+                word 0xfdef, 0xfdf7, 0xfbf7, 0xf7f7 ; |0123|
+                word 0xeff7, 0xdff7, 0xdfef, 0xefef ; |4567|
+                word 0xf7ef, 0xfbef, 0xffff, 0xffff ; |89:;|
+                word 0xffff, 0xffff, 0xfa7f, 0xffff ; |<=>?|
+                word 0xffff, 0xfcfd, 0xde7f, 0xeefe ; |@ABC|
+                word 0xf6fd, 0xf6fb, 0xeefd, 0xdefd ; |DEFG|
+                word 0xdebf, 0xf6df, 0xeebf, 0xf6bf ; |HIJK|
+                word 0xfabf, 0xf67f, 0xee7f, 0xfadf ; |LMNO|
+                word 0xfcdf, 0xfcfb, 0xeefb, 0xfafd ; |PQRS|
+                word 0xdefb, 0xeedf, 0xdefe, 0xfafb ; |TUVW|
+                word 0xf6fe, 0xdedf, 0xfafe, 0xffff ; |XYZ[|
+                word 0xffff, 0xffff, 0xdeef, 0xffff ; |\]^_|
+                word 0xffff, 0xfdfd, 0xdf7f, 0xeffe ; |`abc|
+                word 0xf7fd, 0xf7fb, 0xeffd, 0xdffd ; |defg|
+                word 0xdfbf, 0xf7df, 0xefbf, 0xf7bf ; |hijk|
+                word 0xfbbf, 0xf77f, 0xef7f, 0xfbdf ; |lmno|
+                word 0xfddf, 0xfdfb, 0xeffb, 0xfbfd ; |pqrs|
+                word 0xdffb, 0xefdf, 0xdffe, 0xfbfb ; |tuvw|
+                word 0xf7fe, 0xdfdf, 0xfbfe, 0xffff ; |xyz{|
+                word 0xffff, 0xffff, 0xffff, 0xffff ; ||}~ |
+;
+; ASCII to ZX81 character code table. Codes 0x20 to 0x7f are included. Codes
+; with no reasonable representation are flagged with 0xff. This isn't used in
+; the current emulator.
+;ascii_to_zx81   byte 0x00, 0xff, 0x0b, 0xff     ; | !"#|
+;                byte 0x0d, 0xff, 0xff, 0xff     ; |$%&'|
+;                byte 0x10, 0x11, 0x17, 0x15     ; |()*+|
+;                byte 0x1a, 0x16, 0x1b, 0x18     ; |,-./|
+;                byte 0x1c, 0x1d, 0x1e, 0x1f     ; |0123|
+;                byte 0x20, 0x21, 0x22, 0x23     ; |4567|
+;                byte 0x24, 0x25, 0x0e, 0x19     ; |89:;|
+;                byte 0x13, 0x14, 0x12, 0x0f     ; |<=>?|
+;                byte 0xff, 0x26, 0x27, 0x28     ; |@ABC|
+;                byte 0x29, 0x2a, 0x2b, 0x2c     ; |DEFG|
+;                byte 0x2d, 0x2e, 0x2f, 0x30     ; |HIJK|
+;                byte 0x31, 0x32, 0x33, 0x34     ; |LMNO|
+;                byte 0x35, 0x36, 0x37, 0x38     ; |PQRS|
+;                byte 0x39, 0x3a, 0x3b, 0x3c     ; |TUVW|
+;                byte 0x3d, 0x3e, 0x3f, 0xff     ; |XYZ[|
+;                byte 0xff, 0xff, 0xff, 0xff     ; |\]^_|
+;                byte 0xff, 0x26, 0x27, 0x28     ; |`abc|
+;                byte 0x29, 0x2a, 0x2b, 0x2c     ; |defg|
+;                byte 0x2d, 0x2e, 0x2f, 0x30     ; |hijk|
+;                byte 0x31, 0x32, 0x33, 0x34     ; |lmno|
+;                byte 0x35, 0x36, 0x37, 0x38     ; |pqrs|
+;                byte 0x39, 0x3a, 0x3b, 0x3c     ; |tuvw|
+;                byte 0x3d, 0x3e, 0x3f, 0xff     ; |xyz{|
+;                byte 0xff, 0xff, 0xff, 0xff     ; ||}~ |
+;
+;
+;
+; *************
+; * Variables *
+; *************
+;
+;
+; Note: linker "-c" option is used, so no data is initialised here.
+                dseg                ; Data segment
+;
+bdos_sp         defs 2              ; BDOS's stack pointer
+brkflg          defs 1              ; Non-zero if break character detected
+fcbr            defs FCBR_SIZE      ; FCB and record buffer structure
+cpm_sp          defs 2              ; CP/M space stack pointer
+inv_video       defs 1              ; Bit 7 set if inverse video
+cpm_ireg        defs 1              ; CP/M I register
+cursor_row      defs 1              ; Cursor row
+cursor_col      defs 1              ; Cursor column
+etoc_code       defs 1              ; Emulated to CP/M space command code
+diag_msg_row    defs 1              ; Diagnostic message row
+load_save_name  defs FILENAME_SIZE + FILEEXT_SIZE   ; Name buffer
+; Memory pages.
+em_pages        defs MMAP_BANKS     ; Emulator pages
+cpm_pages       defs MMAP_BANKS     ; CP/M pages
+;
+                defs STACK_SIZE     ; Stack space
+app_stack_top
+;
+                end
+

@@ -1,0 +1,2290 @@
+; *******************************************************
+; * CP/M BIOS for ZARC Z80 Computer                     *
+; * Version: V1.4                                       *
+; * Merlin Skinner, 16/11/2020                          *
+; *******************************************************
+;
+; Based on details in Digital Research CP/M Operating System Manual, especially
+; appendix A, "The MDS Basic I/O System (BIOS)" and
+; appendix B, "A Skeletal CBIOS", both at
+; http://www.gaby.de/cpm/manuals/archive/cpm22htm/
+;
+; V1.0 - initial version.
+; V1.1 - added ZARC specific functions and allocated pages.
+; V1.2 - added ADM-3A / VT-100 console translation for console.
+; V1.3, 29/7/2022 - switched console translation to terminal codes based on 
+;   VT-52 for wider support.
+; V1.4, 15/9/2022 - implemented CONOST, AUXIST and AUXOST functions. Added BIOS
+;   version number readable by applications.
+; V1.5, 30/9/2022 - added terminal reset sequence on cold and warm boot.
+;
+;
+; Memory Map (CP/M Mode)
+; 
+; 0 (0000 - 3FFF): [CPM0]   writeable
+; 1 (4000 - 7FFF): [CPM1]   writeable
+; 2 (8000 - BFFF): [CPM2]   writeable
+; 3 (C000 - FFFF): [CPM3]   writeable, supervisor
+;
+; When running CP/M, memory is mapped as shown above. Note that bank 3 is the
+; only one with I/O (supervisor) access. This one bank is maintained when calls
+; are made to the monitor. For this reason, interrupt code is maintained in
+; this bank. Page numbers for CP/M may vary, and are allocated using the
+; monitor's mpall function.
+;
+; Memory Map (Monitor Mode)
+; 
+; 0 (0000 - 3FFF): 3f [MONP]   read only, supervisor - monitor program
+; 1 (4000 - 7FFF): 3e [MOND]   writeable - monitor variables, buffers etc.
+; 2 (8000 - BFFF): (not used)
+; 3 (C000 - FFFF): [CPM3]   writeable - interrupts, stack common with CP/M.
+;
+; This is the default map used by the monitor, and is selected when the monitor
+; is active either for user commands or when its support routines are called.
+; Pages are mapped into bank 2 (8000 - BFFF) as required to support this. Page
+; 0x3f is selected in hardware when memory mapping is not active, so on reset
+; the monitor (page 0x3f at address 0) is entered.
+;
+;
+                title ZARC CP/M BIOS
+;
+;
+;
+; ************
+; * Includes *
+; ************
+;
+                include "macros.i"
+                include "z80.i"
+                include "zarc.i"        ; Hardware definitions
+                include "monitor.i"
+                include "io_map.i"      ; I/O addresses mapping
+                include "terminal.i"    ; Terminal constants
+                include "io.i"          ; I/O routines
+                include "utility.i"     ; Utility functions
+                include "maths.i"       ; Mathematical functions
+                include "interrupts.i"  ; Interrupts
+                include "time.i"        ; Routines associated with time
+                include "diags.i"       ; Diagnostics
+                include "heap.i"
+                include "cpm.i"
+                include "disks.i"
+                include "mmc.i"
+                include "memory.i"      ; Memory page allocation
+;
+;
+;
+; *************
+; * Externals *
+; *************
+;
+;
+; None
+;
+;
+;
+; *************
+; * Constants *
+; *************
+;
+;
+; Version
+BIOS_MAJ_VER        equ 1
+BIOS_MIN_VER        equ 5
+;
+; The interrupt stack need only be deep enough to meet the requirements of the
+; interrupt service routines plus a NMI. As the monitor switches to its own
+; stack for NMIs, this is a light requirement.
+INT_STACK_SIZE      equ 16              ; Interrupt service routine stack size
+;
+DISK_SPT            equ 256             ; Sectors per track
+DISK_DSM            equ 511             ; Maximum block number
+CPM_MIN_PRT_SIZE    equ CPM_SYS_SIZE + (NUM_DISKS * CPM_DISK_SIZE)
+CPM_MIN_PRT_SIZE_MS equ CPM_MIN_PRT_SIZE / MMC_SECTOR_SIZE  ; Minimum partition size in MMC sectors
+CPM_TRACK_SIZE      equ DISK_SPT * CPM_SECTOR_SIZE   ; "Track" size in bytes
+CPM_SYS_TRACKS      equ CPM_SYS_SIZE / CPM_TRACK_SIZE   ; System area size in tracks
+CPM_DRIVE_TRACKS    equ CPM_DISK_SIZE / CPM_TRACK_SIZE  ; Drive size in tracks
+;
+; Console input translation.
+CIT_BUF_MAX_LEN     equ 4               ; Maximum sequence length
+COT_BUF_MAX_LEN     equ 4               ; Maximum sequence length
+;
+;
+; Console output translation state machine states (cot_state).
+                ENUM_START
+                ENUM COTST_NORM         ; Normal state
+                ENUM COTST_ESC          ; Escape received
+                ENUM COTST_LOAD         ; Cursor load sequence
+                ENUM COTST_Y            ; Cursor load Y received
+                ENUM_END COTST_STATES   ; Number of states
+;
+                assert COTST_NORM = 0   ; Code assumes this
+;
+;
+; Console input translation state machine states (cit_state).
+                ENUM_START
+                ENUM CITST_NORM         ; Normal state
+                ENUM CITST_REPLAY       ; Replay unrecognised sequence
+                ENUM_END CITST_STATES   ; Number of states
+;
+                assert CITST_NORM = 0   ; Code assumes this
+;
+;
+;
+; *************
+; * Main Code *
+; *************
+;
+                aseg
+;
+                org BIOS_START
+;
+CCP_BDOS_SECTS  equ ($-CCP_START) / CPM_SECTOR_SIZE   ; Number of sectors in CCP and BDOS
+CCP_SECTS       equ (BDOS_START-CCP_START-6) / CPM_SECTOR_SIZE  ; Number of sectors in CCP
+;
+; Jump table.
+; Information from http://www.gaby.de/cpm/manuals/archive/cpm22htm/axb.htm
+; Entries here must match the jump table in cpm.i.
+                jp BOOT                 ; Cold start routine
+wboot_entry     jp WBOOT                ; Warm boot
+                jp CONST                ; Console status
+                jp CONIN                ; Console input
+                jp CONOUT               ; Console output
+                jp PLIST                ; Printer output
+                jp PUNCH                ; Paper tape punch output
+                jp READER               ; Paper tape reader input
+                jp HOME                 ; Move disc head to track 0
+                jp SELDSK               ; Select disc drive
+                jp SETTRK               ; Set track number
+                jp SETSEC               ; Set sector number
+                jp SETDMA               ; Set DMA address
+                jp READ                 ; Read a sector
+                jp WRITE                ; Write a sector
+; CP/M 2 functions.
+                jp LISTST               ; Status of list device
+                jp SECTRAN              ; Sector translation for skewing
+; CP/M 3 functions (not supported yet). From https://www.seasip.info/Cpm/bios.html
+                jp CONOST               ; Status of console output
+                jp AUXIST               ; Status of auxiliary input
+                jp AUXOST               ; Status of auxiliary output
+                jp DEVTBL               ; Address of devices table
+                jp DEVINI               ; Initialise a device
+                jp DRVTBL               ; Address of discs table
+                jp MULTIO               ; Read/write multiple sectors
+                jp FLUSH                ; Flush host buffers
+                jp MOVE                 ; Move a block of memory
+                jp TIME                 ; Real time clock
+                jp SELMEM               ; Select memory bank
+                jp SETBNK               ; Select bank for DMA operation
+                jp XMOVE                ; Preload banks for MOVE
+                jp USERF                ; System-depedent functions
+                jp RESERV1              ; Reserved
+                jp RESERV2              ; Reserved
+; ZARC-specific items follow.
+                byte "ZRC"              ; ZARC BIOS ID *1
+                byte 0, BIOS_MAJ_VER, BIOS_MIN_VER  ; BIOS_VER (version)
+                jp startup              ; ZARC CP/M startup entry point
+                jp mon_call             ; Call monitor function
+                jp set_super            ; Set supervisor state
+                jp int_disable          ; Disable interrupt and keep count
+                jp int_enable           ; Enable interrupts if safe.
+                jp tird                 ; Read time and date
+                jp set_timer            ; Set elapsed time
+                jp get_timer            ; Get elapsed timer
+;
+                assert $ = BIOS_JPTBL_NEXT + BIOS_START + 3 ; Verify end
+; *1 - this is "ZARC" truncated to three bytes to maintain alignment with other
+; jumps. This may be useful if the BIOS is ever called from C.
+;
+;
+;
+; ***********
+; * Booting *
+; ***********
+;
+;
+; Entry point from monitor's CPM command. This entry point is ZARC-only, and its
+; primary purpose is to provide a method for passing parameters to the CP/M
+; environment.
+; A - options. See BIOS_OPT_xxx definitions.
+; HL - pointer to memory page numbers (one for each bank)
+; IX - pointer to partition table entry
+startup         ld sp, mc_stk_top_p1    ; Use monitor call stack space
+                ld (bios_options), a    ; See BIOS_OPT_xxx definitions.
+; Copy page numbers to the BIOS variables area.
+                ld de, mem_pages        ; Destination
+                ld bc, MMAP_CPM_PAGES
+                ldir
+                ld (cpm_part_entry), ix ; Save pointer to partition table entry
+; Reset terminal. Use of the monitor's console I/O routines is safe at
+; this point as interrupts are not yet enabled.
+                ld hl, term_rst_msg
+                call MCALL_CONWMS       ; Print message
+; Display banner message.
+                ld hl, signon_msg
+                call MCALL_CONWMS       ; Print message
+;
+; Setup assuming no interrupts.
+                xor a
+                ld (itenfl), a          ; Set int. enable (I/O mode)
+                ld (itdsct), a          ; Reset DI nest count
+;
+; Setup console translation.
+                ld (cot_state), a       ; Console output translation state
+                ld (cit_state), a       ; Console input translation state
+                ld (cit_count), a       ; Number of characters in buffer
+                ld (cot_count), a       ; Number of characters in buffer
+;
+; Set dummy time for use if interrupts are disabled.
+                ld hl, tinow            ; BIOS current time and date
+                xor a
+                ld b, 4
+strt_clr_tim_lp ld (hl), a
+                inc hl
+                djnz strt_clr_tim_lp
+;
+; Enable interrupts unless the "noints" option was specified. This has the
+; following effects:
+; 1) Changes the way console I/O works, ensuring interrupts can run while waiting
+;    for I/O.
+; 2) Allows the tick interrupt to maintain the current time, which speeds up
+;    reading the time enormously.
+; Skip interrupt setup if interrupts are disabled.
+                ld a, (bios_options)    ; See BIOS_OPT_xxx definitions.
+                and BIOS_OPT_NOINTS_MASK
+                jr z, strt_ints         ; Jump if interrupts desired
+;
+; "noints" specified. Make sure the FPGA won't generate an INT as we can't stop
+; CP/M programs enabling interrupts (e.g. ZEXALL / ZEXDOC).
+                xor a
+                out (IOA_INT_EN), a     ; Disable all interrupts in FPGA
+                out (IOA_INT_PEND), a   ; Clear any pending interrupts
+;
+; Ensure than console translation is turned off as this depends
+; on interrupts for timing.
+                ld a, (bios_options)    ; See BIOS_OPT_xxx definitions.
+                or BIOS_OPT_RAWCON_MASK
+                ld (bios_options), a
+                jr strt_ints_done
+;
+; Setup interrupt vectors to point to BIOS service routines.
+strt_ints       ld a, INT_TICK_VEC      ; Vector number
+                ld de, tick_serv        ; Address of service routine
+                call int_set_vec        ; Set interrupt vector
+;
+                ld a, INT_SER1_TX_VEC   ; Vector number
+                ld de, ser1w_serv       ; Address of service routine
+                call int_set_vec        ; Set interrupt vector
+;
+                ld a, INT_SER1_RX_VEC   ; Vector number
+                ld de, ser1r_serv       ; Address of service routine
+                call int_set_vec        ; Set interrupt vector
+;
+                ld a, INT_SER2_TX_VEC   ; Vector number
+                ld de, ser2w_serv       ; Address of service routine
+                call int_set_vec        ; Set interrupt vector
+;
+                ld a, INT_SER2_RX_VEC   ; Vector number
+                ld de, ser2r_serv       ; Address of service routine
+                call int_set_vec        ; Set interrupt vector
+;
+; Set Z80 interrupt registers appropriately for the mode we want to use.
+                im 2
+                ld a, high (INT_VEC_TABLE)
+                ld i, a
+;
+; Read the hardware RTC and set the tick interrupt maintained copy to the
+; current time. Note that reading the hardware RTC takes a significant amount
+; of time.
+                call MCALL_TIRD         ; Read current time and date
+; A - zero (OK) or I2C error code (I2C_ERR_xxx)
+; DEHL - 32-bit time (if no error).
+                and a
+                jr z, strt_rtc_ok
+; RTC read error
+                ld c, a
+                ld hl, rtc_err_msg      ; "RTC error "
+                call MCALL_CONWMS       ; Print "RTC error " message
+                ld a, c
+                call MCALL_CWPHBY       ; Print error code in hex
+                call MCALL_CWNWLN       ; New line
+                jr strt_rtc_done        ; Continue with default (zero) time
+;
+strt_rtc_ok     ld iy, tinow
+                ld (iy + 0), l          ; LS byte
+                ld (iy + 1), h
+                ld (iy + 2), e
+                ld (iy + 3), d          ; MS byte
+; Set tick counter.
+                ld hl, tikdiv
+                ld (hl), TICK_FREQ - 1  ; Tick rate in Hz
+;
+; FPGA interrupt controller initialisation.
+strt_rtc_done   ld a, INT_TICK_MASK
+                out (IOA_INT_PEND), a   ; Clear any pending tick interrupt.
+                out (IOA_INT_EN), a     ; Enable interrupt
+;
+                ld a, 1
+                ld (itenfl), a          ; Flag interrupts enabled
+                xor a
+                ld (itdsct), a          ; Reset DI nest count
+                ei                      ; Global enable
+; Interrupts are now running.
+;
+; Since partitions are only (easily) aligned to 1 MB boundaries, we simply (but
+; somewhat wastefully) reserve another 1 MB for the system files. One could view
+; it as 17 x 1 MB sub-partitions, one for the system and the remainder for CP/M
+; drives. This means the partition size should be 17 MB, but larger is
+; allowable. Subtracting the minimum required size from the actual partition
+; size should not cause a carry.
+strt_ints_done  ld e, (ix + DPART_SIZE_SECS)
+                ld d, (ix + DPART_SIZE_SECS + 1)
+                ld c, (ix + DPART_SIZE_SECS + 2)
+                ld b, (ix + DPART_SIZE_SECS + 3)
+; BCDE - partition size in MMC sectors
+                ld a, e
+                sub low CPM_MIN_PRT_SIZE_MS
+                ld a, d
+                sbc high CPM_MIN_PRT_SIZE_MS
+                ld a, c
+                sbc 0
+                ld a, b
+                sbc 0
+                call c, bios_panic
+; The partition is large enough.
+;
+; Drop into cold boot.
+;
+;
+; On entry, these functions swap to the BIOS stack. This allows use of bank
+; switching without concerns about switching the bank containing the stack. This
+; would be especially hazardous as interrupts are normally enabled.
+;
+; -3: Cold start.
+; From https://www.seasip.info/Cpm/bios.html - "This function is completely
+; implementation-dependent and should never be called from user code."
+; Booting is always from drive A, the first in the CP/M partition.
+; Set CP/M context
+BOOT            ld sp, mc_stk_top_p1    ; Use monitor call stack space
+                call mmap_cpm           ; Ensure CP/M memory map is selected
+; Initialise some zero page locations.
+                xor a                   ; Use console for all character I/O
+                ld (IOBYTE), a          ; Set I/O byte
+                ld (CDISK), a           ; Select drive A and user 0
+;
+; Go here to load the CCP and (optionally) the BDOS before jumping to CP/M.
+; As the CCP and BDOS are located in bank 3 (0xc000 to 0xffff), we can use the
+; monitor's memory map and load directly to the required locations.
+; a - number of sectors to load
+boot_load       ld a, CCP_BDOS_SECTS    ; Sector count
+;
+                ld (load_secs), a       ; Save number of sectors
+                ld b, a
+                call mmap_monitor       ; Swap to monitor memory map
+                ld ix, (cpm_part_entry) ; Point to partition table entry
+                ld c, 0                 ; Starting sector
+                ld de, 0
+                ld hl, CCP_START        ; Destination address
+boot_load_loop  push bc
+                push de
+; CDE - CP/M (128-byte) sector number (offset into partition)
+; HL - destination address
+; IX - pointer to partition table entry structure
+                call MCALL_CACRS        ; Read CP/M sector
+; A - zero (OK) or error code (SPI_ERR_xxx)
+; HL - updated pointer to buffer (points to location after last written)
+                pop de
+                pop bc
+                and a
+                jp nz, mmc_error        ; Halt system on error
+; Increment sector.
+                inc de
+                ld a, d
+                or e
+                jr nz, boot_ldlp_nc
+                inc c                   ; Increment if carry occurred
+boot_ldlp_nc    djnz boot_load_loop
+;
+; Calculate and display CRC if debugging is enabled. The monitor memory map
+; remains throughout.
+                ld a, (bios_options)    ; See BIOS_OPT_xxx definitions.
+                and BIOS_OPT_DEBUG_MASK
+                jr z, bol_no_debug
+;
+; Debugging messages.
+; Load parameters for cold start (BDOS & CCP) initially.
+                ld hl, cold_crc_msg     ; "BDOS & CCP CRC "
+                ld de, CCP_START
+                ld bc, BIOS_START - CCP_START   ; Length
+                ld a, (load_secs)       ; Fetch number of sectors
+                cp CCP_BDOS_SECTS
+                jr z, bol_do_crc        ; Jump on cold start
+; This is a warm start, so modify the parameters appropriately.
+                ld hl, warm_crc_msg     ; "CCP CRC "
+                ld bc, BDOS_START - CCP_START -6    ; Length
+;
+; BC - length
+; DE - start
+; HL - pointer to message
+bol_do_crc      call MCALL_CONWMS       ; Print message
+; Generate CRC.
+                ld hl, 0                ; Initial CRC
+bol_crc_loop    ld a, (de)
+                call MCALL_CRC16X       ; CRC-16 (XMODEM)
+                inc de
+                dec bc
+                ld a, b
+                or c
+                jr nz, bol_crc_loop
+; HL - required CRC.
+                call MCALL_CWPHWD       ; Print HL in hexadecimal
+                call MCALL_CWNWLN       ; Write new line characters to console
+;
+; Reset elapsed time.
+bol_no_debug    ld bc, 0
+                ld de, 0
+; BCDE - 32-bit time in ms (0 to approximately 49.7 days).
+                call set_timer
+; Jump to CP/M.
+                jp go_cpm
+;
+;
+; 0: Warm boot - reload command processor (CCP). Modified on 6/7/2021 to load
+; the BDOS as well. Some programmes such as ADV and ZEXDOC rely on this as they
+; overwrite the serial number at the start of the BDOS.
+WBOOT           ld sp, mc_stk_top_p1    ; Use monitor call stack space
+; Reset the terminal.
+                ld hl, term_rst_msg
+                call con_out_msg        ; Print message using CONOUT
+;
+                jr boot_load            ; Continue as for cold boot
+;
+;
+;
+; *****************
+; * Character I/O *
+; *****************
+;
+;
+; Using IOBYTE mapping described at https://www.seasip.info/Cpm/iobyte.html
+;
+; Console escape codes are are translated so as to provide the appearance of a
+; simple terminal to applications. Translation is useful because few terminal
+; emulators support ADM-3A, and some CP/M programs cannot support VT-100
+; sequences. Codes based on the VT-52 were chosen for output as it offers
+; relatively simple control codes and is the basis for a variety of later CP/M
+; machines such as the Amstrad PCW range and Spectrum +3. An external VT-100 /
+; ANSI terminal or terminal emulator can then be used with a wide range of CP/M
+; software.
+;
+; Input escape codes are translated to single characters where appropriate. This
+; is the approach taken by later CP/M machines such as the Amstrad PCW range and
+; Spectrum +3.
+;
+; Translation may be disabled by starting CP/M from the monitor with the
+; "rawcon" option. Translation of console input depends on interrupts, so will
+; not function if CP/M is started with the "noints" option.
+;
+; 3: Console status, return 0xff if character ready, 00h if not
+CONST           ld a, (cit_state)       ; Console input translation state
+                and a
+                jr z, const_raw         ; CITST_NORM (normal state)
+; Console translation is enabled and we have received an escape sequence that
+; we didn't recognise. There are characters to return, so we need to reflect
+; this in the return code.
+                ld a, 0xff
+                ret
+
+const_raw       ld a, (IOBYTE)          ; Fetch mapping
+                and IOB_CON_MASK
+; A indicates the relevant device.
+                jp z, tty_in_st         ; 0: console printer device (TTY:)
+                dec a
+                jp z, crt_in_st         ; 1: console (keyboard and terminal screen).
+                dec a
+                jp z, rdr_st            ; 2: batch mode, use current reader dev.
+                dec a
+                jp z, uc1_in_st         ; 3: user-defined console device
+                call bios_panic         ; System error monitor entry
+;
+;
+; Get status from current reader device.
+rdr_st          ld a, (IOBYTE)          ; Fetch mapping
+                and IOB_RDR_MASK
+; A indicates the relevant device.
+                jp z, tty_in_st         ; 0: teletype device (TTY:)
+                sub 0x04
+                jp z, ptr_in_st         ; 1: high speed reader device (PTR:)
+                sub 0x04
+                jp z, ur1_in_st         ; 2: user-defined reader #1 (UR1:)
+                sub 0x04
+                jp z, ur2_in_st         ; 3: user-defined reader #2 (UR2:)
+                call bios_panic         ; System error monitor entry
+;
+;
+; 6: Console input. Read console character into register A.
+CONIN           ld a, (bios_options)
+                and BIOS_OPT_RAWCON_MASK
+                jp nz, raw_conin        ; Skip translation if disabled
+;
+; Console translation is enabled. Unrecognised sequences are
+; transmitted without modification, so applications can still receive VT-100 /
+; ANSI sequences if desired. Translations are:
+; <Esc>[A to 0x1f (^_) - Cursor up
+; <Esc>[B to 0x1e (^^) - Cursor down
+; <Esc>[C to 0x06 (^F) - Cursor right
+; <Esc>[D to 0x01 (^A) - Cursor left
+; <Esc>[1~ to 0x02 (^B) - Home (useful for BBC Basic) *
+; <Esc>[2~ to 0x16 (^V) - Ins (useful for BBC Basic) *
+; <Esc>[3~ to 0x7f - Del (added to ease use with terminal emulators) *
+; <Esc>[4~ to 0x04 (^D) - End (useful for BBC Basic) *
+; <Esc>[5~ to 0x1d (^]) - Page up *
+; <Esc>[6~ to 0x1c (^\) - Page down *
+; * There are no VT-100 keys for these functions.
+                ld a, (cit_state)
+                and a
+                jr z, cit_norm          ; Jump if COTST_NORM
+                cp CITST_REPLAY         ; Replay unrecognised sequence
+                jp z, cit_replay
+;
+; Panic if state is unknown.
+                call bios_panic         ; System error monitor entry
+;
+; Normal state (CITST_NORM).
+cit_norm        call raw_conin          ; Fetch next character
+                cp ASCII_ESC
+                ret nz                  ; Return unless <Esc>
+; The <Esc> may be the beginning of a VT-100 / ANSI CSI, or a single character.
+; We will allow at least one tick before assuming this is an isolated character.
+; At this point, we can't return as we have to return a character, but may or
+; may not want to translate depending on what follows. We will wait for at
+; least one tick to see what follows. Initialise variables.
+                push af
+                xor a
+                ld (cit_count), a       ; Number of characters in buffer
+                pop af                  ; Restore <Esc>
+                call cit_store          ; Store character
+                ld a, 2
+                ld (cit_timer), a     ; Set timer (1 to 2 ticks)
+                call cit_getch          ; Read character or time out
+                jr c, cit_do_replay     ; Replay sequence on timeout
+; Second character received.
+                cp "["
+                jr nz, cit_do_replay
+; CSI received. Read the next character.
+cit_csi         call cit_getch          ; Read character or time out
+                jr c, cit_do_replay     ; Replay sequence on timeout
+                ld c, ZKEY_CSR_UP
+                cp "A"                  ; Cursor up
+                jr z, cit_ret_char
+                ld c, ZKEY_CSR_DOWN
+                cp "B"                  ; Cursor down
+                jr z, cit_ret_char
+                ld c, ZKEY_CSR_RIGHT
+                cp "C"                  ; Cursor right
+                jr z, cit_ret_char
+                ld c, ZKEY_CSR_LEFT
+                cp "D"                  ; Cursor left
+                jr z, cit_ret_char
+; Not a cursor key, but it may be a numeric digit followed by "~".
+                cp "0"
+                jr c, cit_do_replay
+                cp "9" + 1
+                jr nc, cit_do_replay
+; Numeric argument found. Fetch another character.
+                call cit_getch          ; Read character or time out
+                jr c, cit_do_replay     ; Replay sequence on timeout
+                cp "~"                  ; RUB
+                jr nz, cit_do_replay
+; We have a sequence of the form <Esc>[<digit>~
+                ld a, (cit_buffer + 2)  ; Fetch argument
+                ld c, ZKEY_HOME
+                cp "1"                  ; Home
+                jr z, cit_ret_char
+                ld c, ZKEY_INSERT
+                cp "2"                  ; Ins
+                jr z, cit_ret_char
+                ld c, ZKEY_DELETE
+                cp "3"                  ; Del
+                jr z, cit_ret_char
+                ld c, ZKEY_END
+                cp "4"                  ; End
+                jr z, cit_ret_char
+                ld c, ZKEY_PAGE_UP
+                cp "5"                  ; Page up
+                jr z, cit_ret_char
+                ld c, ZKEY_PAGE_DOWN
+                cp "6"                  ; Page down
+                jr z, cit_ret_char
+; Sequence not recognised.
+;
+; <Esc><something> received, where <something> is not recognised. We will
+; supply the received sequence for possible handling by the application.
+cit_do_replay   ld a, CITST_REPLAY      ; Replay unrecognised sequence
+                ld (cit_state), a
+                push hl
+                ld hl, cit_buffer       ; Set pointer to first character
+                ld (cit_buff_ptr), hl
+                pop hl
+; Fall into following code to return with the first character from the buffer.
+;
+; We are replaying an unrecognised sequence.
+; Find address in sequence buffer.
+cit_replay      push hl
+                ld hl, (cit_buff_ptr)
+                ld a, (hl)              ; Fetch character
+; Update pointer.
+                inc hl
+                ld (cit_buff_ptr), hl
+; Update counter.
+                ld hl, cit_count        ; Number of characters in buffer
+                dec (hl)
+                pop hl
+                ret nz
+; We are about to return the last character. We can stop replaying now.
+                push af
+                xor a
+                ld (cit_state), a       ; Set COTST_NORM state
+                pop af
+                ret
+;
+; Return with character in C.
+cit_ret_char    ld a, c
+                ret
+;
+; Read character or time out (cit_timer reaches zero). If a character is
+; received, it is stored in cit_buffer and returned. Returns with:
+; A - character received if no timeout.
+; Carry flag - set on timeout
+cit_getch       ld a, (cit_timer)       ; Fetch timer
+                add 0xff
+; Carry will be set if timer > 0 (not timed out).
+                ccf
+                ret c
+                call CONST              ; Console status
+; A - 0xff if character ready, 00h if not.
+                and a
+                jr z, cit_getch
+; A character has been received.
+                call raw_conin          ; Fetch it
+; A - character received
+                push af
+                call cit_store          ; Store character
+                pop af
+                and a                   ; Reset carry
+                ret                     ; Return (no timeout)
+;
+; Store character in console input buffer.
+; A - character to store.
+cit_store       push bc
+                push hl
+                ld c, a
+                ld a, (cit_count)       ; Number of characters in buffer
+                cp CIT_BUF_MAX_LEN
+                call nc, bios_panic     ; System error monitor entry
+; Find address in sequence buffer.
+                ld hl, cit_buffer
+                add l
+                ld l, a
+                ld a, h
+                adc 0                   ; Propagate carry
+                ld h, a
+; HL - address in buffer
+                ld (hl), c              ; Store character
+; Update counter
+                ld hl, cit_count
+                inc (hl)
+                pop hl
+                pop bc
+                ret
+;
+; Console input with no terminal translation.
+raw_conin       ld a, (IOBYTE)          ; Fetch mapping
+                and IOB_CON_MASK
+; A indicates the relevant device.
+                jp z, tty_in            ; 0: console printer device (TTY:)
+                dec a
+                jp z, crt_in            ; 1: console (keyboard and terminal screen).
+                dec a
+                jp z, READER            ; 2: batch mode, use current reader dev.
+                dec a
+                jp z, uc1_in            ; 3: user-defined console device
+                call bios_panic         ; System error monitor entry
+;
+;
+; 9: Console output. Console character output from register C.
+CONOUT          ld a, (bios_options)
+                and BIOS_OPT_RAWCON_MASK
+                jp nz, raw_conout       ; Skip translation if disabled
+;
+; Console translation is enabled. Unrecognised sequences are
+; transmitted without modification, so applications can still send VT-100 /
+; ANSI sequences if desired. Translations are:
+; Esc A to Esc [ A - Cursor up
+; Esc B to Esc [ B - Cursor down
+; Esc C to Esc [ C - Cursor right
+; Esc D to Esc [ D - Cursor left
+; Esc H to Esc [ H - Cursor home
+; Esc J to Esc [ J - Clear to end of display
+; Esc K to Esc [ K - Clear to end of line
+; Esc Y <y> <x> to Esc [ <y> ; <x> H - Set cursor position
+; Esc p to Esc [ 7 m - Reverse video on
+; Esc q to Esc [ 27 m - Normal (positive) video
+; Esc r to Esc [ 4 m - Underline on
+; Esc u to Esc [ 24 m - Underline off
+                ld a, (cot_state)
+                and a
+                jr z, cot_norm        ; Jump if COTST_NORM
+                cp COTST_ESC
+                jr z, cot_esc
+                cp COTST_LOAD
+                jp z, cot_load
+                cp COTST_Y
+                jp z, cot_y
+; Panic if state is unknown.
+                call bios_panic         ; System error monitor entry
+;
+; Normal state (COTST_NORM).
+cot_norm        ld a, c
+                cp ASCII_ESC
+                jp nz, raw_conout       ; Don't tranlate if not Esc
+; Escape found.
+                xor a
+                ld (cot_count), a       ; Flush buffer
+                ld a, c
+                call cot_store          ; Store it
+                ld a, COTST_ESC         ; Set state for next character
+                ld (cot_state), a
+                ret
+;
+; Previous character was an escape.
+cot_esc         ld a, c
+                call cot_store         ; Store it
+                ld a, c
+                cp "A"
+                jr c, cot_not_arw
+                cp "D" + 1
+                jr c, cot_cmd         ; Jump if cursor arrow
+; Not a cursor arrow (up, down, left or right)
+cot_not_arw     cp "H"
+                jr z, cot_cmd         ; Cursor home
+                cp "J"
+                jr z, cot_cmd         ; Clear to end of display
+                cp "K"
+                jr z, cot_cmd         ; Clear to end of line
+                cp "Y"
+                jp z, cot_set_csr     ; Set cursor position
+                ld c, 7                 ; VT-100 / ANSI SGR code
+                cp "p"
+                jr z, cot_sgr
+                ld c, 27                ; VT-100 / ANSI SGR code
+                cp "q"
+                jr z, cot_sgr
+                ld c, 4                 ; VT-100 / ANSI SGR code
+                cp "r"
+                jr z, cot_sgr
+                ld c, 24                ; VT-100 / ANSI SGR code
+                cp "u"
+                jr z, cot_sgr
+;
+; Unrecognised sequence. Send whatever we received. This code assumes that
+; there is at least one character in cot_buffer.
+cot_pass        ld a, (cot_count)       ; Number of characters in buffer
+                ld b, a
+                ld hl, cot_buffer       ; Point to buffer
+cot_pass_lp     ld c, (hl)
+                push bc
+                push hl
+                call raw_conout
+                pop hl
+                pop bc
+                inc hl
+                djnz cot_pass_lp
+                jr cot_to_norm          ; Set normal state and exit
+;
+; Send CSI followed by command.
+; C - command character
+cot_cmd         push bc
+                call cot_csi            ; Send <Esc>[
+                pop bc
+                call raw_conout         ; Send cursor move command
+; Set state to normal for the next character.
+cot_to_norm     xor a
+                ld (cot_state), a       ; Set state to COTST_NORM
+                ret
+;
+; Select graphics rendition.
+; C - required ANSI / VT-100 SGR code in decimal
+cot_sgr         push bc
+                call cot_csi
+                pop bc
+                ld a, c
+                call cot_dec            ; Send decimal parameter
+                ld c, "m"
+                call raw_conout
+                jp cot_to_norm          ; Set normal state and exit
+;
+; Send VT-100 CSI sequence ("<Esc>[") to console.
+cot_csi         ld c, ASCII_ESC
+                call raw_conout
+                ld c, "["
+                jr raw_conout
+;
+; Set cursor position sequence (Esc Y). The next characters are <y> and <x>.
+cot_set_csr     ld a, COTST_LOAD
+                ld (cot_state), a
+                ret
+;
+; Cursor load state (COTST_LOAD).
+cot_load        ld a, c
+                call cot_store          ; Store it
+                ld a, c                 ; Y coordinate
+                cp 0x20
+                jr c, cot_pass          ; Discard if Y is negative
+                ld a, COTST_Y
+                ld (cot_state), a
+                ret
+;
+; Cursor load Y state (COTST_Y).
+cot_y           ld a, c
+                call cot_store          ; Store it
+                ld a, c                 ; X coordinate
+                cp 0x20
+                jr c, cot_pass          ; Discard if X is negative
+; Send VT-100 console load sequence: <ESC> [ pl ; pc H
+                call cot_csi
+                ld a, (cot_buffer + 2)  ; y
+                sub 0x1f                ; Make origin 0x01
+                call cot_dec
+                ld c, ";"
+                call raw_conout
+                ld a, (cot_buffer + 3)  ; x
+                sub 0x1f                ; Make origin 0x01
+                call cot_dec
+                ld c, "H"
+                call raw_conout
+                jp cot_to_norm          ; Set normal state and exit
+;
+; Send decimal number in A to console.
+cot_dec         push bc
+                ld b, 100
+                call cot_dec_div
+                ld b, 10
+                call cot_dec_div
+                pop bc
+; Output digit (0 to 9) in A.
+cot_dec_digit   add "0"                 ; Convert to ASCII
+                ld c, a
+                jr raw_conout           ; Send it and return
+; Divide by A by B using repeated subtraction.
+cot_dec_div     ld c, "0"
+cot_dec_loop    sub b
+                jr c, cot_dec_carry
+                inc c
+                jr cot_dec_loop
+cot_dec_carry   add b                   ; Reverse subtract that carried
+; Now A is the remainder and C is the digit.
+                push af
+                ld a, c
+                cp "0"
+                call nz, raw_conout     ; Output if not zero
+                pop af
+                ret
+;
+; Store character in console output buffer.
+; A - character to store.
+cot_store       push bc
+                push hl
+                ld c, a
+                ld a, (cot_count)       ; Number of characters in buffer
+                cp COT_BUF_MAX_LEN
+                call nc, bios_panic     ; System error monitor entry
+; Find address in sequence buffer.
+                ld hl, cot_buffer
+                add l
+                ld l, a
+                ld a, h
+                adc 0                   ; Propagate carry
+                ld h, a
+; HL - address in buffer
+                ld (hl), c              ; Store character
+; Update counter
+                ld hl, cot_count
+                inc (hl)
+                pop hl
+                pop bc
+                ret
+;
+; Console output with no terminal translation.
+; C - character
+raw_conout      ld a, (IOBYTE)          ; Fetch mapping
+                and IOB_CON_MASK
+; A indicates the relevant device.
+                jp z, tty_out           ; 0: console printer device (TTY:)
+                dec a
+                jp z, crt_out           ; 1: CRT device (CRT:)
+                dec a
+                jp z, PLIST             ; 2: batch mode, use current list dev.
+                dec a
+                jp z, uc1_out           ; 3: user-defined console device
+                call bios_panic         ; System error monitor entry
+;
+;
+; 12: Printer output (renamed from LIST due to reserved word usage).
+; List character from register C
+PLIST           ld a, (IOBYTE)          ; Fetch mapping
+                and IOB_LST_MASK
+; A indicates the relevant device.
+                jp z, tty_out           ; 0: teletype device (TTY:)
+                sub 0x40
+                jp z, crt_out           ; 1: CRT device (CRT:)
+                sub 0x40
+                jp z, lpt_out           ; 2: line printer device (LPT:)
+                sub 0x40
+                jp z, ul1_out           ; 3: user-defined list device (UL1:)
+                call bios_panic         ; System error monitor entry
+;
+;
+; 15: Paper tape punch output character from register C.
+PUNCH           ld a, (IOBYTE)          ; Fetch mapping
+                and IOB_PUN_MASK
+; A indicates the relevant device.
+                jp z, tty_out           ; 0: teletype device (TTY:)
+                sub 0x10
+                jp z, ptp_out           ; 1: high speed punch device (PTP:)
+                sub 0x10
+                jp z, up1_out           ; 2: user-defined punch #1 (UP1:)
+                sub 0x10
+                jp z, up2_out           ; 3: user-defined punch #2 (UP2:)
+                call bios_panic         ; System error monitor entry
+;
+;
+; 18: Paper tape reader input. Reader character into register A from reader
+; device.
+READER          ld a, (IOBYTE)          ; Fetch mapping
+                and IOB_RDR_MASK
+; A indicates the relevant device.
+                jp z, tty_in            ; 0: teletype device (TTY:)
+                sub 0x04
+                jp z, ptr_in            ; 1: high speed reader device (PTR:)
+                sub 0x04
+                jp z, ur1_in            ; 2: user-defined reader #1 (UR1:)
+                sub 0x04
+                jp z, ur2_in            ; 3: user-defined reader #2 (UR2:)
+                call bios_panic         ; System error monitor entry
+;
+;
+;
+; ***********
+; * Devices *
+; ***********
+;
+;
+; Devices are implemented as shown in:
+; http://www.gaby.de/cpm/manuals/archive/cpm22htm/ch1.htm#Table_1-3
+;
+; *** TTY ***
+; Teletype device (slow speed console). This is serial port 1 for ZARC.
+;
+; Input status (is an input character ready?).
+tty_in_st       in a, (IOA_SER1_CSR)    ; Read status
+                and a, SER_CSR_RX_EMPTY_MASK
+                jr z, ttyist_char       ; Jump if the FIFO is not empty
+                xor a
+                ret
+ttyist_char     ld a, 0xff              ; Flag character available
+                ret
+;
+;
+; Input character. This will wait if no character is available.
+tty_in          ld a, (itenfl)          ; Fetch int. enable flag (I/O mode)
+                and a
+                jr z, s1rch_in
+; In normal mode, we will poll the serial receiver to await a character
+; rather than having the hardware stop the machine. This latter method prevents
+; interrupts from being serviced. Basic mode is useful if there are issues with
+; the interrupt system. If the interrupts are disabled, this clearly cannot work
+; so the system panics.
+                ld a, (itdsct)          ; DI nest count
+                and a
+                call nz, bios_panic     ; Panic if count != 0
+;
+; The objective of this code is to have the machine halted until we can complete
+; the operation. A simple wait loop would be simpler, but would give no indication
+; that the machine is stalled.
+; We can enable and disable interrupts directly here because we know the DI nest
+; count is zero.
+                di
+s1rch_loop      in a, (IOA_SER1_CSR)     ; Read status
+                and a, SER_CSR_RX_EMPTY_MASK
+                jr z, s1rch_in_ei        ; Jump if the FIFO is not empty
+; There is nothing to read in the FIFO. Enable the receiver interrupt before
+; halting so we exit from the halt state when a character arrives. The interrupt
+; service routine simply disables the interrupt, but will also release us from the
+; halt state.
+                in (IOA_INT_EN)
+                or INT_SER1_RX_MASK
+                out (IOA_INT_EN)
+; Interrupts are only enabled for the halt, so the rest is atomic.
+                ei
+                halt                    ; Halt until the next interrupt
+                di
+                jr s1rch_loop
+;
+s1rch_in_ei     ei
+s1rch_in        in (IOA_SER1_DATA)
+                ret
+;
+;
+; Output status (can the output accept another character?).
+tty_out_st      in a, (IOA_SER1_CSR)    ; Read status
+                and a, SER_CSR_TX_FULL_MASK
+                jr z, ttyost_char       ; Jump if there is space in the FIFO
+                xor a
+                ret
+ttyost_char     ld a, 0xff              ; Flag ready
+                ret
+;
+;
+; Output character.
+tty_out         ld a, (itenfl)          ; Fetch int. enable flag (I/O mode)
+                and a
+                jr z, s1wch_out
+; In normal mode, we will poll the serial transmitter to await space in the FIFO
+; rather than having the hardware stop the machine. This latter method prevents
+; interrupts from being serviced. Basic mode is useful if there are issues with
+; the interrupt system. If the interrupts are disabled, this clearly cannot work
+; so the system panics.
+                ld a, (itdsct)          ; DI nest count
+                and a
+                call nz, bios_panic     ; Panic if count != 0
+;
+; The objective of this code is to have the machine halted until we can complete
+; the operation. A simple wait loop would be simpler, but would give no indication
+; that the machine is stalled.
+; We can enable and disable interrupts directly here because we know the DI nest
+; count is zero.
+                di
+s1wch_loop      in a, (IOA_SER1_CSR)    ; Read status
+                and a, SER_CSR_TX_FULL_MASK
+                jr z, s1wch_out_ei      ; Jump if there is space in the FIFO
+; There is no space in the FIFO. Enable the transmitter interrupt before halting
+; so we exit from the halt state when the buffer has some space. The interrupt
+; service routine simply disables the interrupt, but will also release us from the
+; halt state.
+                in (IOA_INT_EN)
+                or INT_SER1_TX_MASK
+                out (IOA_INT_EN)
+; Interrupts are only enabled for the halt, so the rest is atomic.
+                ei
+                halt                    ; Halt until the next interrupt
+                di
+                jr s1wch_loop
+;
+s1wch_out_ei    ei
+s1wch_out       ld a, c
+                out (IOA_SER1_DATA), a
+                ret
+;
+;
+; *** CRT ***
+; Cathode ray tube device (high speed console).
+;
+crt_in_st       xor a                   ; Flag no character available
+                ret
+;
+crt_in          ld a, 0x1a              ; End of file
+                ret
+;
+crt_out_st      xor a                   ; Flag not ready
+                ret
+;
+crt_out         ret
+;
+;
+; *** UC1 ***
+; User-defined console.
+;
+uc1_in_st       xor a                   ; Flag no character available
+                ret
+;
+uc1_in          ld a, 0x1a              ; End of file
+                ret
+;
+uc1_out_st      xor a                   ; Flag not ready
+                ret
+;
+uc1_out         ret
+;
+;
+; *** PTR ***
+; Paper tape reader (high speed reader). This is serial port 2 (input) for ZARC.
+;
+ptr_in_st       in a, (IOA_SER2_CSR)    ; Read status
+                and a, SER_CSR_RX_EMPTY_MASK
+                jr z, ptrist_char       ; Jump if the FIFO is not empty
+                xor a
+                ret
+ptrist_char     ld a, 0xff              ; Flag character available
+                ret
+;
+; This will wait if no character is available.
+ptr_in          ld a, (itenfl)          ; Fetch int. enable flag (I/O mode)
+                and a
+                jr z, s2rch_in
+; In normal mode, we will poll the serial receiver to await a character
+; rather than having the hardware stop the machine. This latter method prevents
+; interrupts from being serviced. Basic mode is useful if there are issues with
+; the interrupt system. If the interrupts are disabled, this clearly cannot work
+; so the system panics.
+                ld a, (itdsct)          ; DI nest count
+                and a
+                call nz, bios_panic     ; Panic if count != 0
+;
+; The objective of this code is to have the machine halted until we can complete
+; the operation. A simple wait loop would be simpler, but would give no indication
+; that the machine is stalled.
+; We can enable and disable interrupts directly here because we know the DI nest
+; count is zero.
+                di
+s2rch_loop      in a, (IOA_SER2_CSR)     ; Read status
+                and a, SER_CSR_RX_EMPTY_MASK
+                jr z, s2rch_in_ei        ; Jump if the FIFO is not empty
+; There is nothing to read in the FIFO. Enable the receiver interrupt before
+; halting so we exit from the halt state when a character arrives. The interrupt
+; service routine simply disables the interrupt, but will also release us from the
+; halt state.
+                in (IOA_INT_EN)
+                or INT_SER2_RX_MASK
+                out (IOA_INT_EN)
+; Interrupts are only enabled for the halt, so the rest is atomic.
+                ei
+                halt                    ; Halt until the next interrupt
+                di
+                jr s2rch_loop
+;
+s2rch_in_ei     ei
+s2rch_in        in (IOA_SER2_DATA)
+                ret
+;
+;
+; *** UR1 ***
+; User-defined reader #1.
+;
+ur1_in_st       xor a                   ; Flag no character available
+                ret
+;
+ur1_in          ld a, 0x1a              ; End of file
+                ret
+;
+;
+; *** UR2 ***
+; User-defined reader #2.
+;
+ur2_in_st       xor a                   ; Flag no character available
+                ret
+;
+ur2_in          ld a, 0x1a              ; End of file
+                ret
+;
+;
+; *** PTP ***
+; Paper tape punch (high speed punch). This is serial port 2 (output) for ZARC.
+;
+; Output status (can the output accept another character?).
+ptp_out_st      in a, (IOA_SER2_CSR)    ; Read status
+                and a, SER_CSR_TX_FULL_MASK
+                jr z, ptpost_char       ; Jump if there is space in the FIFO
+                xor a
+                ret
+ptpost_char     ld a, 0xff              ; Flag ready
+                ret
+;
+;
+; Output character.
+ptp_out         ld a, (itenfl)          ; Fetch int. enable flag (I/O mode)
+                and a
+                jr z, s2wch_out
+; In normal mode, we will poll the serial transmitter to await space in the FIFO
+; rather than having the hardware stop the machine. This latter method prevents
+; interrupts from being serviced. Basic mode is useful if there are issues with
+; the interrupt system. If the interrupts are disabled, this clearly cannot work
+; so the system panics.
+                ld a, (itdsct)          ; DI nest count
+                and a
+                call nz, bios_panic     ; Panic if count != 0
+;
+; The objective of this code is to have the machine halted until we can complete
+; the operation. A simple wait loop would be simpler, but would give no indication
+; that the machine is stalled.
+; We can enable and disable interrupts directly here because we know the DI nest
+; count is zero.
+                di
+s2wch_loop      in a, (IOA_SER2_CSR)    ; Read status
+                and a, SER_CSR_TX_FULL_MASK
+                jr z, s2wch_out_ei      ; Jump if there is space in the FIFO
+; There is no space in the FIFO. Enable the transmitter interrupt before halting
+; so we exit from the halt state when the buffer has some space. The interrupt
+; service routine simply disables the interrupt, but will also release us from the
+; halt state.
+                in (IOA_INT_EN)
+                or INT_SER2_TX_MASK
+                out (IOA_INT_EN)
+; Interrupts are only enabled for the halt, so the rest is atomic.
+                ei
+                halt                    ; Halt until the next interrupt
+                di
+                jr s2wch_loop
+;
+s2wch_out_ei    ei
+s2wch_out       ld a, c
+                out (IOA_SER2_DATA), a
+                ret
+;
+;
+; *** UP1 ***
+; User-defined punch #1.
+;
+; Output status (can the output accept another character?).
+up1_out_st      xor a                   ; Not ready
+                ret
+;
+;
+up1_out         ret
+;
+;
+; *** UP2 ***
+; User-defined punch #2.
+;
+; Output status (can the output accept another character?).
+up2_out_st      xor a                   ; Not ready
+                ret
+;
+;
+up2_out         ret
+;
+;
+; *** LPT ***
+; Line printer.
+;
+; Output status (can the output accept another character?).
+lpt_out_st      xor a                   ; Not ready
+                ret
+;
+;
+lpt_out         ret
+;
+;
+; *** UL1 ***
+; User-defined list device #1.
+;
+; Output status (can the output accept another character?).
+ul1_out_st      xor a                   ; Not ready
+                ret
+;
+;
+ul1_out         ret
+;
+;
+;
+; ***************
+; * Disk System *
+; ***************
+;
+;
+; 21: Move disc head to track 0
+HOME            ld a, (bios_options)      ; Debugging messages flag
+                and BIOS_OPT_DEBUG_MASK
+                jr z, hm_no_debug
+;
+; Debugging messages.
+                ld (cpm_sp), sp
+                ld sp, mc_stk_top_p1    ; Use monitor call stack space
+                call mmap_monitor       ; Swap to monitor memory map
+; Monitor context selected.
+                ld hl, home_msg         ; "<Home>"
+                call MCALL_CONWMS       ; Print message
+; Switch back to the CP/M context.
+                call mmap_cpm           ; Swap to CP/M memory map
+                ld sp, (cpm_sp)
+;
+hm_no_debug     ld bc, 0
+                jr SETTRK
+;
+;
+; 24: Select disc drive given by C.
+; A responsibility of the SELDSK subroutine is to return the base address of the
+; DPH for the selected drive. The following sequence of operations returns the
+; table address, with a 0000H returned if the selected drive does not exist.
+                assert NUM_DISKS <= NUM_DISKS_MAX
+SELDSK          ld a, (bios_options)      ; See BIOS_OPT_xxx definitions.
+                and BIOS_OPT_DEBUG_MASK
+                jr z, sel_no_debug
+;
+; Debugging messages.
+                ld (cpm_sp), sp
+                ld sp, mc_stk_top_p1    ; Use monitor call stack space
+                call mmap_monitor       ; Swap to monitor memory map
+; Monitor context selected.
+                ld hl, seldsk_msg       ; "<SelDsk "
+                call MCALL_CONWMS       ; Print message
+                ld a, c
+                call MCALL_CWPDBY       ; Print A in decimal
+                ld a, ":"
+                call MCALL_CONWCH       ; Write character to the console
+; Switch back to the CP/M context.
+                call mmap_cpm           ; Swap to CP/M memory map
+                ld sp, (cpm_sp)
+;
+sel_no_debug    ld hl, 0                ; Error code
+                ld a, c
+                ld (sel_drive), a
+                cp NUM_DISKS
+                jr nc, sd_exit          ; Return with HL=0 if out of range
+; Calculate disk parameter header (DPH) address.
+                ld l, c
+                ld h, 0
+                assert DPH_SIZE = 16
+                add hl, hl              ; Multiply by 16
+                add hl, hl
+                add hl, hl
+                add hl, hl
+                ld de, disk_dph_base
+                add hl, de
+; HL - pointer to DPH for selected drive
+                push hl
+; C - drive number
+; Modify the DPB OFF entry appropriately. This will be:
+; CPM_SYS_TRACKS + (CPM_DRIVE_TRACKS * <drive number>)
+                ld hl, CPM_SYS_TRACKS   ; Initial offset
+                ld de, CPM_DRIVE_TRACKS
+                ld b, c
+; B - drive number
+; DE - tracks per drive
+; HL - track offset
+                ld a, b
+                and a
+                jr z, sd_off_end        ; End if drive zero (A)
+sd_off_loop     add hl, de
+                djnz sd_off_loop
+; HL - track offset
+sd_off_end      ld (disk_dpb_off), hl   ; Set DPB OFF appropriately
+;
+                pop hl                  ; Restore pointer to DPH
+;
+sd_exit         ld a, (bios_options)      ; See BIOS_OPT_xxx definitions.
+                and BIOS_OPT_DEBUG_MASK
+                jr z, sel_no_debug1
+;
+; Print result
+                ld (cpm_sp), sp
+                ld sp, mc_stk_top_p1    ; Use monitor call stack space
+                call mmap_monitor       ; Swap to monitor memory map
+; Monitor context selected.
+                push hl
+                call MCALL_CWPHWD       ; Print HL in hexadecimal
+                ld a, ">"
+                call MCALL_CONWCH       ; Write character to the console
+                pop hl
+; Switch back to the CP/M context.
+                call mmap_cpm           ; Swap to CP/M memory map
+                ld sp, (cpm_sp)
+;
+sel_no_debug1   ret
+;
+;
+; 27: Set track number. Set track number given by BC.
+SETTRK          ld a, (bios_options)      ; See BIOS_OPT_xxx definitions.
+                and BIOS_OPT_DEBUG_MASK
+                jr z, set_no_debug
+;
+; Debugging messages.
+                ld (cpm_sp), sp
+                ld sp, mc_stk_top_p1    ; Use monitor call stack space
+                call mmap_monitor       ; Swap to monitor memory map
+; Monitor context selected.
+                ld hl, settrk_msg       ; "<SetTrk "
+                call MCALL_CONWMS       ; Print message
+                ld h, b
+                ld l, c
+                call MCALL_CWPDWD       ; Print HL in decimal
+                ld a, ">"
+                call MCALL_CONWCH       ; Write character to the console
+; Switch back to the CP/M context.
+                call mmap_cpm           ; Swap to CP/M memory map
+                ld sp, (cpm_sp)
+;
+set_no_debug    ld h, b
+                ld l, c
+                ld (track), hl
+                ret
+;
+;
+; 30: Set sector number. Set sector number given by BC.
+SETSEC          ld a, (bios_options)      ; See BIOS_OPT_xxx definitions.
+                and BIOS_OPT_DEBUG_MASK
+                jr z, ses_no_debug
+;
+; Debugging messages.
+                ld (cpm_sp), sp
+                ld sp, mc_stk_top_p1    ; Use monitor call stack space
+                call mmap_monitor       ; Swap to monitor memory map
+; Monitor context selected.
+                ld hl, setsec_msg       ; "<SetSec "
+                call MCALL_CONWMS       ; Print message
+                ld h, b
+                ld l, c
+                call MCALL_CWPDWD       ; Print HL in decimal
+                ld a, ">"
+                call MCALL_CONWCH       ; Write character to the console
+; Switch back to the CP/M context.
+                call mmap_cpm           ; Swap to CP/M memory map
+                ld sp, (cpm_sp)
+;
+ses_no_debug    ld h, b
+                ld l, c
+                ld (sector), hl
+                ret
+;
+;
+; 33: Set DMA address. Set DMA address given by BC.
+SETDMA          ld a, (bios_options)      ; See BIOS_OPT_xxx definitions.
+                and BIOS_OPT_DEBUG_MASK
+                jr z, sed_no_debug
+;
+; Debugging messages.
+                ld (cpm_sp), sp
+                ld sp, mc_stk_top_p1    ; Use monitor call stack space
+                call mmap_monitor       ; Swap to monitor memory map
+; Monitor context selected.
+                ld hl, setdma_msg       ; "<SetDMA "
+                call MCALL_CONWMS       ; Print message
+                ld h, b
+                ld l, c
+                call MCALL_CWPHWD       ; Print HL in hexadecimal
+                ld a, ">"
+                call MCALL_CONWCH       ; Write character to the console
+; Switch back to the CP/M context.
+                call mmap_cpm           ; Swap to CP/M memory map
+                ld sp, (cpm_sp)
+;
+sed_no_debug    ld h, b
+                ld l, c
+                ld (dma_addr), hl
+                ret
+;
+;
+; 36: Read a sector.
+; Returns with:
+; A - 0 if OK, 1 otherwise.
+READ            ld (cpm_sp), sp
+                ld sp, mc_stk_top_p1    ; Use monitor call stack space
+                call mmap_monitor       ; Swap to monitor memory map
+; Monitor context selected.
+                call find_lba           ; Find LBA sector number
+                ld ix, (cpm_part_entry) ; Point to partition table entry
+                ld hl, sec_buffer
+; CDE - CP/M (128-byte) sector number (offset into partition)
+; HL - destination address for read data
+                call MCALL_CACRS        ; CP/M read sector
+; A - zero (OK) or error code (SPI_ERR_xxx)
+                and a
+                jr nz, rw_error         ; Jump on error
+;
+; Successful read. Now copy the data to the DMA location.
+rd_ok           call mmap_cpm           ; Swap to CP/M memory map
+                ld sp, (cpm_sp)
+                ld hl, (dma_addr)
+                ex de, hl
+                ld hl, sec_buffer
+                ld bc, CPM_SECTOR_SIZE
+; BC - length
+; DE - destination address
+; HL - sector buffer
+                ldir
+;
+                ld a, (bios_options)      ; See BIOS_OPT_xxx definitions.
+                and BIOS_OPT_DEBUG_MASK
+                jr z, rd_no_debug
+;
+; Debugging messages.
+                ld (cpm_sp), sp
+                ld sp, mc_stk_top_p1    ; Use monitor call stack space
+                call mmap_monitor       ; Swap to monitor memory map
+; Monitor context selected.
+                ld hl, readsec_msg      ; "<Read "
+                call MCALL_CONWMS       ; Print message
+; Generate CRC of sector.
+                ld de, sec_buffer
+                ld hl, 0                ; Initial CRC
+                ld b, CPM_SECTOR_SIZE
+rd_crc_loop     ld a, (de)
+                call MCALL_CRC16X       ; CRC-16 (XMODEM)
+                inc de
+                djnz rd_crc_loop
+; HL - CRC of CP/M sector.
+                call MCALL_CWPHWD       ; Print HL in hexadecimal
+                ld a, ">"
+                call MCALL_CONWCH       ; Write character to the console
+                call MCALL_CWNWLN       ; Write new line characters to console
+; Switch back to the CP/M context.
+                call mmap_cpm           ; Swap to CP/M memory map
+                ld sp, (cpm_sp)
+;
+rd_no_debug     xor a                   ; Flag success
+                ret
+;
+; Something went wrong. Used by READ and WRITE routines.
+rw_error        ld c, a
+                call MCALL_CWNWLN       ; Print new line characters
+                ld a, c
+                call MCALL_MCPRER       ; Print memory card error text
+; Set CP/M context and return.
+                call mmap_cpm           ; Swap to CP/M memory map
+                ld sp, (cpm_sp)
+                ld a, 1                 ; Flag error
+                ret
+;
+;
+; 39: Write a sector
+; Returns with:
+; A - 0 if OK, 1 otherwise.
+; First copy the data to the sector buffer.
+WRITE           ld hl, (dma_addr)
+                ld de, sec_buffer
+                ld bc, CPM_SECTOR_SIZE
+                ldir
+; Switch to monitor context.
+                ld (cpm_sp), sp
+                ld sp, mc_stk_top_p1    ; Use monitor call stack space
+                call mmap_monitor       ; Swap to monitor memory map
+; Monitor context selected.
+                call find_lba           ; Find LBA sector number
+                ld ix, (cpm_part_entry) ; Point to partition table entry
+                ld hl, sec_buffer
+; CDE - CP/M (128-byte) sector number (offset into partition)
+; HL - destination address for read data
+                call MCALL_CACWS        ; CP/M write sector
+; A - zero (OK) or error code (SPI_ERR_xxx)
+                and a
+                jr nz, rw_error         ; Jump on error
+;
+; Successful write.
+                call mmap_cpm           ; Swap to CP/M memory map
+                ld sp, (cpm_sp)
+;
+                ld a, (bios_options)      ; See BIOS_OPT_xxx definitions.
+                and BIOS_OPT_DEBUG_MASK
+                jr z, wr_no_debug
+;
+; Debugging messages.
+                ld (cpm_sp), sp
+                ld sp, mc_stk_top_p1    ; Use monitor call stack space
+                call mmap_monitor       ; Swap to monitor memory map
+; Monitor context selected.
+                ld hl, writesec_msg     ; "<Write "
+                call MCALL_CONWMS       ; Print message
+; Generate CRC of sector.
+                ld de, sec_buffer
+                ld hl, 0                ; Initial CRC
+                ld b, CPM_SECTOR_SIZE
+wr_crc_loop         ld a, (de)
+                call MCALL_CRC16X       ; CRC-16 (XMODEM)
+                inc de
+                djnz wr_crc_loop
+; HL - CRC of CP/M sector.
+                call MCALL_CWPHWD       ; Print HL in hexadecimal
+                ld a, ">"
+                call MCALL_CONWCH       ; Write character to the console
+                call MCALL_CWNWLN       ; Write new line characters to console
+; Switch back to the CP/M context.
+                call mmap_cpm           ; Swap to CP/M memory map
+                ld sp, (cpm_sp)
+;
+wr_no_debug     xor a                   ; Flag success
+                ret
+;
+;
+; 42: Status of list device (0 if not ready, 1 if ready).
+LISTST          xor a                   ; Always unready
+                ret
+;
+;
+; 45: Sector translation for skewing
+; SECTRAN receives a logical sector number relative to zero in BC and a translate
+; table address in DE. The sector number is used as an index into the translate
+; table, with the resulting physical sector number in HL.
+SECTRAN         ld l, c                 ; No translation required
+                ld h, b
+                ld a, c
+                ret
+;
+;
+;
+; **********
+; * CP/M 3 *
+; **********
+;
+;
+; CP/M 3 functions. Most are not supported, but some are implmented as ZARC
+; extensions. Applications should check for ZARC before calling these.
+;
+;48: Status of console output
+CONOST          ld a, (IOBYTE)          ; Fetch mapping
+                and IOB_CON_MASK
+; A indicates the relevant device.
+                jp z, tty_out_st        ; 0: console printer device (TTY:)
+                dec a
+                jp z, crt_out_st        ; 1: CRT device (CRT:)
+                dec a
+                jp z, list_st           ; 2: batch mode, use current list dev.
+                dec a
+                jp z, uc1_out_st        ; 3: user-defined console device
+                call bios_panic         ; System error monitor entry
+;
+; Get status from current list device.
+list_st         ld a, (IOBYTE)          ; Fetch mapping
+                and IOB_LST_MASK
+; A indicates the relevant device.
+                jp z, tty_out_st        ; 0: teletype device (TTY:)
+                sub 0x40
+                jp z, crt_out_st        ; 1: CRT device (CRT:)
+                sub 0x40
+                jp z, lpt_out_st        ; 2: line printer device (LPT:)
+                sub 0x40
+                jp z, ul1_out_st        ; 3: user-defined list device (UL1:)
+                call bios_panic         ; System error monitor entry
+;
+;
+;51: Status of auxiliary input (called READER in CP/M 2.x)
+AUXIST          ld a, (IOBYTE)          ; Fetch mapping
+                and IOB_RDR_MASK
+; A indicates the relevant device.
+                jp z, tty_in_st         ; 0: teletype device (TTY:)
+                sub 0x04
+                jp z, ptr_in_st         ; 1: high speed reader device (PTR:)
+                sub 0x04
+                jp z, ur1_in_st         ; 2: user-defined reader #1 (UR1:)
+                sub 0x04
+                jp z, ur2_in_st         ; 3: user-defined reader #2 (UR2:)
+                call bios_panic         ; System error monitor entry
+;
+;
+;54: Status of auxiliary output (called PUNCH in CP/M 2.x)
+AUXOST          ld a, (IOBYTE)          ; Fetch mapping
+                and IOB_PUN_MASK
+; A indicates the relevant device.
+                jp z, tty_out_st        ; 0: teletype device (TTY:)
+                sub 0x10
+                jp z, ptp_out_st        ; 1: high speed punch device (PTP:)
+                sub 0x10
+                jp z, up1_out_st        ; 2: user-defined punch #1 (UP1:)
+                sub 0x10
+                jp z, up2_out_st        ; 3: user-defined punch #2 (UP2:)
+                call bios_panic         ; System error monitor entry
+;
+;
+;57: Address of devices table
+DEVTBL          call bios_panic         ; System error monitor entry
+;
+;
+;60: Initialise a device
+DEVINI          call bios_panic         ; System error monitor entry
+;
+;
+;63: Address of discs table
+DRVTBL          call bios_panic         ; System error monitor entry
+;
+;
+;66: Read/write multiple sectors
+MULTIO          call bios_panic         ; System error monitor entry
+;
+;
+;69: Flush host buffers
+FLUSH           call bios_panic         ; System error monitor entry
+;
+;
+;72: Move a block of memory
+MOVE            call bios_panic         ; System error monitor entry
+;
+;
+;75: Real time clock
+TIME            call bios_panic         ; System error monitor entry
+;
+;
+;78: Select memory bank
+SELMEM          call bios_panic         ; System error monitor entry
+;
+;
+;81: Select bank for DMA operation
+SETBNK          call bios_panic         ; System error monitor entry
+;
+;
+;84: Preload banks for MOVE
+XMOVE           call bios_panic         ; System error monitor entry
+;
+;
+;87: System-depedent functions
+USERF           call bios_panic         ; System error monitor entry
+;
+;
+;90: Reserved
+RESERV1         call bios_panic         ; System error monitor entry
+;
+;
+;93: Reserved
+RESERV2         call bios_panic         ; System error monitor entry
+;
+;
+;
+; ***************
+; * Subroutines *
+; ***************
+;
+;
+; Write message to console. This obeys the IOBYTE console redirection rules,
+; unlike calls to the monitor console routines. Call with:
+; HL - pointer to null terminated message.
+con_out_msg     push bc
+com_loop        ld a, (hl)
+                and a
+                jr z, com_exit
+                ld c, a
+                push hl
+                call CONOUT             ; Console character output
+                pop hl
+                inc hl
+                jr com_loop
+com_exit        pop bc
+                ret
+;
+;
+; Calculate CP/M logical sector number based on selected track and sector numbers.
+; LBA = 256 * track + sector
+; Returns with:
+; CDE - CP/M (128-byte) sector number (offset into partition)
+                assert DISK_SPT = 256
+find_lba        push hl
+                ld hl, track
+                ld d, (hl)
+                inc hl
+                ld c, (hl)
+                ld hl, sector
+                ld e, (hl)
+                pop hl
+                ret
+;
+;
+; Start CP/M.
+go_cpm          call mmap_cpm           ; Ensure CP/M memory map is selected
+; Build jump to WBOOT at location zero.
+                ld a, jp
+                ld (0), a
+                ld hl, wboot_entry      ; Warm boot entry point
+                ld (1), hl
+;
+; Set BDOS entry point.
+                ld (BDOS), a            ; Set jump instruction
+                ld hl, BDOS_START
+                ld (BDOS + 1), hl
+;
+; Set DMA address directly rather than using SETDMA. This avoids a crash in
+; debugging mode due to using the monitor call stack space twice and therefore
+; overwriting the return address.
+                ld hl, 0x0080           ; Set default DMA address
+                ld (dma_addr), hl
+;
+                ld a, (CDISK)
+                ld c, a
+; C - current disk number
+                jp CCP_START            ; Pass control to the CCP
+;
+;
+; An MMC error has occurred. Display error message and return to monitor.
+mmc_error       call mmap_monitor       ; Swap to monitor memory map
+                call MCALL_CWNWLN       ; Print new line characters
+                call MCALL_MCPRER       ; Print memory card error text
+                call bios_panic
+;
+;
+; Jump to the monitor's "panic" code to return to the debugger in case of a
+; serious error. Go here with a call instruction as this leaves the caller address
+; on the stack, which may be useful when debugging.
+bios_panic      ld (cpm_sp), sp
+                ld sp, mc_stk_top_p1    ; Use monitor call stack space
+                call mmap_monitor       ; Swap to monitor memory map
+; Monitor context selected.
+                call MCALL_PANIC        ; System error monitor entry
+; Just in case someone attempts to continue execution from the monitor.
+                jr bios_panic
+;
+;
+; CP/M programmes should call this to enable or disable supervisor access
+; for banks 0 to 2. Bank 3 (0xc000 to 0xffff) is left unchanged as the BIOS
+; always requires supervisor mode in order to function. Without supervisor
+; mode, any attempt to access I/O will result in a NMI and subsequent return
+; to the monitor. Call with:
+; A - non-zero to enable supervisor mode, zero to disable.
+; Stack location is not critical as the page numbers are not changed.
+set_super       push bc
+                push de
+                push hl
+                ld e, 0
+                and a
+                jr z, sets_mask_dn      ; Jump if disable requested
+                ld e, MMAP_SUPER_MASK
+sets_mask_dn    ld b, 3                 ; Loop for banks 0 to 2
+                ld c, IOA_MMAP_0        ; I/O address
+                ld hl, mem_pages        ; Point to allocated page numbers
+sets_loop       ld a, (hl)
+                and MMAP_PAGE_MASK      ; Isolate page bits
+                or e                    ; Set supervisor mode if requested
+                ld (hl), a
+                out (c), a              ; Set memory mapping
+                inc hl
+                inc c
+                djnz sets_loop
+; Bank 3 (0xc000 to 0xffff) is left unchanged as the BIOS always requires
+; supervisor mode in order to function.
+                call mmap_cpm           ; Apply the new map state
+                pop hl
+                pop de
+                pop bc
+                ret
+;
+;
+;
+; Set monitor memory map. Ensure stack is in bank 3 to avoid trouble.
+; Set bank 0 (0x0000 to 0x3fff) read-only with I/O access.
+mmap_monitor    ld a, MMAP_MON_B0_PAGE + MMAP_PROT_MASK + MMAP_SUPER_MASK
+                out (IOA_MMAP_0), a
+; Bank 1 (0x4000 to 0x7fff) writeable (monitor's variables).
+                ld a, MMAP_MON_B1_PAGE
+                out (IOA_MMAP_1), a
+; Bank 2 (0x8000 to 0xbfff) not used, but may be set as required.
+; Bank 3 (0xc000 to 0xffff) unchanged.
+                ret
+;
+; Set CP/M memory map. Ensure stack is in bank 3 to avoid trouble.
+; Set bank 0 to 2 to the allocated pages.
+mmap_cpm        push hl
+                ld hl, mem_pages        ; Point to allocated page numbers
+                ld a, (hl)
+                out (IOA_MMAP_0), a     ; Bank 0 (0x0000 to 0x3fff)
+                inc hl
+                ld a, (hl)
+                out (IOA_MMAP_1), a     ; Bank 1 (0x4000 to 0x7fff)
+                inc hl
+                ld a, (hl)
+                out (IOA_MMAP_2), a     ; Bank 2 (0x8000 to 0xbfff)
+; Bank 3 (0xc000 to 0xffff) unchanged.
+                pop hl
+                ret
+;
+;
+; This routine allows CP/M applications to call some monitor functions. Any
+; function that accesses memory must be used with caution as banks 0 and 1 will
+; be changed to select the monitor's environment. Call with:
+; DE - pointer to monitor function
+; Alternate registers - parameters for the function to be called.
+; Returns with results in alternate register set.
+mon_call        ld (cpm_sp), sp
+                ld sp, mc_stk_top_p1    ; Use monitor call stack space
+; Set the routine address.
+                ld a, e                 ; Set LSB
+                ld (mc_call_instr + 1), a
+                ld a, d                 ; Set MSB
+                ld (mc_call_instr + 2), a
+                call mmap_monitor       ; Swap to monitor memory map
+; Monitor context selected. Make the call.
+                ex af, af'
+                exx
+mc_call_instr   call 0                  ; Address will be inserted
+                ex af, af'
+                exx
+; Switch back to the CP/M context.
+                call mmap_cpm           ; Swap to CP/M memory map
+                ld sp, (cpm_sp)
+                ret
+;
+;
+;
+; ******************************
+; * Interrupt Service Routines *
+; ******************************
+;
+;
+; These routines minimise stack requirements as the CP/M CCP stack (for example)
+; is very shallow.
+;
+; Tick interrupt service routine.
+tick_serv       ld (bg_sp), sp          ; Swap to interrupt stack
+                ld sp, int_stk_top_p1
+;
+                push af
+                push hl
+;
+; Update console input translation timer.
+                ld a, (cit_timer)
+                dec a
+                jp m, ts_cit_done     ; Skip store if negative
+                ld (cit_timer), a
+;
+; Update elapsed time.
+ts_cit_done   ld hl, el_time
+                ld a, MS_PER_TICK
+                add (hl)
+                ld (hl), a
+                jr nc, ts_eti_done
+                inc hl
+                inc (hl)
+                jr nz, ts_eti_done
+                inc hl
+                inc (hl)
+                jr nz, ts_eti_done
+                inc hl
+                inc (hl)
+;
+; Update tick divider
+ts_eti_done     ld hl, tikdiv
+                dec (hl)
+                jp m, ts_exit           ; Exit unless overflow
+; Goes here once per second.
+                ld (hl), TICK_FREQ - 1  ; Reset divider
+; Increment time.
+                ld hl, tinow
+                inc (hl)
+                jr nz, ts_exit
+                inc hl
+                inc (hl)
+                jr nz, ts_exit
+                inc hl
+                inc (hl)
+                jr nz, ts_exit
+                inc hl
+                inc (hl)
+;
+ts_exit         pop hl
+                pop af
+;
+                ld sp, (bg_sp)          ; Restore SP
+                ei
+                reti
+;
+;
+; Serial port 1 write interrupt service routine. This simply disables the
+; interrupt, but as it is an interrupt it will also release the I/O code from its
+; halt state.
+ser1w_serv      ld (bg_sp), sp          ; Swap to interrupt stack
+                ld sp, int_stk_top_p1
+;
+                push af
+; Disable this interrupt to prevent us from locking up, forever servicing this
+; interrupt.
+                in (IOA_INT_EN)
+                and not (INT_SER1_TX_MASK)
+                out (IOA_INT_EN)
+                pop af
+;
+                ld sp, (bg_sp)          ; Restore SP
+                ei
+                reti
+;
+;
+; Serial port 1 read interrupt service routine. This simply disables the
+; interrupt, but as it is an interrupt it will also release the I/O code from its
+; halt state.
+ser1r_serv      ld (bg_sp), sp          ; Swap to interrupt stack
+                ld sp, int_stk_top_p1
+;
+                push af
+; Disable this interrupt to prevent us from locking up, forever servicing this
+; interrupt.
+                in (IOA_INT_EN)
+                and not (INT_SER1_RX_MASK)
+                out (IOA_INT_EN)
+                pop af
+;
+                ld sp, (bg_sp)          ; Restore SP
+                ei
+                reti
+;
+;
+; Serial port 2 write interrupt service routine. This simply disables the
+; interrupt, but as it is an interrupt it will also release the I/O code from its
+; halt state.
+ser2w_serv      ld (bg_sp), sp          ; Swap to interrupt stack
+                ld sp, int_stk_top_p1
+;
+                push af
+; Disable this interrupt to prevent us from locking up, forever servicing this
+; interrupt.
+                in (IOA_INT_EN)
+                and not (INT_SER2_TX_MASK)
+                out (IOA_INT_EN)
+                pop af
+;
+                ld sp, (bg_sp)          ; Restore SP
+                ei
+                reti
+;
+;
+; Serial port 2 read interrupt service routine. This simply disables the
+; interrupt, but as it is an interrupt it will also release the I/O code from its
+; halt state.
+ser2r_serv      ld (bg_sp), sp          ; Swap to interrupt stack
+                ld sp, int_stk_top_p1
+;
+                push af
+; Disable this interrupt to prevent us from locking up, forever servicing this
+; interrupt.
+                in (IOA_INT_EN)
+                and not (INT_SER2_RX_MASK)
+                out (IOA_INT_EN)
+                pop af
+;
+                ld sp, (bg_sp)          ; Restore SP
+                ei
+                reti
+;
+;
+; Set interrupt vector to point to a new service routine.
+; Call with:
+; A - number of vector to change
+; DE - points to the new service routine
+int_set_vec     push hl
+                ld hl, INT_VEC_TABLE    ; Base of vector table
+                add a                   ; Each entry is two bytes long
+                add l
+                ld l, a
+; HL - vector address
+                ld (hl), e              ; LS byte of address
+                inc hl
+                ld (hl), d              ; MS byte of address
+                pop hl
+                ret
+;
+;
+; Enable interrupts if safe. This allows nested disable / enable pairs,
+; with interrupts only enabled at the lowest level.
+int_enable      ld a, (itdsct)
+; Each itena call should be preceded by one or more calls to itdis,
+; so itena with itdsct = 0 is an error.
+                and a
+                call z, bios_panic      ; System panic on underflow
+                dec a
+                ld (itdsct), a
+                ret nz                  ; Exit if not at lowest level
+                ld a, (itenfl)
+                and a
+                ret z                   ; Exit if not in interrupt mode
+                ei
+                ret
+;
+;
+; Disable interrupt and keep count.
+int_disable     di
+                ld a, (itdsct)
+                inc a
+                call z, bios_panic      ; System panic on overflow
+                ld (itdsct), a
+                ret
+;
+;
+; Read time and date. This is similar to the monitor's routine of the same name,
+; but this version reads the interrupt maintained time instead. Register mapping
+; is identical except that the tick divider is returned too.
+; Returns with:
+; A - Tick divider (0 to TICK_FREQ -1)
+; DEHL - 32-bit time
+tird            push iy
+                call int_disable        ; Ensure interrupts are disabled
+                ld iy, tinow
+                ld l, (iy + 0)          ; LS byte
+                ld h, (iy + 1)
+                ld e, (iy + 2)
+                ld d, (iy + 3)          ; MS byte
+                pop iy
+                ld a, (tikdiv)          ; Tick divider
+                push af
+                call int_enable         ; Enable interrupts if safe
+                pop af
+                ret
+;
+;
+; Set timer. This is incremented by MS_PER_TICK on each tick interrupt to
+; maintain elapsed time in ms.
+; BCDE - 32-bit time in ms (0 to approximately 49.7 days).
+set_timer       push iy
+                call int_disable        ; Ensure interrupts are disabled
+                ld iy, el_time
+                ld (iy + 0), e          ; LS byte
+                ld (iy + 1), d
+                ld (iy + 2), c
+                ld (iy + 3), b          ; MS byte
+                pop iy
+                call int_enable         ; Enable interrupts if safe
+                ret
+;
+;
+; Get timer. This is incremented by MS_PER_TICK on each tick interrupt to
+; maintain elapsed time in ms.
+; BCDE - 32-bit time in ms (0 to approximately 49.7 days).
+get_timer       push iy
+                call int_disable        ; Ensure interrupts are disabled
+                ld iy, el_time
+                ld e, (iy + 0)          ; LS byte
+                ld d, (iy + 1)
+                ld c, (iy + 2)
+                ld b, (iy + 3)          ; MS byte
+                pop iy
+                call int_enable         ; Enable interrupts if safe
+                ret
+;
+;
+;
+; *************
+; * Constants *
+; *************
+;
+;
+signon_msg      byte "ZARC CP/M V2.2 BIOS V"
+                byte BIOS_MAJ_VER + "0", ".", BIOS_MIN_VER + "0", 0x0d, 0x0a, 0
+term_rst_msg    
+;               byte ASCII_ESC, "[!p"   ; DECSTR (soft terminal reset)
+; DECSTR should make the following redundant, but does not appear to be
+; universally recognised. Minicom doesn't, for example.
+                byte ASCII_ESC, "[?25h" ; DECTCEM (enable cursor)
+;                byte ASCII_ESC, "[r"    ; DECSTBM (reset top and bottom margins)
+; DECSTBM also homes the cursor on Minicom at least. This is undesirable.
+                byte ASCII_ESC, "[0m"   ; Set normal video (SGR)
+;                byte ASCII_ESC, "[1;1H", ASCII_ESC, "[2J"  ; Clear screen
+                byte 0
+; Debugging messages.
+home_msg        byte "<Home>", 0
+seldsk_msg      byte "<SelDsk ", 0
+settrk_msg      byte "<SetTrk ", 0
+setsec_msg      byte "<SetSec ", 0
+setdma_msg      byte "<SetDMA ", 0
+readsec_msg     byte "<Read ", 0
+writesec_msg    byte "<Write ", 0
+cold_crc_msg    byte "Cold start, BDOS & CCP CRC: ", 0
+warm_crc_msg    byte "Warm start, CCP CRC: ", 0
+rtc_err_msg     byte "RTC error ", 0
+;
+; Console translation messages.
+;csr_home_msg    byte ASCII_ESC, "[1;1H$"
+;cls_msg         byte ASCII_ESC, "[1;1H", ASCII_ESC, "[2J$"
+;
+;
+; Disk Parameter Headers (DPH)
+; From http://www.gaby.de/cpm/manuals/archive/cpm22htm/ch6.htm:
+; Each disk drive has an associated (16-byte) disk parameter header that contains
+; information about the disk drive and provides a scratch pad area for certain
+; BDOS operations. The format of the disk parameter header for each drive is shown
+; in Figure 6-2, where each element is a word (16-bit) value.
+;
+dph_gen         macro d
+                word 0                  ; XLT No sector translation
+                word 0, 0, 0            ; BDOS scratch area
+                word bdos_dirbf         ; DIRBUF BDOS directory scratch area
+                word disk_dpb           ; Pointer to DPB
+                word 0                  ; CSV No check area required for fixed disk
+                word bdos_all_`d        ; ALV Allocation area
+                endm
+;
+; Build DPH list.
+disk_dph_base
+drive           set 0
+                rept NUM_DISKS
+                dph_gen %drive
+drive           set drive + 1
+                endm 
+;
+;
+; Disk Parameter Block (DPB).
+; This is used for all drives, but the OFF entry is adjusted by SELDSK to the
+; appropriate value.
+; See FS_Calculations.ods for derivation.
+disk_dpb        word DISK_SPT   ; SPT sectors per track
+                byte 4          ; BSH data allocation block shift factor
+                byte 15         ; BLM is the data allocation block mask (2^[BSH-1])
+                byte 0          ; EXM is the extent mask
+                word DISK_DSM   ; DSM maximum block number
+                word 511        ; DRM maximum directory entry number
+                byte 0xff       ; AL0, AL1 determine reserved directory blocks
+                byte 0
+                word 0          ; CKS is the size of the directory check vector
+disk_dpb_off    word 0          ; OFF number of reserved tracks
+;
+; Anything after this point cannot be assumed to be loaded from MMC.
+                assert $ <= BIOS_START + BIOS_MAX_SIZE  ; Don't exceed size allocation
+;
+;
+;
+; *************
+; * Variables *
+; *************
+;
+;
+; Private monitor variables located in bank 1.
+; Note: linker "-c" option is used, so no data is initialised here.
+                dseg                ; Data segment
+;
+bios_options    defs 1              ; Options. See BIOS_OPT_xxx definitions.
+mem_pages       defs MMAP_CPM_PAGES ; Pages numbers allocated
+itenfl          defs 1              ; Int. enable (I/O mode) (0 = ints disabled)
+itdsct          defs 1              ; DI nest count
+cpm_part_entry  defs 2              ; Pointer to partition table entry
+sel_drive       defs 1              ; Drive number
+track           defs 2              ; Selected disk track
+sector          defs 2              ; Selected disk sector
+dma_addr        defs 2              ; Selected "DMA" address
+tikdiv          defs 1              ; Tick divider
+tinow           defs 4              ; Current time and date
+el_time         defs 4              ; Elapsed time (ms)
+time_tm         defs TM_SIZE        ; Date / time structure
+cpm_sp          defs 2              ; CP/M environment stack pointer
+bg_sp           defs 2              ; Background stack pointer (interrupts)
+load_secs       defs 1              ; Number of CCP / BDOS sectors loaded
+sec_buffer      defs CPM_SECTOR_SIZE    ; Sector buffer
+; Console output translation.
+cot_state       defs 1              ; Console output translation state
+cot_buffer      defs COT_BUF_MAX_LEN    ; Sequence buffer
+cot_count       defs 1              ; Number of characters in buffer
+; Console input translation.
+cit_state       defs 1              ; Console input translation state
+cit_buffer      defs CIT_BUF_MAX_LEN    ; Sequence buffer
+cit_count       defs 1              ; Number of characters in buffer
+cit_timer       defs 1              ; Console input translation timer
+cit_buff_ptr    defs 2              ; Pointer within cit_buffer
+;
+; Generate allocation buffers for each drive. The start addresses are
+; bdos_all_<drive>.
+all_buff_gen    macro d
+bdos_all_`d     defs (DISK_DSM / 8) + 1  ; Allocation vector for this drive
+                endm
+;
+drive           set 0
+                rept NUM_DISKS
+                all_buff_gen %drive
+drive           set drive + 1
+                endm 
+;
+                defs INT_STACK_SIZE ; Interrupt service routine stack
+int_stk_top_p1
+                defs STACKS_SIZE    ; Monitor call stack
+mc_stk_top_p1                       ; Stack top + 1
+;
+;
+; Scratch ram area for BDOS use.
+bdos_begdat     equ $               ; Beginning of BDOS data area
+;
+bdos_dirbf      defs 128            ; Scratch directory area
+;
+bdos_enddat	    equ $               ; End of BDOS data area
+;
+                assert $ <= INT_VEC_TABLE   ; Don't overwrite interrupt vectors
+;
+                end
+

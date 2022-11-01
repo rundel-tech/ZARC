@@ -1,0 +1,1574 @@
+   1:				; *******************************************************
+   2:				; * ZARC Z80 Computer CP/M Utilities                    *
+   3:				; * Version: V1.0                                       *
+   4:				; * Merlin Skinner, 1/7/2021                            *
+   5:				; *******************************************************
+   6:				;
+   7:				; This programme is intended to run under CP/M 2.2 and provides utilities useful
+   8:				; for that system. The first command line option determines which utilities is
+   9:				; invoked. Current options are:
+  10:				;   zarc help               Display terse help
+  11:				;   zarc exit               Exit CP/M system and return to monitor
+  12:				;
+  13:				                title ZARC CP/M Utilities
+  14:				;
+  15:				;
+  16:				;
+  17:				; ************
+  18:				; * Includes *
+  19:				; ************
+  20:				;
+  21:				;
+  22:				                include "macros.i"
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//macros.i ****
+   1:				; ***********************************
+   2:				; * ZARC Macro Definitions          *
+   3:				; * Written by: Merlin Skinner      *
+   4:				; * Date Started: 30/7/2020         *
+   5:				; ***********************************
+   6:				;
+   7:				;
+   8:				;
+   9:				; **********
+  10:				; * Macros *
+  11:				; **********
+  12:				;
+  13:				;
+  14:				; Initialise enumeration.
+  15:				; The absolute segment is used so the offsets are not marked as relocatable. This
+  16:				; avoids "Not relocatable" errors.
+  17:				ENUM_START      macro
+  18:				                .aseg
+  19:				enum_counter    set 0
+  20:				                endm
+  21:				;
+  22:				; Invoke for each item.
+  23:				ENUM            macro x
+  24:				x               equ enum_counter
+  25:				enum_counter    set enum_counter + 1
+  26:				                endm
+  27:				;
+  28:				ENUM_END        macro x
+  29:				x               set enum_counter    ; Set label to count of items
+  30:				                .cseg
+  31:				                endm
+  32:				;
+  33:				;
+  34:				; Initialise a structure. This is used to generate offsets for data structures.
+  35:				; The absolute segment is used so the offsets are not marked as relocatable. This
+  36:				; avoids "Not relocatable" errors.
+  37:				STRUCT          macro
+  38:				                .aseg
+  39:				str_offset      set 0
+  40:				                endm
+  41:				;
+  42:				; Add a byte entry.
+  43:				STR_BYTE        macro x
+  44:				x               equ str_offset
+  45:				str_offset      set str_offset + 1
+  46:				                endm
+  47:				;
+  48:				; Add a word (16-bit) entry.
+  49:				STR_WORD        macro x
+  50:				x               equ str_offset
+  51:				str_offset      set str_offset + 2
+  52:				                endm
+  53:				;
+  54:				; Add a 3 byte (24-bit) entry.
+  55:				STR_24BIT       macro x
+  56:				x               equ str_offset
+  57:				str_offset      set str_offset + 3
+  58:				                endm
+  59:				;
+  60:				; Add a long (32-bit) entry.
+  61:				STR_LONG        macro x
+  62:				x               equ str_offset
+  63:				str_offset      set str_offset + 4
+  64:				                endm
+  65:				;
+  66:				; Add an arbitrary length entry.
+  67:				STR_BLOCK       macro x, size   ; <name>, <size>
+  68:				x               equ str_offset
+  69:				str_offset      set str_offset + size
+  70:				                endm
+  71:				;
+  72:				; End of structure (used to set size)
+  73:				STR_END         macro x
+  74:				x               equ str_offset
+  75:				                .cseg
+  76:				                endm
+  77:				;
+  78:				;
+  79:				; Calculate offsets into jump tables.
+  80:				; The absolute segment is used so the offsets are not marked as relocatable. This
+  81:				; avoids "Not relocatable" errors.
+  82:				JPTBL_START     macro x
+  83:				                .aseg
+  84:				jptbl_addr      set x               ; Set start address
+  85:				                endm
+  86:				;
+  87:				; Invoke for each item.
+  88:				JPTBL_ENTRY     macro x
+  89:				x               equ jptbl_addr
+  90:				jptbl_addr      set jptbl_addr + 3
+  91:				                endm
+  92:				;
+  93:				; Invoke for a data block in the jump table
+  94:				JPTBL_BLOCK     macro x, size   ; <name>, <size>
+  95:				x               equ jptbl_addr
+  96:				jptbl_addr      set jptbl_addr + size
+  97:				                endm
+  98:				;
+  99:				JPTBL_END       macro x
+ 100:				x               set jptbl_addr      ; Set label to next address
+ 101:				                .cseg
+ 102:				                endm
+ 103:				;
+ 104:				;
+ 105:				; Define bits and masks. This is inspired by the Commodore Amiga BITDEF mechanism.
+ 106:				; Given:
+ 107:				; BITDEF I2C_CSR_STOP, 2
+ 108:				; Yields:
+ 109:				; I2C_CSR_STOP_BIT  EQU 2       ; Bit number
+ 110:				; I2C_CSR_STOP_MASK EQU 1<<2    ; Bit mask
+ 111:				BITDEF          macro n, b      ; <Name>, <bit>
+ 112:				n`_BIT          equ b
+ 113:				n`_MASK         equ 1 << b
+ 114:				                endm
+ 115:				;
+ 116:				;
+ 117:				; Force alignment. This asserts an appropriate number of zero bytes to achieve
+ 118:				; the required alignment. Note that these macros cannot work for relocatable
+ 119:				; files.
+ 120:				; 16-bit
+ 121:				ALIGN_WORD      macro
+ 122:				                if $ and 1
+ 123:				                    byte 0
+ 124:				                endif
+ 125:				                endm
+ 126:				;
+ 127:				; 32-bit
+ 128:				ALIGN_LONG      macro
+ 129:				                ALIGN_WORD
+ 130:				                if $ and 2
+ 131:				                    byte 0, 0
+ 132:				                endif
+ 133:				                endm
+ 134:				
+**** zarc.z80 ****
+  23:				                include "z80.i"
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//z80.i ****
+   1:				; ***********************************
+   2:				; * ZARC Z80 Definitions            *
+   3:				; * Written by: Merlin Skinner      *
+   4:				; * Date Started: 28/5/2020         *
+   5:				; ***********************************
+   6:				;
+   7:				; Definitions related to the Z80 itself.
+   8:				;
+   9:				; Z80 Vectors
+  10:     -	0000'         	Z80_RST00_VEC   equ 0x0000      ; RST instruction vectors
+  11:     -	0008'         	Z80_RST08_VEC   equ 0x0008
+  12:     -	0010'         	Z80_RST10_VEC   equ 0x0010
+  13:     -	0018'         	Z80_RST18_VEC   equ 0x0018
+  14:     -	0020'         	Z80_RST20_VEC   equ 0x0020
+  15:     -	0028'         	Z80_RST28_VEC   equ 0x0028
+  16:     -	0030'         	Z80_RST30_VEC   equ 0x0030
+  17:     -	0038'         	Z80_RST38_VEC   equ 0x0038
+  18:     -	0066'         	Z80_NMI_VEC     equ 0x0066      ; NMI vectors
+  19:				
+**** zarc.z80 ****
+  24:				                include "zarc.i"        ; Hardware definitions
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//zarc.i ****
+   1:				; ***********************************
+   2:				; * ZARC Definitions                *
+   3:				; * Written by: Merlin Skinner      *
+   4:				; * Date Started: 26/5/2020         *
+   5:				; ***********************************
+   6:				;
+   7:				; Definitions related to the ZARC system.
+   8:				;
+   9:				;
+  10:				; ************
+  11:				; * Hardware *
+  12:				; ************
+  13:				;
+  14:				; Interrupt vector numbers in INT_VEC_TABLE.
+  15:				; Address is INT_VEC_TABLE + 2 * vector number).
+  16:     -	0000'         	INT_SER1_TX_VEC     equ INT_SER1_TX_BIT ; Serial port 1 transmitter buffer is half full or less
+  17:     -	0001'         	INT_SER1_RX_VEC     equ INT_SER1_RX_BIT ; Serial port 1 receiver has data
+  18:     -	0002'         	INT_SER2_TX_VEC     equ INT_SER2_TX_BIT ; Serial port 2 transmitter buffer is half full or less
+  19:     -	0003'         	INT_SER2_RX_VEC     equ INT_SER2_RX_BIT ; Serial port 2 receiver has data
+  20:     -	0004'         	INT_TICK_VEC        equ INT_TICK_BIT    ; Regular timekeeping
+  21:				;
+  22:     -	0064'         	MS_PER_TICK         equ 100             ; ms per tick
+  23:     -	000A'         	TICK_FREQ           equ 10              ; Tick rate in Hz
+  24:				;
+  25:				
+**** zarc.z80 ****
+  25:				                include "monitor.i"
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//monitor.i ****
+   1:				; *******************************************************
+   2:				; * ZARC Monitor Definitions                            *
+   3:				; * Written by: Merlin Skinner                          *
+   4:				; * Date Started: 26/5/2020                             *
+   5:				; *******************************************************
+   6:				;
+   7:				; Definitions related to the monitor programme.
+   8:				;
+   9:				; Note that ld80 only considers the first six characters of labels significant.
+  10:				;
+  11:				;
+  12:				; The following conditionals are intended to allow the same include file to be
+  13:				; used in the defining module and elsewhere as required. Some includes are used
+  14:				; for other applications than the monitor, such as the CP/M BIOS. In these cases,
+  15:				; the extern and public statements are not desirable.
+  16:				;
+  17:     -	0000'         	            ifdef monitor           ; Meaningful for monitor build only
+  32:				            endif
+  33:				;
+  34:				;
+  35:				;
+  36:				; *****************
+  37:				; * Monitor Calls *
+  38:				; *****************
+  39:				;
+  40:				;
+  41:				; Calculate offsets into jump tables. Entries here must match the jump table in
+  42:				; monitor.z80.
+  43:     -	        	    JPTBL_START %(Z80_NMI_VEC + 3)   ; Start after NMI vector
+  44:				;
+  45:				; From monitor.z80
+  46:     -	        	    JPTBL_ENTRY MCALL_MON_ENTRY     ; Normal monitor entry
+  47:     -	        	    JPTBL_ENTRY MCALL_PANIC         ; System error monitor entry
+  48:				; From io.z80
+  49:     -	        	    JPTBL_ENTRY MCALL_CONWCH        ; Write character to the console port
+  50:     -	        	    JPTBL_ENTRY MCALL_CONRCH        ; Read character from the console port
+  51:     -	        	    JPTBL_ENTRY MCALL_CONSTA        ; Fetch console port status
+  52:     -	        	    JPTBL_ENTRY MCALL_S1WCH         ; Write character to serial port 1
+  53:     -	        	    JPTBL_ENTRY MCALL_S1RCH         ; Read character from serial port 1
+  54:     -	        	    JPTBL_ENTRY MCALL_S1STA         ; Fetch serial port 1 status
+  55:     -	        	    JPTBL_ENTRY MCALL_S2WCH         ; Write character to serial port 2
+  56:     -	        	    JPTBL_ENTRY MCALL_S2RCH         ; Read character from serial port 2
+  57:     -	        	    JPTBL_ENTRY MCALL_S2STA         ; Fetch serial port 2 status
+  58:				; From utility.z80
+  59:     -	        	    JPTBL_ENTRY MCALL_CWNWLN        ; Write new line characters to console
+  60:     -	        	    JPTBL_ENTRY MCALL_CONWMS        ; Print null-terminated string to the console
+  61:     -	        	    JPTBL_ENTRY MCALL_CONWMN        ; Print message <n> in a list
+  62:     -	        	    JPTBL_ENTRY MCALL_SKPSPC        ; Step hl past spaces
+  63:     -	        	    JPTBL_ENTRY MCALL_TOUPCA        ; Convert character in A to upper case
+  64:     -	        	    JPTBL_ENTRY MCALL_TOLOCA        ; Convert character in A to lower case
+  65:     -	        	    JPTBL_ENTRY MCALL_CWVICH        ; Print only visible 7-bit characters
+  66:     -	        	    JPTBL_ENTRY MCALL_CWPSPC        ; Print a space
+  67:     -	        	    JPTBL_ENTRY MCALL_MTWDLI        ; Match word in a string against list of options
+  68:     -	        	    JPTBL_ENTRY MCALL_CWPHNB        ; Print least-significant nibble in A in hexadecimal
+  69:     -	        	    JPTBL_ENTRY MCALL_CWPHBY        ; Print A in hexadecimal
+  70:     -	        	    JPTBL_ENTRY MCALL_CWPHWD        ; Print HL in hexadecimal
+  71:     -	        	    JPTBL_ENTRY MCALL_CWPDBY        ; Print A in decimal. Leading zeros are suppressed.
+  72:     -	        	    JPTBL_ENTRY MCALL_CWPDWD        ; Print HL in decimal. Leading zeros are suppressed.
+  73:     -	        	    JPTBL_ENTRY MCALL_CWPDLO        ; Print DEHL in decimal. Leading zeros are suppressed
+  74:     -	        	    JPTBL_ENTRY MCALL_RDHXWD        ; Read a 16-bit hexadecimal number from a string
+  75:     -	        	    JPTBL_ENTRY MCALL_RDDUWD        ; Read a 16-bit unsigned decimal number from a string
+  76:     -	        	    JPTBL_ENTRY MCALL_RDDULO        ; Read a 32-bit unsigned decimal number from a string
+  77:				; From maths.z80
+  78:     -	        	    JPTBL_ENTRY MCALL_MADLBU        ; 32-bit / 8-bit unsigned divide
+  79:     -	        	    JPTBL_ENTRY MCALL_MADWBU        ; 16-bit / 8-bit unsigned divide
+  80:     -	        	    JPTBL_ENTRY MCALL_MADBBU        ; 8-bit / 8-bit unsigned divide
+  81:     -	        	    JPTBL_ENTRY MCALL_MAMWWU        ; 16-bit * 16-bit unsigned multiply
+  82:     -	        	    JPTBL_ENTRY MCALL_MAMLBU        ; 32-bit * 8-bit unsigned multiply
+  83:     -	        	    JPTBL_ENTRY MCALL_CRC16X        ; CRC-16 (XMODEM)
+  84:				; From time.z80
+  85:     -	        	    JPTBL_ENTRY MCALL_TIRD          ; Read current time and date
+  86:     -	        	    JPTBL_ENTRY MCALL_TIWR          ; Set time and date
+  87:     -	        	    JPTBL_ENTRY MCALL_TIITOS        ; Convert integer time to structure
+  88:     -	        	    JPTBL_ENTRY MCALL_TISTOI        ; Convert structure time to integer
+  89:     -	        	    JPTBL_ENTRY MCALL_CWPTM         ; Print time structure to console
+  90:				; From mmc.z80
+  91:     -	        	    JPTBL_ENTRY MCALL_MCPRER        ; Print memory card error text
+  92:				; From cache.z80
+  93:     -	        	    JPTBL_ENTRY MCALL_CACRS         ; CP/M read sector
+  94:     -	        	    JPTBL_ENTRY MCALL_CACWS         ; CP/M write sector
+  95:     -	        	    JPTBL_ENTRY MCALL_CAFLUS        ; Flush cache (write dirty buffers)
+  96:				; From memory.z80
+  97:     -	        	    JPTBL_ENTRY MCALL_MPALL         ; Allocate new page
+  98:     -	        	    JPTBL_ENTRY MCALL_MPFREE        ; Free allocated page
+  99:     -	        	    JPTBL_ENTRY MCALL_MPSTAT        ; Allocation status
+ 100:				;
+ 101:     -	        	    JPTBL_END MCALL_JPTBL_NEXT
+ 102:				;
+ 103:				;
+ 104:				;
+ 105:				; **************
+ 106:				; * Structures *
+ 107:				; **************
+ 108:				;
+ 109:				;
+ 110:				; Machine state structure.
+ 111:     -	        	                STRUCT
+ 112:     -	        	                STR_BYTE MST_IEN        ; Non-zero if interrupts enabled
+ 113:     -	        	                STR_BYTE MST_MMAP_EN    ; Non-zero if memory mapping enabled
+ 114:     -	        	                STR_BYTE MST_MMAP0      ; Memory mapping registers
+ 115:     -	        	                STR_BYTE MST_MMAP1
+ 116:     -	        	                STR_BYTE MST_MMAP2
+ 117:     -	        	                STR_BYTE MST_MMAP3
+ 118:     -	        	                STR_WORD MST_SP
+ 119:     -	        	                STR_WORD MST_PC
+ 120:				; The sequence of the following entries must match those in the state save and
+ 121:				; load routines.
+ 122:     -	        	                STR_WORD MST_IY
+ 123:     -	        	                STR_WORD MST_IX
+ 124:     -	        	                STR_WORD MST_HL_P
+ 125:     -	        	                STR_WORD MST_DE_P
+ 126:     -	        	                STR_WORD MST_BC_P
+ 127:     -	        	                STR_WORD MST_AF_P       ; Alternate ("prime") registers
+ 128:     -	        	                STR_WORD MST_HL
+ 129:     -	        	                STR_WORD MST_DE
+ 130:     -	        	                STR_WORD MST_BC
+ 131:     -	        	                STR_WORD MST_AF
+ 132:				; End of sequence critical entries.
+ 133:     -	        	                STR_BYTE MST_I
+ 134:     -	        	                STR_BYTE MST_R
+ 135:     -	        	                STR_END MST_SIZE
+ 136:				;
+ 137:				;
+ 138:				;
+ 139:				; *************
+ 140:				; * Constants *
+ 141:				; *************
+ 142:				;
+ 143:				;
+ 144:				; Trace mode states for trace_mode.
+ 145:     -	        	                ENUM_START
+ 146:     -	        	                ENUM TRM_NONE
+ 147:     -	        	                ENUM TRM_SINGLE
+ 148:     -	        	                ENUM TRM_TO_ADDR        ; Trace to address
+ 149:     -	        	                ENUM TRM_XPT            ; Exception - start running normally
+ 150:     -	        	                ENUM_END TRM_STATES     ; Number of states
+ 151:				
+**** zarc.z80 ****
+  26:				                include "io_map.i"      ; I/O addresses mapping
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//io_map.i ****
+   1:				; ***********************************
+   2:				; * ZARC I/O Definitions            *
+   3:				; * Written by: Merlin Skinner      *
+   4:				; * Date Started: 3/9/2019          *
+   5:				; ***********************************
+   6:				
+   7:				; *** I/O register address mapping ***
+   8:				
+   9:				; This should be kept in sync with the Definitions.vhd package file.
+  10:     -	0000'         	IOA_FPGA_MAJREV equ 0x00        ; FPGA major revision
+  11:     -	0001'         	IOA_FPGA_MINREV equ 0x01        ; FPGA minor revision
+  12:     -	0002'         	IOA_CONTROL     equ 0x02        ; System control register
+  13:     -	0003'         	IOA_FP_SW       equ 0x03        ; Front panel data switches
+  14:				
+  15:				; Paging
+  16:     -	0004'         	IOA_MMAP_0      equ 0x04        ; Page, supervisor and protection for bank 0 (0x0000 to 0x3fff)
+  17:     -	0005'         	IOA_MMAP_1      equ 0x05        ; Page, supervisor and protection for bank 1 (0x4000 to 0x7fff)
+  18:     -	0006'         	IOA_MMAP_2      equ 0x06        ; Page, supervisor and protection for bank 2 (0x8000 to 0xbfff)
+  19:     -	0007'         	IOA_MMAP_3      equ 0x07        ; Page, supervisor and protection for bank 3 (0xc000 to 0xffff)
+  20:				
+  21:				; Interrupts
+  22:				; Note: Up to eight interrupts are supported. IM 2 is anticipated, and the
+  23:				; fixed vector associated with each interrupt is supplied when the interrupt
+  24:				; is serviced. Routine address is “I*256+databus”. Vector supplied is
+  25:				; 0xe0 + 2 * interrupt number (0 to 7).
+  26:				; Note: addresses 0x09 and 0x0b reserved for use if more than eight interrupt
+  27:				; sources are required.
+  28:     -	0008'         	IOA_INT_EN      equ 0x08        ; Enables
+  29:     -	000A'         	IOA_INT_PEND    equ 0x0a        ; Pending interrupts
+  30:				;
+  31:				;NMI
+  32:     -	000C'         	IOA_NMI_REASONS equ 0x0c        ; NMI reasons flags
+  33:				;
+  34:				; Serial.
+  35:     -	0010'         	IOA_SER1_CSR    equ 0x10        ; Port 1 control / status
+  36:     -	0011'         	IOA_SER1_DATA   equ 0x11        ; Port 1 data
+  37:     -	0012'         	IOA_SER2_CSR    equ 0x12        ; Port 2 serial control / status
+  38:     -	0013'         	IOA_SER2_DATA   equ 0x13        ; Port 2 serial data
+  39:				
+  40:				; RTC (DS1672)
+  41:				; I2C, implemented using a byte interface to the CPU. Writing to the data port
+  42:				; shifts out a byte. Input puts are shifted into the “other end” of the same
+  43:				; register.
+  44:     -	0018'         	IOA_I2C_CSR     equ 0x18        ; Control
+  45:     -	0019'         	IOA_I2C_DATA    equ 0x19        ; Data
+  46:				;
+  47:				; SD Card
+  48:				; Uses SPI mode, with a generally similar interface to that of the I2C.
+  49:     -	0020'         	IOA_SPI_CSR     equ 0x20        ; Control
+  50:     -	0021'         	IOA_SPI_DATA    equ 0x21        ; Data
+  51:				
+  52:				; CRC16 / XMODEM and MultiMediaCard CRC16
+  53:				; Write to the CRC register to set the initial value. Writing to the input
+  54:				; data register updates the CRC.
+  55:     -	0024'         	IOA_CRC_0       equ 0x24        ; CRC register (low)
+  56:     -	0025'         	IOA_CRC_1       equ 0x25        ; CRC register (high)
+  57:     -	0026'         	IOA_CRC_DATA    equ 0x26        ; Input data
+  58:				
+  59:				; *** Proposed features ***
+  60:				; Video
+  61:				;IOA_VID_CTRL    equ 0x30;       ; Control (cursor on/off ...)
+  62:				;IOA_VID_DATA    equ 0x31;       ; Data
+  63:				;IOA_VID_CUR_X   equ 0x32;       ; Cursor X (0 to 127)
+  64:				;IOA_VID_CUR_Y   equ 0x33;       ; Cursor Y (0 to 63)
+  65:				;IOA_VID_START_L equ 0x34        ; Display start address (low byte)
+  66:				;IOA_VID_START_H equ 0x35        ; Display start address (high byte)
+  67:				
+  68:				; Video palette
+  69:				; Each entry consists of 6 bits of colour data. Foreground and background
+  70:				; colour pairs are selected from the above palette using eight of the 22
+  71:				; control codes in the display character set. This leaves codes for
+  72:				; double-height, double-width etc.
+  73:				;IOA_VID_PALBG0  equ 0x40        ; Background colour 0
+  74:				;IOA_VID_PALFG0  equ 0x41        ; Foreground colour 0
+  75:				;IOA_VID_PALBG1  equ 0x42        ; Background colour 1
+  76:				;IOA_VID_PALFG1  equ 0x43        ; Foreground colour 1
+  77:				;IOA_VID_PALBG2  equ 0x44        ; Background colour 2
+  78:				;IOA_VID_PALFG2  equ 0x45        ; Foreground colour 2
+  79:				;IOA_VID_PALBG3  equ 0x46        ; Background colour 3
+  80:				;IOA_VID_PALFG3  equ 0x47        ; Foreground colour 3
+  81:				;IOA_VID_PALBG4  equ 0x48        ; Background colour 4
+  82:				;IOA_VID_PALFG4  equ 0x49        ; Foreground colour 4
+  83:				;IOA_VID_PALBG5  equ 0x4a        ; Background colour 5
+  84:				;IOA_VID_PALFG5  equ 0x4b        ; Foreground colour 5
+  85:				;IOA_VID_PALBG6  equ 0x4c        ; Background colour 6
+  86:				;IOA_VID_PALFG6  equ 0x4d        ; Foreground colour 6
+  87:				;IOA_VID_PALBG7  equ 0x4e        ; Background colour 7
+  88:				;IOA_VID_PALFG7  equ 0x4f        ; Foreground colour 7
+  89:				
+  90:				; Arithmetic
+  91:				; Multiply, divide … based on 68000 DIV, DIVU, MUL, MULU.
+  92:				; Multiply does A[16] * B[16] => C[32].
+  93:				; Divide does A[32] / B[16] => C[32] (16-bit remainder [high bits] and
+  94:				; 16-bit quotient [low bits]).
+  95:				; Status bits include “complete” and “overflow”.
+  96:				;IOA_ARITH_A_L   equ 0x50        ; A register (low)
+  97:				;IOA_ARITH_A_H   equ 0x51        ; A register (high)
+  98:				;IOA_ARITH_B_L   equ 0x54        ; B register (low)
+  99:				;IOA_ARITH_B_H   equ 0x57        ; B register (high)
+ 100:				;IOA_ARITH_C_0   equ 0x58        ; C register (low)
+ 101:				;IOA_ARITH_C_1   equ 0x59 
+ 102:				;IOA_ARITH_C_2   equ 0x5a
+ 103:				;IOA_ARITH_C_3   equ 0x5b        ; C register (high)
+ 104:				;IOA_ARITH_CSR   equ 0x5c        ; Command / status
+ 105:				
+ 106:				
+ 107:				; *** Register bits allocation ***
+ 108:				
+ 109:				; IOA_CONTROL register
+ 110:     -	        	BITDEF SYSCTRL_TRARM, 0         ; 1 arms the trace interrupt
+ 111:     -	        	BITDEF SYSCTRL_MMAP, 1          ; 1 enables memory mapping
+ 112:     -	        	BITDEF SYSCTRL_NMCLR, 2         ; NMI mapping clear
+ 113:     -	        	BITDEF SYSCTRL_MAPARM, 3        ; NMI out arm
+ 114:     -	        	BITDEF SYSCTRL_MMAPN, 4         ; State of MMAP when an NMI occurred
+ 115:     -	        	BITDEF SYSCTRL_TRPRE0, 5        ; Number of prefixes for trace
+ 116:     -	        	BITDEF SYSCTRL_TRPRE1, 6
+ 117:     -	        	BITDEF SYSCTRL_RESERVED, 7      ; Unused bit
+ 118:				;
+ 119:				; MMAP page registers
+ 120:     -	        	BITDEF MMAP_PROT, 7             ; Write protection
+ 121:     -	        	BITDEF MMAP_SUPER, 6            ; I/O enable
+ 122:     -	003F'         	MMAP_PAGE_MASK  equ 0x3f        ; RAM page number bits
+ 123:				;
+ 124:				; IOA_INT_EN and IOA_INT_PEND registers.
+ 125:     -	0008'         	INTS_NUM        equ 8           ; Number of possible interrupt sources
+ 126:     -	        	BITDEF INT_SER1_TX, 0           ; Serial port 1 transmitter buffer is half full or less
+ 127:     -	        	BITDEF INT_SER1_RX, 1           ; Serial port 1 receiver has data
+ 128:     -	        	BITDEF INT_SER2_TX, 2           ; Serial port 2 transmitter buffer is half full or less
+ 129:     -	        	BITDEF INT_SER2_RX, 3           ; Serial port 2 receiver has data
+ 130:     -	        	BITDEF INT_TICK, 4              ; Regular timekeeping
+ 131:				;
+ 132:				; IOA_NMI_REASONS register.
+ 133:     -	0004'         	NMI_REASONS_NUM equ 4           ; Number of reasons for an NMI
+ 134:     -	        	BITDEF NMI_SWITCH, 0;           ; Front panel switch
+ 135:     -	        	BITDEF NMI_PROT_VIOL, 1;        ; Write protection violation
+ 136:     -	        	BITDEF NMI_SUPER_VIOL, 2;       ; Supervisor violation
+ 137:     -	        	BITDEF NMI_TRACE, 3;            ; Debugger trace (single step)
+ 138:     -	000F'         	NMI_REASONS_ALL equ NMI_SWITCH_MASK + NMI_PROT_VIOL_MASK + NMI_SUPER_VIOL_MASK + NMI_TRACE_MASK
+ 139:				;
+ 140:				; Serial CSRs (IOA_SER1_CSR and IOA_SER2_CSR).
+ 141:     -	        	BITDEF SER_CSR_RX_EMPTY, 0      ; Receiver buffer is empty
+ 142:     -	        	BITDEF SER_CSR_RX_ALHALF, 1     ; Receiver buffer is at least half full
+ 143:     -	        	BITDEF SER_CSR_RX_FULL, 2       ; Receiver buffer is full
+ 144:     -	        	BITDEF SER_CSR_FRAME_ERR, 3     ; Framing error in last character
+ 145:     -	        	BITDEF SER_CSR_TX_EMPTY, 4      ; Transmitter buffer is empty
+ 146:     -	        	BITDEF SER_CSR_TX_ALHALF, 5     ; Transmitter buffer is at least half full
+ 147:     -	        	BITDEF SER_CSR_TX_FULL, 6       ; Transmitter buffer is full
+ 148:				; Bit 7 is not used.
+ 149:				;
+ 150:				; I2C (Inter-Integrated Circuit) master interface. Used for RTC (DS1672).
+ 151:				; Bits in IOA_I2C_CSR
+ 152:     -	        	BITDEF I2C_CSR_ACKN, 0          ; (Read / write) acknowledge from receiving device
+ 153:     -	        	BITDEF I2C_CSR_START, 1         ; (Write only) trigger start sequence
+ 154:     -	        	BITDEF I2C_CSR_STOP, 2          ; (Write only) trigger stop sequence
+ 155:     -	        	BITDEF I2C_CSR_BUSY, 7          ; (Read only) transceiver busy
+ 156:				;
+ 157:				; SPI (Serial Peripheral Interface) master interface. Used for memory card.
+ 158:				; Bits in IOA_SPI_CSR
+ 159:     -	        	BITDEF SPI_CSR_FAST, 0          ; (Read / write) SPI speed select
+ 160:     -	        	BITDEF SPI_CSR_MC_SS, 1         ; (Read / write) memory card slave select
+ 161:     -	        	BITDEF SPI_CSR_BUSY, 7          ; (Read only) transceiver busy
+ 162:				
+**** zarc.z80 ****
+  27:				                include "terminal.i"    ; Terminal constants
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//terminal.i ****
+   1:				; ***********************************
+   2:				; * ZARC Terminal Definitions       *
+   3:				; * Written by: Merlin Skinner      *
+   4:				; * Date Started: 16/5/2020         *
+   5:				; ***********************************
+   6:				;
+   7:				; Definitions associated with terminals connected to an RS-232 port.
+   8:				;
+   9:     -	0005'         	ASCII_ENQ           equ 0x05        ; Enquiry
+  10:     -	0008'         	ASCII_BS            equ 0x08        ; Backspace
+  11:     -	0009'         	ASCII_HT            equ 0x09
+  12:     -	000A'         	ASCII_LF            equ 0x0a        ; Line feed
+  13:     -	000B'         	ASCII_VT            equ 0x0b        ; Upline (ADM-3A)
+  14:     -	000C'         	ASCII_FF            equ 0x0c        ; Forward space (ADM-3A)
+  15:     -	000D'         	ASCII_CR            equ 0x0d        ; Carriage return
+  16:     -	0016'         	ASCII_SYN           equ 0x16        ; Synchronous idle
+  17:     -	001A'         	ASCII_SUB           equ 0x1a        ; Clear screen (ADM-3A)
+  18:     -	001B'         	ASCII_ESC           equ 0x1b        ; Escape
+  19:     -	001E'         	ASCII_RS            equ 0x1e        ; Home cursor (ADM-3A)
+  20:     -	007F'         	ASCII_DEL           equ 0x7f        ; Delete
+  21:				;
+  22:				; ZARC CP/M terminal input key codes. Some are copied from Amstrad PCW and
+  23:				; Spectrum +3, others are unique to ZARC. Delete seems very common.
+  24:     -	001F'         	ZKEY_CSR_UP         equ 0x1f        ; Cursor up
+  25:     -	001E'         	ZKEY_CSR_DOWN       equ 0x1e        ; Cursor down
+  26:     -	0006'         	ZKEY_CSR_RIGHT      equ 0x06        ; Cursor right
+  27:     -	0001'         	ZKEY_CSR_LEFT       equ 0x01        ; Cursor left
+  28:     -	0002'         	ZKEY_HOME           equ 0x02
+  29:     -	0016'         	ZKEY_INSERT         equ 0x16
+  30:     -	007F'         	ZKEY_DELETE         equ 0x7f
+  31:     -	0004'         	ZKEY_END            equ 0x04
+  32:     -	001D'         	ZKEY_PAGE_UP        equ 0x1d
+  33:     -	001C'         	ZKEY_PAGE_DOWN      equ 0x1c
+  34:				
+**** zarc.z80 ****
+  28:				                include "cpm.i"
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//cpm.i ****
+   1:				; *******************************************************
+   2:				; * ZARC Monitor CP/M Definitions                       *
+   3:				; * Written by: Merlin Skinner                          *
+   4:				; * Date Started: 26/5/2020                             *
+   5:				; *******************************************************
+   6:				;
+   7:				; Definitions related CP/M running under the monitor programme.
+   8:				;
+   9:				; Note that ld80 only considers the first six characters of labels significant.
+  10:				;
+  11:				; The following conditionals are intended to allow the same include file to be
+  12:				; used in the defining module and elsewhere as required. Some includes are used
+  13:				; for other applications than the monitor, such as the CP/M BIOS. In these cases,
+  14:				; the extern and public statements are not desirable.
+  15:				;
+  16:     -	0000'         	            ifdef monitor           ; Meaningful for monitor build only
+  28:				            endif
+  29:				;
+  30:				;
+  31:				;
+  32:				; ****************
+  33:				; * Memory Usage *
+  34:				; ****************
+  35:				;
+  36:				;
+  37:				; Note: memory banks are allocated by the monitor's initialisation code.
+  38:     -	0004'         	MMAP_CPM_PAGES      equ 4               ; Number of 16 kB pages
+  39:				;
+  40:				; The MS byte of INT_VEC_TABLE comes from the Z80 I register, and the LS byte
+  41:				; from the FPGA. The 0xe0 offset is chosen to allow the table to reside at the
+  42:				; top of memory (0xffe0 to 0xffff).
+  43:     -	FFE0'         	INT_VEC_TABLE   equ 0xffe0              ; Interrupt mode 2 vector table
+  44:				;
+  45:				; Copied from CP/M manual appendix A.
+  46:				; MSIZE             equ 64              ; CP/M version memory size in kilobytes
+  47:				;
+  48:				; "BIAS" is the address offset from 0x3400 for memory systems other than 16 K.
+  49:				;BIAS               equ (MSIZE-20) * 1024
+  50:     -	A200'         	CPM_BIAS            equ 0xa200          ; For CompuPro64K_CPM
+  51:     -	D600'         	CCP_START           equ 0x3400 + CPM_BIAS   ; Base of CCP
+  52:     -	DE06'         	BDOS_START          equ CCP_START + 0x0806  ; Base of BDOS
+  53:     -	EC00'         	BIOS_START          equ CCP_START + 0x1600  ; Base of BIOS
+  54:     -	002C'         	BIOS_CPM_START_SEC  equ 44              ; First CP/M sector of BIOS
+  55:     -	1000'         	BIOS_MAX_SIZE       equ 4096            ; 2 KB allocation for BIOS stored on MMC (ZARC)
+  56:     -	0100'         	TPA_START           equ 0x0100          ; Transient Programme Area
+  57:				;
+  58:				; Page zero.
+  59:     -	0003'         	IOBYTE              equ 0x0003          ; Intel I/O byte
+  60:     -	0004'         	CDISK               equ 0x0004          ; Current disk (0="A") & user no. (in high nibble)
+  61:     -	005C'         	FCB1                equ 0x005c          ; Default FCB 1
+  62:     -	006C'         	FCB2                equ 0x006c          ; Default FCB 2 (overwritten if FCB 1 is opened)
+  63:				; Default 128-byte disk buffer, also filled with the command line when a transient
+  64:				; is loaded under the CCP.
+  65:     -	0080'         	DEF_BUFFER          equ 0x80
+  66:     -	0080'         	DEF_BUFFER_SIZE     equ 0x80
+  67:				;
+  68:				; IOBYTE bit definitions.
+  69:     -	0003'         	IOB_CON_MASK        equ 0x03
+  70:     -	000C'         	IOB_RDR_MASK        equ 0x0c
+  71:     -	0030'         	IOB_PUN_MASK        equ 0x30
+  72:     -	00C0'         	IOB_LST_MASK        equ 0xc0
+  73:				;
+  74:				; BIOS option bits.
+  75:     -	        	BITDEF BIOS_OPT_DEBUG, 0                ; Enable BIOS debugging messages
+  76:     -	        	BITDEF BIOS_OPT_NOINTS, 1               ; Disables interrupts (use basic I/O mode)
+  77:     -	        	BITDEF BIOS_OPT_RAWCON, 2               ; Disables ADM-3A to VT-100 translation
+  78:				;
+  79:				;
+  80:				;
+  81:				; ***************
+  82:				; * Disk System *
+  83:				; ***************
+  84:				;
+  85:				;
+  86:     -	0080'         	CPM_SECTOR_SIZE     equ 128             ; CP/M disk sector size
+  87:     -	0010'         	NUM_DISKS           equ 16              ; Number of disk drives
+  88:     -	0010'         	NUM_DISKS_MAX       equ 16              ; Maximum number of disk drives
+  89:     -	0000'         	CPM_SYS_SIZE        equ 1024 * 1024     ; System area size (bytes)
+  90:     -	0000'         	CPM_DISK_SIZE       equ 1024 * 1024     ; Disk size (bytes)
+  91:     -	0008'         	FILENAME_SIZE       equ 8               ; Filename size
+  92:     -	0003'         	FILEEXT_SIZE        equ 3               ; File extension size
+  93:     -	001A'         	FILE_EOF            equ 0x1a            ; End of file (^Z)
+  94:     -	000F'         	MAX_USER            equ 15              ; Maximum user number
+  95:				;
+  96:     -	0001'         	BDOS_READ_SEQ_EOF   equ 1               ; Sequential read EOF error code
+  97:				;
+  98:				; Disk Parameter Header (DPH) structure.
+  99:     -	        	                STRUCT
+ 100:     -	        	                STR_WORD DPH_XLT        ; Address of sector translation table
+ 101:     -	        	                STR_WORD DPH_SCRATCH0   ; BDOS scratch area
+ 102:     -	        	                STR_WORD DPH_SCRATCH1
+ 103:     -	        	                STR_WORD DPH_SCRATCH2
+ 104:     -	        	                STR_WORD DPH_DIRBF      ; BDOS directory scratch area
+ 105:     -	        	                STR_WORD DPH_DPB        ; Pointer to DPB
+ 106:     -	        	                STR_WORD DPH_CSV        ; Pointer to the directory checksum vector
+ 107:     -	        	                STR_WORD DPH_ALV        ; Pointer to the allocation vector
+ 108:     -	        	                STR_END DPH_SIZE
+ 109:				;
+ 110:				;
+ 111:				; Disk Parameter Block (DPB) structure.
+ 112:     -	        	                STRUCT
+ 113:     -	        	                STR_WORD DPB_SPT        ; Number of 128-byte records per track
+ 114:     -	        	                STR_BYTE DPB_BSH        ; Block shift. 3 => 1k, 4 => 2k, 5 => 4k....
+ 115:     -	        	                STR_BYTE DPB_BLM        ; Block mask. 7 => 1k, 0Fh => 2k, 1Fh => 4k...
+ 116:     -	        	                STR_BYTE DPB_EXM        ; Extent mask
+ 117:     -	        	                STR_WORD DPB_DSM        ; Maximum block number
+ 118:     -	        	                STR_WORD DPB_DRM        ; Maximum directory entry number
+ 119:     -	        	                STR_BYTE DPB_AL0        ; Directory allocation bitmap
+ 120:     -	        	                STR_BYTE DPB_AL1
+ 121:     -	        	                STR_WORD DPB_CKS        ; Checksum vector size, 0 for a fixed disc
+ 122:     -	        	                STR_WORD DPB_OFF        ; Offset, number of reserved tracks
+ 123:     -	        	                STR_END DPB_SIZE
+ 124:				;
+ 125:				;
+ 126:				; Directory entry structure.
+ 127:     -	        	                STRUCT
+ 128:     -	        	                STR_BYTE DIRE_USER      ; User number. 0xe5 if entry unused
+ 129:     -	        	                STR_BLOCK DIRE_NAME, FILENAME_SIZE  ; Filename
+ 130:     -	        	                STR_BLOCK DIRE_TYP, FILEEXT_SIZE    ; File type
+ 131:     -	        	                STR_BYTE DIRE_EX        ; Extent counter, low byte (0-31)
+ 132:     -	        	                STR_BYTE DIRE_S1        ; Reserved, set to 0
+ 133:     -	        	                STR_BYTE DIRE_S2        ; Extent counter, high byte
+ 134:     -	        	                STR_BYTE DIRE_RC        ; Record count (low byte)
+ 135:     -	        	                STR_BLOCK DIRE_ALLOC, 16 ; Associated block numbers
+ 136:     -	        	                STR_END DIRE_SIZE
+ 137:				;
+ 138:				;
+ 139:				; File Control Block (FCB) structure.
+ 140:     -	        	                STRUCT
+ 141:     -	        	                STR_BYTE FCB_DRIVE      ; Drive. 0 for default, 1-16 for A-P
+ 142:     -	        	                STR_BLOCK FCB_NAME, FILENAME_SIZE   ; Filename in ASCII upper-case
+ 143:     -	        	                STR_BLOCK FCB_TYP, FILEEXT_SIZE     ; File type
+ 144:     -	        	                STR_BYTE FCB_EX         ; Current extent (*)
+ 145:     -	        	                STR_BYTE FCB_S1         ; Reserved (*)
+ 146:     -	        	                STR_BYTE FCB_S2         ; Reserved (*)
+ 147:     -	        	                STR_BYTE FCB_RC         ; Reserved (*)
+ 148:     -	        	                STR_BLOCK FCB_ALLOC, 16 ; Associated block numbers
+ 149:     -	        	                STR_BYTE FCB_CR         ; Current record within extent
+ 150:     -	        	                STR_BLOCK FCB_RECORD, 3 ; Record number (low byte first)
+ 151:     -	        	                STR_END FCB_SIZE
+ 152:				;
+ 153:				; * - Set this to 0 when opening a file and then leave it to CP/M. You can rewind
+ 154:				; a file by setting EX, RC, S2 and CR to 0.
+ 155:				;
+ 156:				;
+ 157:				;
+ 158:				; **************
+ 159:				; * BIOS Calls *
+ 160:				; **************
+ 161:				;
+ 162:				;
+ 163:				; Calculate offsets into jump tables. Entries here must match the jump table in
+ 164:				; the BIOS. The base address of the BIOS must be added to these addresses. A call
+ 165:				; routine might look like:
+ 166:				;
+ 167:				; Call BIOS, allowing for its unknown base address.
+ 168:				; Call with:
+ 169:				; BC - operand (depends on BIOS function called)
+ 170:				; DE - operand (depends on BIOS function called)
+ 171:				; HL - offset for the routine (e.g. BIOS_CONIN)
+ 172:				; call_bios       push de
+ 173:				;                 ex de, hl
+ 174:				;                 ld hl, (1)              ; Find WBOOT (warm boot) address
+ 175:				;                 add hl, de              ; Add offset
+ 176:				;                 pop de
+ 177:				;                 jp (hl)                 ; Jump to BIOS then return to caller
+ 178:				;
+ 179:				; The above method is a bit clumsy, but then application code shouldn't normally
+ 180:				; call the BIOS directly.
+ 181:				;
+ 182:     -	        	    JPTBL_START 0                   ; Generate offsets as BIOS_START isn't always known
+ 183:				;
+ 184:				; From monitor.z80
+ 185:				; Note - cold start routine omitted to align with use of address at (1) to find BIOS.
+ 186:     -	        	    JPTBL_ENTRY BIOS_WBOOT          ; Warm boot - reload command processor
+ 187:     -	        	    JPTBL_ENTRY BIOS_CONST          ; Console status
+ 188:     -	        	    JPTBL_ENTRY BIOS_CONIN          ; Console input
+ 189:     -	        	    JPTBL_ENTRY BIOS_CONOUT         ; Console output
+ 190:     -	        	    JPTBL_ENTRY BIOS_PLIST          ; Printer output
+ 191:     -	        	    JPTBL_ENTRY BIOS_PUNCH          ; Paper tape punch output
+ 192:     -	        	    JPTBL_ENTRY BIOS_READER         ; Paper tape reader input
+ 193:     -	        	    JPTBL_ENTRY BIOS_HOME           ; Move disc head to track 0
+ 194:     -	        	    JPTBL_ENTRY BIOS_SELDSK         ; Select disc drive
+ 195:     -	        	    JPTBL_ENTRY BIOS_SETTRK         ; Set track number
+ 196:     -	        	    JPTBL_ENTRY BIOS_SETSEC         ; Set sector number
+ 197:     -	        	    JPTBL_ENTRY BIOS_SETDMA         ; Set DMA address
+ 198:     -	        	    JPTBL_ENTRY BIOS_READ           ; Read a sector
+ 199:     -	        	    JPTBL_ENTRY BIOS_WRITE          ; Write a sector
+ 200:				; CP/M 2 functions.
+ 201:     -	        	    JPTBL_ENTRY BIOS_LISTST         ; Status of list device
+ 202:     -	        	    JPTBL_ENTRY BIOS_SECTRAN        ; Sector translation for skewing
+ 203:				; CP/M 3 functions (not supported yet). From https://www.seasip.info/Cpm/bios.html
+ 204:     -	        	    JPTBL_ENTRY BIOS_CONOST         ; Status of console output
+ 205:     -	        	    JPTBL_ENTRY BIOS_AUXIST         ; Status of auxiliary input
+ 206:     -	        	    JPTBL_ENTRY BIOS_AUXOST         ; Status of auxiliary output
+ 207:     -	        	    JPTBL_ENTRY BIOS_DEVTBL         ; Address of devices table
+ 208:     -	        	    JPTBL_ENTRY BIOS_DEVINI         ; Initialise a device
+ 209:     -	        	    JPTBL_ENTRY BIOS_DRVTBL         ; Address of discs table
+ 210:     -	        	    JPTBL_ENTRY BIOS_MULTIO         ; Read/write multiple sectors
+ 211:     -	        	    JPTBL_ENTRY BIOS_FLUSH          ; Flush host buffers
+ 212:     -	        	    JPTBL_ENTRY BIOS_MOVE           ; Move a block of memory
+ 213:     -	        	    JPTBL_ENTRY BIOS_TIME           ; Real time clock
+ 214:     -	        	    JPTBL_ENTRY BIOS_SELMEM         ; Select memory bank
+ 215:     -	        	    JPTBL_ENTRY BIOS_SETBNK         ; Select bank for DMA operation
+ 216:     -	        	    JPTBL_ENTRY BIOS_XMOVE          ; Preload banks for MOVE
+ 217:     -	        	    JPTBL_ENTRY BIOS_USERF          ; System-depedent functions
+ 218:     -	        	    JPTBL_ENTRY BIOS_RESERV1        ; Reserved
+ 219:     -	        	    JPTBL_ENTRY BIOS_RESERV2        ; Reserved
+ 220:				; ZARC-specific items.
+ 221:     -	        	    JPTBL_BLOCK BIOS_ID, 3          ; BIOS ID ("ZRC")
+ 222:     -	        	    JPTBL_BLOCK BIOS_VER, 3         ; Version (see below)
+ 223:     -	        	    JPTBL_ENTRY BIOS_STARTUP        ; CP/M startup entry point
+ 224:     -	        	    JPTBL_ENTRY BIOS_MON_CALL       ; Call monitor function
+ 225:     -	        	    JPTBL_ENTRY BIOS_SUPER          ; Set supervisor state
+ 226:     -	        	    JPTBL_ENTRY BIOS_INT_DISABLE    ; Disable interrupts and keep count
+ 227:     -	        	    JPTBL_ENTRY BIOS_INT_ENABLE     ; Enable interrupts if safe
+ 228:     -	        	    JPTBL_ENTRY BIOS_TIRD           ; Read time and date
+ 229:     -	        	    JPTBL_ENTRY BIOS_SET_TIMER      ; Set timer
+ 230:     -	        	    JPTBL_ENTRY BIOS_GET_TIMER      ; Get timer
+ 231:				;
+ 232:     -	        	    JPTBL_END BIOS_JPTBL_NEXT
+ 233:				;
+ 234:				; BIOS_VER is <reserved (zero)>, <major version>, <minor version>. The reserved
+ 235:				; byte may flag capabilities at some point.
+ 236:				;
+ 237:				;
+ 238:				;
+ 239:				; **************
+ 240:				; * BDOS Calls *
+ 241:				; **************
+ 242:				;
+ 243:				;
+ 244:				; From http://www.gaby.de/cpm/manuals/archive/cpm22htm/ch5.htm#Section_5.2
+ 245:				; In general, the function number is passed in register C with the information
+ 246:				; address in the double byte pair DE. Single byte values are returned in register
+ 247:				; A, with double byte values returned in HL. A zero value is returned when the
+ 248:				; function number is out of range. For reasons of compatibility, register A = L
+ 249:				; and register B = H upon return in all cases. Example call:
+ 250:				;   ld c, BDOS_CONIN    ; Read next character
+ 251:				;   call BDOS           ; Return character in A
+ 252:				;
+ 253:     -	0005'         	BDOS        equ 5               ; BDOS entry point
+ 254:				;
+ 255:     -	0000'         	BDOS_SYS_RST        equ 0       ; System Reset
+ 256:     -	0001'         	BDOS_CON_IN         equ 1       ; Console Input
+ 257:     -	0002'         	BDOS_CON_OUT        equ 2       ; Console Output
+ 258:     -	0003'         	BDOS_RDR_IN         equ 3       ; Reader Input
+ 259:     -	0004'         	BDOS_PUN_OUT        equ 4       ; Punch Output
+ 260:     -	0005'         	BDOS_LST_OUT        equ 5       ; List Output
+ 261:     -	0006'         	BDOS_DIRECT_CON_IO  equ 6       ; Direct Console I/O
+ 262:     -	0007'         	BDOS_GET_IO_BYTE    equ 7       ; Get I/O Byte
+ 263:     -	0008'         	BDOS_SET_IO_BYTE    equ 8       ; Set I/O Byte
+ 264:     -	0009'         	BDOS_PRINT_STRING   equ 9       ; Print String
+ 265:     -	000A'         	BDOS_READ_CON_BUFF  equ 10      ; Read Console Buffer
+ 266:     -	000B'         	BDOS_GET_CON_STAT   equ 11      ; Get Console Status
+ 267:     -	000C'         	BDOS_VERSION        equ 12      ; Return Version Number
+ 268:     -	000D'         	BDOS_RESET_DISK_SYS equ 13      ; Reset Disk System
+ 269:     -	000E'         	BDOS_SEL_DISK       equ 14      ; Select Disk
+ 270:     -	000F'         	BDOS_OPEN_FILE      equ 15      ; Open File
+ 271:     -	0010'         	BDOS_CLOSE_FILE     equ 16      ; Close File
+ 272:     -	0011'         	BDOS_SEARCH_FIRST   equ 17      ; Search for First
+ 273:     -	0012'         	BDOS_SEARCH_NEXT    equ 18      ; Search for Next
+ 274:     -	0013'         	BDOS_DELETE_FILE    equ 19      ; Delete File
+ 275:     -	0014'         	BDOS_READ_SEQ       equ 20      ; Read Sequential
+ 276:     -	0015'         	BDOS_WRITE_SEQ      equ 21      ; Write Sequential
+ 277:     -	0016'         	BDOS_MAKE_FILE      equ 22      ; Make File
+ 278:     -	0017'         	BDOS_RENAME_FILE    equ 23      ; Rename File
+ 279:     -	0018'         	BDOS_GET_LOGIN_VEC  equ 24      ; Return Login Vector
+ 280:     -	0019'         	BDOS_GET_CURR_DISK  equ 25      ; Return Current Disk
+ 281:     -	001A'         	BDOS_SET_DMA_ADDR   equ 26      ; Set DMA Address
+ 282:     -	001B'         	BDOS_GET_ALLOC_ADDR equ 27      ; Get Addr (Alloc)
+ 283:     -	001C'         	BDOS_WRITE_PROT     equ 28      ; Write Protect Disk
+ 284:     -	001D'         	BDOS_GET_RO_VEC     equ 29      ; Get R/O Vector
+ 285:     -	001E'         	BDOS_SET_FILE_ATTR  equ 30      ; Set File Attributes
+ 286:     -	001F'         	BDOS_GET_DPB        equ 31      ; Get Addr (Disk Parms)
+ 287:     -	0020'         	BDOS_GET_SET_USER   equ 32      ; Set/Get User Code
+ 288:     -	0021'         	BDOS_READ_RANDOM    equ 33      ; Read Random
+ 289:     -	0022'         	BDOS_WRITE_RANDOM   equ 34      ; Write Random
+ 290:     -	0023'         	BDOS_GET_FILE_SIZE  equ 35      ; Compute File Size
+ 291:     -	0024'         	BDOS_SET_RANDOM_REC equ 36      ; Set Random Record
+ 292:     -	0025'         	BDOS_RESET_DRIVES   equ 37      ; Selectively reset disc drives
+ 293:     -	0028'         	BDOS_WRITE_RAN_ZFILL equ 40     ; Write Random with Zero Fill
+ 294:				
+ 295:				; Functions 28 and 32 should be avoided in application programs to maintain upward
+ 296:				; compatibility with CP/M.
+ 297:				;
+ 298:				
+**** zarc.z80 ****
+  29:				                include "zarc_utils.i"  ; Project include file
+**** zarc_utils.i ****
+   1:				; *******************************************************
+   2:				; * ZARC Z80 Computer CP/M Utilities Include file       *
+   3:				; * Written by: Merlin Skinner                          *
+   4:				; * Date Started: 1/7/2021                              *
+   5:				; *******************************************************
+   6:				;
+   7:				;
+   8:				;
+   9:				; *************
+  10:				; * Constants *
+  11:				; *************
+  12:				;
+  13:				;
+  14:				;DEBUG           equ 1               ; Define to enable debug messages
+  15:				;
+  16:     -	0040'         	STACK_SIZE      equ 64              ; Stack space allocation
+  17:     -	0003'         	BREAK_CHAR      equ 'C' - 0x40
+  18:				
+**** zarc.z80 ****
+  30:				;
+  31:				;
+  32:				;
+  33:				; None.
+  34:				;
+  35:				;
+  36:				;
+  37:				; *************
+  38:				; * Externals *
+  39:				; *************
+  40:				;
+  41:				;
+  42:				; Variables
+  43:				;                public brkflg   ; Non-zero if break character detected
+  44:				;
+  45:				; From utility.z80
+  46:				; CP/M specific.
+  47:				                include "cpm_utility.i" ; CP/M utilities
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//cpm_utility.i ****
+   1:				; *******************************************************
+   2:				; * Utility Routines for CP/M Applications              *
+   3:				; * Version: V1.0                                       *
+   4:				; * Merlin Skinner, 16/12/2021                          *
+   5:				; *******************************************************
+   6:				;
+   7:				; Note that ld80 only considers the first six characters of labels significant.
+   8:				;
+   9:     -	0001'         	            ifndef CPMU         ; Inhibit for this module
+  10:				; CP/M specific.
+  11:				                extern cbdos    ; Call BDOS with some registers saved
+  12:				                extern cbios    ; Call BIOS with some registers saved
+  13:				                extern panic    ; Fatal application error
+  14:				                extern zrcdet   ; Detect ZARC
+  15:				                extern z80det   ; Detect Z80 (instead of 8080 / 8085)
+  16:				;
+  17:				; Derived from the monitor's utility.z80.
+  18:				                extern conwch   ; Write character to console
+  19:				                extern conrch   ; Read character from the console
+  20:				                extern const    ; Fetch console input status
+  21:				                extern cwnwln   ; Write new line characters to console
+  22:				                extern conwms   ; Print "$" terminated string to the console
+  23:				                extern conwmn   ; Print message <n> in a list
+  24:				                extern skpspc   ; Step hl past spaces
+  25:				                extern toupca   ; Convert character in A to upper case
+  26:				                extern toloca   ; Convert character in A to lower case
+  27:				                extern cwvich   ; Print only visible 7-bit characters
+  28:				                extern cwpspc   ; Print a space
+  29:				                extern mtwdli   ; Match word in a string against list of options
+  30:				                extern cwphnb   ; Print least-significant nibble in A in hexadecimal
+  31:				                extern cwphby   ; Print A in hexadecimal
+  32:				                extern cwphwd   ; Print HL in hexadecimal
+  33:				                extern cwpdwd   ; Print HL in decimal. Leading zeros are suppressed
+  34:				                extern cwpdby   ; Print A in decimal. Leading zeros are suppressed
+  35:				                extern cwpdwd   ; Print HL in decimal. Leading zeros are suppressed
+  36:				                extern cwpdlo   ; Print DEHL in decimal. Leading zeros are suppressed
+  37:				                extern rdhxwd   ; Read a 16-bit hexadecimal number from a string
+  38:				                extern rdduwd   ; Read a 16-bit unsigned decimal number from a string
+  39:				                extern rddulo   ; Read a 32-bit unsigned decimal number from a string
+  40:				;
+  41:				            endif
+  42:				;
+  43:				;
+  44:				; mtwdli (match word in a string against list of options) option bits. Each bit
+  45:				; has the described effect if set.
+  46:     -	        	BITDEF MTWDLI_ABBREV, 0                 ; Enable "." abbreviation
+  47:     -	        	BITDEF MTWDLI_ICASE, 1                  ; Ignore case when matching
+  48:     -	        	BITDEF MTWDLI_TERM, 7                   ; Terminator found (internal use only)
+  49:				
+**** zarc.z80 ****
+  48:				;                include "cpm_files.i"   ; CP/M file handling
+  49:				;
+  50:				;
+  51:				;
+  52:				; *************
+  53:				; * Main Code *
+  54:				; *************
+  55:				;
+  56:				;
+  57:				; The CP/M transient area start address is set in the linker invokation (see makefile).
+  58:				                cseg                    ; Code segment
+  59:				;
+  60:				; The default stack space is very small (8 deep), which would almost certainly
+  61:				; cause issues, particularly with interrupts running. The initial code should
+  62:				; not assume a Z80 so we can exit cleanly if this is run on something else.
+  63:    0+20	0000' ED730000	                ld (bdos_sp), sp
+  64:   20+10	0004' 314200  	                ld sp, app_stack_top    ; Switch to our stack space
+  65:				;
+  66:				; Determine CPU type.
+  67:   30+17	0007' CD0000  	                call z80det             ; Detect Z80 (instead of 8080 / 8085)
+  68:   47+10	000A' D21800  	                jp nc, on_z80           ; Jump if we have a Z80
+  69:				;
+  70:				; 8080 / 8085 detected. Print message and exit. We can't use conwms as this
+  71:				; assumes a Z80.
+  72:   57+10	000D' 11B600  	                ld de, no_z80_msg       ; "Z80 CPU required"
+  73:   67+7	0010' 0E09    	                ld c, BDOS_PRINT_STRING ; Print String
+  74:   74+17	0012' CD0500  	                call BDOS
+  75:   91+10	0015' C30000  	                jp 0                    ; Warm boot
+  76:				;
+  77:				; The following code is not 8080 / 8085 safe.
+  78:  101+10	0018' 218600  	on_z80          ld hl, signon_msg
+  79:  111+17	001B' CD0000  	                call conwms             ; Print $-terminated string to the console
+  80:				;
+  81:				; Are we running on a ZARC system?
+  82:  128+17	001E' CD0000  	                call zrcdet
+  83:  145+7+5	0021' 3009    	                jr nc, on_zarc          ; Jump if we are on ZARC
+  84:				;
+  85:  152+10	0023' 21EB00  	                ld hl, no_zarc_msg      ; "ZARC BIOS not detected."
+  86:  162+17	0026' CD0000  	                call conwms             ; Print $-terminated string to the console
+  87:  179+10	0029' C38100  	                jp exit
+  88:				;
+  89:				; Examine the command tail, looking for operands. This is stored in the default
+  90:				; buffer. "The first byte at 0080H contains the length of the command tall, while
+  91:				; the command tail itself begins at 0081H. The command tail is terminated by a
+  92:				; byte containing a binary zero value." (http://www.cpm.z80.de/manuals/cpm22-m.pdf
+  93:				; appendix H).
+  94:  189+10	002C' 218100  	on_zarc         ld hl, DEF_BUFFER + 1
+  95:  199+17	002F' CD0000  	                call skpspc             ; Step hl past spaces
+  96:				;
+  97:				; Attempt to match the operand with an item in the list.
+  98:  216+10	0032' 110501  	                ld de, cmd_list
+  99:				; Ignore case and allow abbreviations.
+ 100:  226+7	0035' 3E03    	                ld a, MTWDLI_ABBREV_MASK | MTWDLI_ICASE_MASK
+ 101:  233+17	0037' CD0000  	                call mtwdli             ; Match against list of options
+ 102:  250+4	003A' A7      	                and a
+ 103:  254+7+5	003B' 2815    	                jr z, op_error
+ 104:				;
+ 105:				; Find address of command code
+ 106:  261+11	003D' E5      	                push hl                 ; Save command buffer pointer
+ 107:  272+10	003E' 210F01  	                ld hl, cmd_vectors
+ 108:  282+4	0041' 3D      	                dec a                   ; Start index from zero
+ 109:  286+4	0042' 87      	                add a                   ; Convert index to a word offset
+ 110:  290+4	0043' 85      	                add l                   ; Add low byte
+ 111:  294+4	0044' 6F      	                ld l,a
+ 112:  298+7	0045' 3E00    	                ld a, 0
+ 113:  305+4	0047' 8C      	                adc a, h                ; Add carry to high byte
+ 114:  309+4	0048' 67      	                ld h, a
+ 115:				; HL is cmd_vectors + 2 * index
+ 116:  313+7	0049' 5E      	                ld e, (hl)              ; Read address
+ 117:  320+6	004A' 23      	                inc hl
+ 118:  326+7	004B' 56      	                ld d, (hl)
+ 119:  333+10	004C' E1      	                pop hl                  ; Restore command buffer pointer
+ 120:  343+17	004D' CD0000  	                call skpspc             ; Skip any leading spaces
+ 121:  360+11	0050' D5      	                push de
+ 122:				; HL points to the separator after the command word or the terminator.
+ 123:  371+10	0051' C9      	                ret                     ; Go to command routine
+ 124:				;
+ 125:				;
+ 126:				; Go here if we don't like the operands supplied.
+ 127:  381+10	0052' 21C900  	op_error        ld hl, op_err_msg
+ 128:  391+17	0055' CD0000  	                call conwms             ; Print $-terminated string to the console
+ 129:  408+10	0058' C38100  	                jp exit
+ 130:				;
+ 131:				;
+ 132:				; Print terse help text.
+ 133:  418+10	005B' 211301  	cmd_help        ld hl, help_msg
+ 134:  428+17	005E' CD0000  	                call conwms             ; Print message
+ 135:  445+10	0061' C38100  	                jp exit
+ 136:				;
+ 137:				;
+ 138:				; Exit CP/M and return to monitor.
+ 139:  455+4	0064' AF      	cmd_exit        xor a
+ 140:  459+7	0065' BE      	                cp (hl)
+ 141:  466+10	0066' C25200  	                jp nz, op_error         ; Error if text follows
+ 142:				;
+ 143:  476+10	0069' 214701  	                ld hl, exit_msg
+ 144:  486+17	006C' CD0000  	                call conwms             ; Print message
+ 145:				;
+ 146:				; Call monitor via BIOS to flush the MMC sector cache.
+ 147:  503+10	006F' 11EA00  	                ld de, MCALL_CAFLUS     ; Flush cache (write dirty buffers)
+ 148:  513+10	0072' 216900  	                ld hl, BIOS_MON_CALL    ; Call monitor function
+ 149:				; No parameters required (would be in alternate register set).
+ 150:  523+17	0075' CD0000  	                call cbios              ; Call BIOS
+ 151:				;
+ 152:				; Enter the monitor.
+ 153:  540+10	0078' 116900  	                ld de, MCALL_MON_ENTRY  ; Normal monitor entry
+ 154:  550+10	007B' 216900  	                ld hl, BIOS_MON_CALL    ; Call monitor function
+ 155:				; No parameters required (would be in alternate register set).
+ 156:  560+17	007E' CD0000  	                call cbios              ; Call BIOS
+ 157:				;
+ 158:				;
+ 159:				; Return to CP/M. Going here is always safe as it does not rely on the stack
+ 160:				; state.
+ 161:  577+20	0081' ED7B0000	exit            ld sp, (bdos_sp)
+ 162:  597+10	0085' C9      	                ret                     ; Return to BDOS
+ 163:				;               jp 0                    ; Warm boot
+ 164:				;
+ 165:				;
+ 166:				;
+ 167:				; ***************
+ 168:				; * Subroutines *
+ 169:				; ***************
+ 170:				;
+ 171:				;
+ 172:				
+ 173:				;
+ 174:				;
+ 175:				;
+ 176:				; *************
+ 177:				; * Constants *
+ 178:				; *************
+ 179:				;
+ 180:				;
+ 181:     -	0086' 2A2A2A20	signon_msg      byte "*** ZARC Z80 Computer CP/M Utilities V1.0 ***", 0x0d, 0x0a, "$"
+	              5A415243
+	              205A3830
+	              20436F6D
+	              70757465
+	              72204350
+	              2F4D2055
+	              74696C69
+	              74696573
+	              2056312E
+	              30202A2A
+	              2A0D0A24
+ 182:     -	00B6' 5A383020	no_z80_msg      byte "Z80 CPU required", 0x0d, 0x0a, "$"
+	              43505520
+	              72657175
+	              69726564
+	              0D0A24
+ 183:     -	00C9' 4F706572	op_err_msg      byte "Operand error. Try ""zarc help"".", 0x0d, 0x0a, "$"
+	              616E6420
+	              6572726F
+	              722E2054
+	              72792022
+	              7A617263
+	              2068656C
+	              70222E0D
+	              0A24
+ 184:     -	00EB' 5A415243	no_zarc_msg     byte "ZARC BIOS not detected.", 0x0d, 0x0a, "$"
+	              2042494F
+	              53206E6F
+	              74206465
+	              74656374
+	              65642E0D
+	              0A24
+ 185:				; The ordered list of commands in cmd_list corresponds to the list of vectors
+ 186:				; in cmd_vectors.
+ 187:     -	0105' 48454C50	cmd_list        byte "HELP EXIT", 0
+	              20455849
+	              5400
+ 188:     -	010F' 5B006400	cmd_vectors     word cmd_help, cmd_exit
+ 189:				;
+ 190:     -	0113' 68656C70	help_msg        byte "help", 0x0d, 0x0a
+	              0D0A
+ 191:     -	0119' 7A617263	                byte "zarc exit (exit CP/M and return to monitor)", 0x0d, 0x0a
+	              20657869
+	              74202865
+	              78697420
+	              43502F4D
+	              20616E64
+	              20726574
+	              75726E20
+	              746F206D
+	              6F6E6974
+	              6F72290D
+	              0A
+ 192:     -	0146' 24      	                byte "$"
+ 193:				;
+ 194:     -	0147' 45786974	exit_msg        byte "Exiting CP/M", 0x0d, 0x0a, "$"
+	              696E6720
+	              43502F4D
+	              0D0A24
+ 195:				;
+ 196:				;
+ 197:				;
+ 198:				; *************
+ 199:				; * Variables *
+ 200:				; *************
+ 201:				;
+ 202:				;
+ 203:				; Note: linker "-c" option is used, so no data is initialised here.
+ 204:				                dseg                ; Data segment
+ 205:				;
+ 206:     -	0000"         	bdos_sp         defs 2              ; BDOS's stack pointer
+ 207:				
+ 208:				;
+ 209:     -	0002"         	                defs STACK_SIZE     ; Stack space
+ 210:     -	0042"         	app_stack_top
+ 211:				;
+ 212:     -	0042"         	                end
+
+
+
+Statistics:
+
+     4	passes
+     0	jr promotions
+   415	symbols
+   342	bytes
+
+   204	macro calls
+  1546	macro bytes
+     0	invented symbols
+
+
+
+Symbol Table:
+
+ASCII_BS       =08        8
+ASCII_CR       =0D        13
+ASCII_DEL      =7F        127
+ASCII_ENQ      =05        5
+ASCII_ESC      =1B        27
+ASCII_FF       =0C        12
+ASCII_HT       =09        9
+ASCII_LF       =0A        10
+ASCII_RS       =1E        30
+ASCII_SUB      =1A        26
+ASCII_SYN      =16        22
+ASCII_VT       =0B        11
+BDOS           =05        5
+BDOS_CLOSE_FILE=10        16
+BDOS_CON_IN    =01        1
+BDOS_CON_OUT   =02        2
+BDOS_DELETE_FILE=13        19
+BDOS_DIRECT_CON_IO=06        6
+BDOS_GET_ALLOC_ADDR=1B        27
+BDOS_GET_CON_STAT=0B        11
+BDOS_GET_CURR_DISK=19        25
+BDOS_GET_DPB   =1F        31
+BDOS_GET_FILE_SIZE=23        35
+BDOS_GET_IO_BYTE=07        7
+BDOS_GET_LOGIN_VEC=18        24
+BDOS_GET_RO_VEC=1D        29
+BDOS_GET_SET_USER=20        32
+BDOS_LST_OUT   =05        5
+BDOS_MAKE_FILE =16        22
+BDOS_OPEN_FILE =0F        15
+BDOS_PRINT_STRING=09        9
+BDOS_PUN_OUT   =04        4
+BDOS_RDR_IN    =03        3
+BDOS_READ_CON_BUFF=0A        10
+BDOS_READ_RANDOM=21        33
+BDOS_READ_SEQ  =14        20
+BDOS_READ_SEQ_EOF=01        1
+BDOS_RENAME_FILE=17        23
+BDOS_RESET_DISK_SYS=0D        13
+BDOS_RESET_DRIVES=25        37
+BDOS_SEARCH_FIRST=11        17
+BDOS_SEARCH_NEXT=12        18
+BDOS_SEL_DISK  =0E        14
+BDOS_SET_DMA_ADDR=1A        26
+BDOS_SET_FILE_ATTR=1E        30
+BDOS_SET_IO_BYTE=08        8
+BDOS_SET_RANDOM_REC=24        36
+BDOS_START     =DE06      56838
+BDOS_SYS_RST   =00        0
+BDOS_VERSION   =0C        12
+BDOS_WRITE_PROT=1C        28
+BDOS_WRITE_RANDOM=22        34
+BDOS_WRITE_RAN_ZFILL=28        40
+BDOS_WRITE_SEQ =15        21
+BIOS_AUXIST    =33        51
+BIOS_AUXOST    =36        54
+BIOS_CONIN     =06        6
+BIOS_CONOST    =30        48
+BIOS_CONOUT    =09        9
+BIOS_CONST     =03        3
+BIOS_CPM_START_SEC=2C        44
+BIOS_DEVINI    =3C        60
+BIOS_DEVTBL    =39        57
+BIOS_DRVTBL    =3F        63
+BIOS_FLUSH     =45        69
+BIOS_GET_TIMER =7B        123
+BIOS_HOME      =15        21
+BIOS_ID        =60        96
+BIOS_INT_DISABLE=6F        111
+BIOS_INT_ENABLE=72        114
+BIOS_JPTBL_NEXT=7E        126
+BIOS_LISTST    =2A        42
+BIOS_MAX_SIZE  =1000      4096
+BIOS_MON_CALL  =69        105
+BIOS_MOVE      =48        72
+BIOS_MULTIO    =42        66
+BIOS_OPT_DEBUG_BIT=00        0
+BIOS_OPT_DEBUG_MASK=01        1
+BIOS_OPT_NOINTS_BIT=01        1
+BIOS_OPT_NOINTS_MASK=02        2
+BIOS_OPT_RAWCON_BIT=02        2
+BIOS_OPT_RAWCON_MASK=04        4
+BIOS_PLIST     =0C        12
+BIOS_PUNCH     =0F        15
+BIOS_READ      =24        36
+BIOS_READER    =12        18
+BIOS_RESERV1   =5A        90
+BIOS_RESERV2   =5D        93
+BIOS_SECTRAN   =2D        45
+BIOS_SELDSK    =18        24
+BIOS_SELMEM    =4E        78
+BIOS_SETBNK    =51        81
+BIOS_SETDMA    =21        33
+BIOS_SETSEC    =1E        30
+BIOS_SETTRK    =1B        27
+BIOS_SET_TIMER =78        120
+BIOS_START     =EC00      60416
+BIOS_STARTUP   =66        102
+BIOS_SUPER     =6C        108
+BIOS_TIME      =4B        75
+BIOS_TIRD      =75        117
+BIOS_USERF     =57        87
+BIOS_VER       =63        99
+BIOS_WBOOT     =00        0
+BIOS_WRITE     =27        39
+BIOS_XMOVE     =54        84
+BREAK_CHAR     =03        3
+CCP_START      =D600      54784
+CDISK          =04        4
+CPM_BIAS       =A200      41472
+CPM_DISK_SIZE  =00100000  1048576
+CPM_SECTOR_SIZE=80        128
+CPM_SYS_SIZE   =00100000  1048576
+DEF_BUFFER     =80        128
+DEF_BUFFER_SIZE=80        128
+DIRE_ALLOC     =10        16
+DIRE_EX        =0C        12
+DIRE_NAME      =01        1
+DIRE_RC        =0F        15
+DIRE_S1        =0D        13
+DIRE_S2        =0E        14
+DIRE_SIZE      =20        32
+DIRE_TYP       =09        9
+DIRE_USER      =00        0
+DPB_AL0        =09        9
+DPB_AL1        =0A        10
+DPB_BLM        =03        3
+DPB_BSH        =02        2
+DPB_CKS        =0B        11
+DPB_DRM        =07        7
+DPB_DSM        =05        5
+DPB_EXM        =04        4
+DPB_OFF        =0D        13
+DPB_SIZE       =0F        15
+DPB_SPT        =00        0
+DPH_ALV        =0E        14
+DPH_CSV        =0C        12
+DPH_DIRBF      =08        8
+DPH_DPB        =0A        10
+DPH_SCRATCH0   =02        2
+DPH_SCRATCH1   =04        4
+DPH_SCRATCH2   =06        6
+DPH_SIZE       =10        16
+DPH_XLT        =00        0
+FCB1           =5C        92
+FCB2           =6C        108
+FCB_ALLOC      =10        16
+FCB_CR         =20        32
+FCB_DRIVE      =00        0
+FCB_EX         =0C        12
+FCB_NAME       =01        1
+FCB_RC         =0F        15
+FCB_RECORD     =21        33
+FCB_S1         =0D        13
+FCB_S2         =0E        14
+FCB_SIZE       =24        36
+FCB_TYP        =09        9
+FILEEXT_SIZE   =03        3
+FILENAME_SIZE  =08        8
+FILE_EOF       =1A        26
+I2C_CSR_ACKN_BIT=00        0
+I2C_CSR_ACKN_MASK=01        1
+I2C_CSR_BUSY_BIT=07        7
+I2C_CSR_BUSY_MASK=80        128
+I2C_CSR_START_BIT=01        1
+I2C_CSR_START_MASK=02        2
+I2C_CSR_STOP_BIT=02        2
+I2C_CSR_STOP_MASK=04        4
+INTS_NUM       =08        8
+INT_SER1_RX_BIT=01        1
+INT_SER1_RX_MASK=02        2
+INT_SER1_RX_VEC=01        1
+INT_SER1_TX_BIT=00        0
+INT_SER1_TX_MASK=01        1
+INT_SER1_TX_VEC=00        0
+INT_SER2_RX_BIT=03        3
+INT_SER2_RX_MASK=08        8
+INT_SER2_RX_VEC=03        3
+INT_SER2_TX_BIT=02        2
+INT_SER2_TX_MASK=04        4
+INT_SER2_TX_VEC=02        2
+INT_TICK_BIT   =04        4
+INT_TICK_MASK  =10        16
+INT_TICK_VEC   =04        4
+INT_VEC_TABLE  =FFE0      65504
+IOA_CONTROL    =02        2
+IOA_CRC_0      =24        36
+IOA_CRC_1      =25        37
+IOA_CRC_DATA   =26        38
+IOA_FPGA_MAJREV=00        0
+IOA_FPGA_MINREV=01        1
+IOA_FP_SW      =03        3
+IOA_I2C_CSR    =18        24
+IOA_I2C_DATA   =19        25
+IOA_INT_EN     =08        8
+IOA_INT_PEND   =0A        10
+IOA_MMAP_0     =04        4
+IOA_MMAP_1     =05        5
+IOA_MMAP_2     =06        6
+IOA_MMAP_3     =07        7
+IOA_NMI_REASONS=0C        12
+IOA_SER1_CSR   =10        16
+IOA_SER1_DATA  =11        17
+IOA_SER2_CSR   =12        18
+IOA_SER2_DATA  =13        19
+IOA_SPI_CSR    =20        32
+IOA_SPI_DATA   =21        33
+IOBYTE         =03        3
+IOB_CON_MASK   =03        3
+IOB_LST_MASK   =C0        192
+IOB_PUN_MASK   =30        48
+IOB_RDR_MASK   =0C        12
+MAX_USER       =0F        15
+MCALL_CACRS    =E4        228
+MCALL_CACWS    =E7        231
+MCALL_CAFLUS   =EA        234
+MCALL_CONRCH   =72        114
+MCALL_CONSTA   =75        117
+MCALL_CONWCH   =6F        111
+MCALL_CONWMN   =90        144
+MCALL_CONWMS   =8D        141
+MCALL_CRC16X   =CF        207
+MCALL_CWNWLN   =8A        138
+MCALL_CWPDBY   =AE        174
+MCALL_CWPDLO   =B4        180
+MCALL_CWPDWD   =B1        177
+MCALL_CWPHBY   =A8        168
+MCALL_CWPHNB   =A5        165
+MCALL_CWPHWD   =AB        171
+MCALL_CWPSPC   =9F        159
+MCALL_CWPTM    =DE        222
+MCALL_CWVICH   =9C        156
+MCALL_JPTBL_NEXT=F6        246
+MCALL_MADBBU   =C6        198
+MCALL_MADLBU   =C0        192
+MCALL_MADWBU   =C3        195
+MCALL_MAMLBU   =CC        204
+MCALL_MAMWWU   =C9        201
+MCALL_MCPRER   =E1        225
+MCALL_MON_ENTRY=69        105
+MCALL_MPALL    =ED        237
+MCALL_MPFREE   =F0        240
+MCALL_MPSTAT   =F3        243
+MCALL_MTWDLI   =A2        162
+MCALL_PANIC    =6C        108
+MCALL_RDDULO   =BD        189
+MCALL_RDDUWD   =BA        186
+MCALL_RDHXWD   =B7        183
+MCALL_S1RCH    =7B        123
+MCALL_S1STA    =7E        126
+MCALL_S1WCH    =78        120
+MCALL_S2RCH    =84        132
+MCALL_S2STA    =87        135
+MCALL_S2WCH    =81        129
+MCALL_SKPSPC   =93        147
+MCALL_TIITOS   =D8        216
+MCALL_TIRD     =D2        210
+MCALL_TISTOI   =DB        219
+MCALL_TIWR     =D5        213
+MCALL_TOLOCA   =99        153
+MCALL_TOUPCA   =96        150
+MMAP_CPM_PAGES =04        4
+MMAP_PAGE_MASK =3F        63
+MMAP_PROT_BIT  =07        7
+MMAP_PROT_MASK =80        128
+MMAP_SUPER_BIT =06        6
+MMAP_SUPER_MASK=40        64
+MST_AF         =1C        28
+MST_AF_P       =14        20
+MST_BC         =1A        26
+MST_BC_P       =12        18
+MST_DE         =18        24
+MST_DE_P       =10        16
+MST_HL         =16        22
+MST_HL_P       =0E        14
+MST_I          =1E        30
+MST_IEN        =00        0
+MST_IX         =0C        12
+MST_IY         =0A        10
+MST_MMAP0      =02        2
+MST_MMAP1      =03        3
+MST_MMAP2      =04        4
+MST_MMAP3      =05        5
+MST_MMAP_EN    =01        1
+MST_PC         =08        8
+MST_R          =1F        31
+MST_SIZE       =20        32
+MST_SP         =06        6
+MS_PER_TICK    =64        100
+MTWDLI_ABBREV_BIT=00        0
+MTWDLI_ABBREV_MASK=01        1
+MTWDLI_ICASE_BIT=01        1
+MTWDLI_ICASE_MASK=02        2
+MTWDLI_TERM_BIT=07        7
+MTWDLI_TERM_MASK=80        128
+NMI_PROT_VIOL_BIT=01        1
+NMI_PROT_VIOL_MASK=02        2
+NMI_REASONS_ALL=0F        15
+NMI_REASONS_NUM=04        4
+NMI_SUPER_VIOL_BIT=02        2
+NMI_SUPER_VIOL_MASK=04        4
+NMI_SWITCH_BIT =00        0
+NMI_SWITCH_MASK=01        1
+NMI_TRACE_BIT  =03        3
+NMI_TRACE_MASK =08        8
+NUM_DISKS      =10        16
+NUM_DISKS_MAX  =10        16
+SER_CSR_FRAME_ERR_BIT=03        3
+SER_CSR_FRAME_ERR_MASK=08        8
+SER_CSR_RX_ALHALF_BIT=01        1
+SER_CSR_RX_ALHALF_MASK=02        2
+SER_CSR_RX_EMPTY_BIT=00        0
+SER_CSR_RX_EMPTY_MASK=01        1
+SER_CSR_RX_FULL_BIT=02        2
+SER_CSR_RX_FULL_MASK=04        4
+SER_CSR_TX_ALHALF_BIT=05        5
+SER_CSR_TX_ALHALF_MASK=20        32
+SER_CSR_TX_EMPTY_BIT=04        4
+SER_CSR_TX_EMPTY_MASK=10        16
+SER_CSR_TX_FULL_BIT=06        6
+SER_CSR_TX_FULL_MASK=40        64
+SPI_CSR_BUSY_BIT=07        7
+SPI_CSR_BUSY_MASK=80        128
+SPI_CSR_FAST_BIT=00        0
+SPI_CSR_FAST_MASK=01        1
+SPI_CSR_MC_SS_BIT=01        1
+SPI_CSR_MC_SS_MASK=02        2
+STACK_SIZE     =40        64
+SYSCTRL_MAPARM_BIT=03        3
+SYSCTRL_MAPARM_MASK=08        8
+SYSCTRL_MMAPN_BIT=04        4
+SYSCTRL_MMAPN_MASK=10        16
+SYSCTRL_MMAP_BIT=01        1
+SYSCTRL_MMAP_MASK=02        2
+SYSCTRL_NMCLR_BIT=02        2
+SYSCTRL_NMCLR_MASK=04        4
+SYSCTRL_RESERVED_BIT=07        7
+SYSCTRL_RESERVED_MASK=80        128
+SYSCTRL_TRARM_BIT=00        0
+SYSCTRL_TRARM_MASK=01        1
+SYSCTRL_TRPRE0_BIT=05        5
+SYSCTRL_TRPRE0_MASK=20        32
+SYSCTRL_TRPRE1_BIT=06        6
+SYSCTRL_TRPRE1_MASK=40        64
+TICK_FREQ      =0A        10
+TPA_START      = 100      256
+TRM_NONE       =00        0
+TRM_SINGLE     =01        1
+TRM_STATES     =04        4
+TRM_TO_ADDR    =02        2
+TRM_XPT        =03        3
+Z80_NMI_VEC    =66        102
+Z80_RST00_VEC  =00        0
+Z80_RST08_VEC  =08        8
+Z80_RST10_VEC  =10        16
+Z80_RST18_VEC  =18        24
+Z80_RST20_VEC  =20        32
+Z80_RST28_VEC  =28        40
+Z80_RST30_VEC  =30        48
+Z80_RST38_VEC  =38        56
+ZKEY_CSR_DOWN  =1E        30
+ZKEY_CSR_LEFT  =01        1
+ZKEY_CSR_RIGHT =06        6
+ZKEY_CSR_UP    =1F        31
+ZKEY_DELETE    =7F        127
+ZKEY_END       =04        4
+ZKEY_HOME      =02        2
+ZKEY_INSERT    =16        22
+ZKEY_PAGE_DOWN =1C        28
+ZKEY_PAGE_UP   =1D        29
+app_stack_top   42"       66
+bdos_sp         00"       0
+cbdos           00        0 (extern)
+cbios           00        0 (extern)
+cmd_exit        64'       100
+cmd_help        5B'       91
+cmd_list         105'     261
+cmd_vectors      10F'     271
+conrch          00        0 (extern)
+const           00        0 (extern)
+conwch          00        0 (extern)
+conwmn          00        0 (extern)
+conwms          00        0 (extern)
+cwnwln          00        0 (extern)
+cwpdby          00        0 (extern)
+cwpdlo          00        0 (extern)
+cwpdwd          00        0 (extern)
+cwphby          00        0 (extern)
+cwphnb          00        0 (extern)
+cwphwd          00        0 (extern)
+cwpspc          00        0 (extern)
+cwvich          00        0 (extern)
+enum_counter   =04        4
+exit            81'       129
+exit_msg         147'     327
+help_msg         113'     275
+jptbl_addr     =7E        126
+mtwdli          00        0 (extern)
+no_z80_msg      B6'       182
+no_zarc_msg     EB'       235
+on_z80          18'       24
+on_zarc         2C'       44
+op_err_msg      C9'       201
+op_error        52'       82
+panic           00        0 (extern)
+rddulo          00        0 (extern)
+rdduwd          00        0 (extern)
+rdhxwd          00        0 (extern)
+signon_msg      86'       134
+skpspc          00        0 (extern)
+str_offset     =24        36
+toloca          00        0 (extern)
+toupca          00        0 (extern)
+z80det          00        0 (extern)
+zrcdet          00        0 (extern)

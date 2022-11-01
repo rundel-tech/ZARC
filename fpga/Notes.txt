@@ -1,0 +1,57 @@
+24/8/2019 (Saturday)
+
+Useful links:
+
+Board information: https://www.openimpulse.com/blog/products-page/product-category/ep2c5t144-altera-cyclone-ii-fpga-development-board/
+
+Useage notes: https://www.retrobrewcomputers.org/doku.php?id=boards:sbc:multicomp:cycloneii-c:start
+
+Created file "/etc/udev/rules.d/51-usbblaster.rules" with contents:
+
+# USB-Blaster
+
+BUS=="usb", SYSFS{idVendor}=="09fb", SYSFS{idProduct}=="6001", MODE="0666"
+BUS=="usb", SYSFS{idVendor}=="09fb", SYSFS{idProduct}=="6002", MODE="0666" 
+BUS=="usb", SYSFS{idVendor}=="09fb", SYSFS{idProduct}=="6003", MODE="0666"   
+
+# USB-Blaster II
+
+BUS=="usb", SYSFS{idVendor}=="09fb", SYSFS{idProduct}=="6010", MODE="0666"
+BUS=="usb", SYSFS{idVendor}=="09fb", SYSFS{idProduct}=="6810", MODE="0666"
+
+# For Ubuntu
+
+SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="09fb", ATTR{idProduct}=="6001", MODE="0666", NAME="bus/usb/$env{BUSNUM}/$env{DEVNUM}", RUN+="/bin/chmod 0666 %c"
+
+
+This came from here: https://gist.github.com/brchiu/db0031018e34241695dbce09cc04c614
+
+Without it, the programmer can't seem to scan the device chain.
+
+
+8/5/2021 (Saturday)
+
+I moved to Windows ages ago for the FPGA work. I am more familiar with it in that environment, and the task is different enough that switching between the two systems shouldn't happen too often.
+
+Quartus II 13.0sp1 (64-bit) Web Edition.
+
+QuartusSetupWeb-13.0.1.232.exe - Quartus itself
+QuartusProgrammerSetup-13.0.1.232.exe - programmer
+ModelSimSetup-13.0.1.232.exe - Modelsim (simulator)
+
+See also /home/merlin/Technical/HardwareProjects/Tools/QuartusII_13.0sp1 for the required files.
+
+
+19/5/2021 (Wednesday)
+
+To build the FPGA, simply open the project in Quartus II and press ^L.
+Source files are in FPGA\Firmware\vhdl
+
+Simulation testbenches are in FPGA\Firmware\simulation
+Simulation uses ModelSim. Useful link: https://www.intel.com/content/www/us/en/programmable/documentation/aym1499789502823.html - surprisingly still pretty current.
+    Select Assignments > Settings > EDA Tool Settings > Simulation.
+    Under "Nativelink Settings" select test bench. Need to name the testbench and add the file.
+    Run Analysis and Synthesis (^K)
+    Select Tools / Run Simulation Tool / RTL Simulation (or use the toolbar icon). This starts ModelSim and starts the simulation.
+
+Can use "Compile" option to re-compile any .vhd files as required.

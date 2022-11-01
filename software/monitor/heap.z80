@@ -1,0 +1,127 @@
+; *******************************************************
+; * Heap Routines for ZARC Z80 Computer                 *
+; * Written by: Merlin Skinner                          *
+; * Date Started: 8/11/2020                             *
+; *******************************************************
+;
+; Routines associated with the monitor's heap.
+;
+; This is a simple heap, intended for one-shot allocation with no "free" option.
+;
+; Example usage:
+; Allocate space for a sector buffer.
+;                ld hl, MC_SECTOR_SIZE
+;                call halloc
+;                and a
+;                jr nz, init_heap_err
+;                ld (sec_buffer), hl     ; Buffer address
+;
+;
+monitor         equ 1                   ; Flag part of monitor build
+heap            equ 1                   ; Flag module for includes
+;
+;
+;
+; ************
+; * Includes *
+; ************
+;
+                include "macros.i"
+                include "z80.i"
+                include "zarc.i"        ; Hardware definitions
+                include "monitor.i"
+                include "io_map.i"      ; I/O addresses mapping
+                include "memory.i"      ; Memory page allocation
+;
+;
+; *************
+; * Externals *
+; *************
+;
+; Routines
+                public hinit        ; Initialise
+                public halloc       ; Allocate memory
+;
+; Variables
+; (None).
+;
+;
+; *************
+; * Constants *
+; *************
+;
+; (None)
+;
+;
+; *************
+; * Main Code *
+; *************
+;
+                cseg                    ; Code segment
+;
+;
+; Initialise heap space.
+hinit           push hl
+                ld hl, heap_start
+                ld (ptr), hl            ; Update pointer
+                pop hl
+                ret
+;
+;
+; Allocate heap space.
+; Call with:
+; HL - requested size
+; Returns with:
+; HL - address of space
+; A - zero (OK) or non-zero on error (insufficient space)
+halloc          push bc
+                ld b, h
+                ld c, l
+                ld hl, (ptr)
+; HL - heap pointer
+; BC - size requested
+                push hl
+                add hl, bc              ; Find new pointer
+; Check range.
+                ld bc, HEAP_TOP
+                ld a, l
+                sub c
+                ld a, h
+                sbc b
+                jr nc, hal_err
+; The newly requested space will fit.
+                ld (ptr), hl            ; Update pointer
+                xor a                   ; Flag success
+                jr wst_exit
+;
+; Insufficient space.
+hal_err         ld a, 1
+;
+; Exit with return code in A and pointer in HL.
+wst_exit        pop hl                  ; Restore base address of new space
+                pop bc
+                ret
+;
+;
+;
+; *************
+; * Constants *
+; *************
+;
+; None.
+;
+;
+;
+; *************
+; * Variables *
+; *************
+;
+;
+; Note: linker "-c" option is used, so no data is initialised here.
+                dseg                ; Data segment
+;
+ptr             defs 2              ; First spare location
+heap_start                          ; Bottom of heap
+;
+                end
+

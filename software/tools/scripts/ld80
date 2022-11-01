@@ -1,0 +1,5 @@
+#!/bin/bash
+# Script to run the Z80 linker ld80.
+# Merlin, 18/4/2021
+
+/home/merlin/Technical/HardwareProjects/ZARC_Z80_Box/Non-GitHub/Software/tools/ld80/ld80 "$@"

@@ -1,0 +1,35 @@
+Addr  Length Typ Name       Module   File
+=====================================================================
+0100   02d1   P  -          FORMAT   format.rel
+03d1   0387   P  -          CPM_UT   ../shared/cpm_utility.rel
+0758   0047   D  -          FORMAT   format.rel
+079f   000a   D  -          CPM_UT   ../shared/cpm_utility.rel
+
+Symbol   Value Module   File
+======================================================================
+CBDOS    03d1  CPM_UT   ../shared/cpm_utility.rel
+CBIOS    03dd  CPM_UT   ../shared/cpm_utility.rel
+CONRCH   0450  CPM_UT   ../shared/cpm_utility.rel
+CONST    0467  CPM_UT   ../shared/cpm_utility.rel
+CONWCH   0442  CPM_UT   ../shared/cpm_utility.rel
+CONWMN   05c7  CPM_UT   ../shared/cpm_utility.rel
+CONWMS   0474  CPM_UT   ../shared/cpm_utility.rel
+CWNWLN   045d  CPM_UT   ../shared/cpm_utility.rel
+CWPDBY   04e3  CPM_UT   ../shared/cpm_utility.rel
+CWPDLO   052a  CPM_UT   ../shared/cpm_utility.rel
+CWPDWD   04ed  CPM_UT   ../shared/cpm_utility.rel
+CWPHBY   04cf  CPM_UT   ../shared/cpm_utility.rel
+CWPHNB   04c2  CPM_UT   ../shared/cpm_utility.rel
+CWPHWD   04db  CPM_UT   ../shared/cpm_utility.rel
+CWPSPC   049d  CPM_UT   ../shared/cpm_utility.rel
+CWVICH   04a2  CPM_UT   ../shared/cpm_utility.rel
+MTWDLI   05eb  CPM_UT   ../shared/cpm_utility.rel
+PANIC    03f1  CPM_UT   ../shared/cpm_utility.rel
+RDDULO   06bb  CPM_UT   ../shared/cpm_utility.rel
+RDDUWD   0683  CPM_UT   ../shared/cpm_utility.rel
+RDHXWD   0645  CPM_UT   ../shared/cpm_utility.rel
+SKPSPC   0484  CPM_UT   ../shared/cpm_utility.rel
+TOLOCA   0494  CPM_UT   ../shared/cpm_utility.rel
+TOUPCA   048b  CPM_UT   ../shared/cpm_utility.rel
+Z80DET   0428  CPM_UT   ../shared/cpm_utility.rel
+ZRCDET   0404  CPM_UT   ../shared/cpm_utility.rel

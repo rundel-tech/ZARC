@@ -1,0 +1,188 @@
+START header
+
+gEDA's netlist format
+(Initially created for testing of gnetlist)
+
+END header
+
+START graphical symbols
+
+Component without refdes: title-A2.sym at (48800 . 52700)
+Component without refdes: busripper-1.sym at (52000 . 68100)
+Component without refdes: busripper-1.sym at (67700 . 68100)
+Component without refdes: busripper-1.sym at (67700 . 67700)
+Component without refdes: busripper-1.sym at (67700 . 67300)
+Component without refdes: busripper-1.sym at (67700 . 66900)
+Component without refdes: busripper-1.sym at (67700 . 66500)
+Component without refdes: busripper-1.sym at (67700 . 66100)
+Component without refdes: busripper-1.sym at (67700 . 65700)
+Component without refdes: busripper-1.sym at (67700 . 65300)
+Component without refdes: busripper-1.sym at (52000 . 67500)
+Component without refdes: busripper-1.sym at (52000 . 66900)
+Component without refdes: busripper-1.sym at (52000 . 66300)
+Component without refdes: busripper-1.sym at (52000 . 65700)
+Component without refdes: busripper-1.sym at (52000 . 65100)
+Component without refdes: busripper-1.sym at (52000 . 64500)
+Component without refdes: busripper-1.sym at (52000 . 63900)
+Component without refdes: title-A2.sym at (48800 . 52700)
+
+END graphical symbols
+
+START components
+
+D1 device=LED
+D2 device=LED
+D3 device=LED
+D4 device=LED
+D5 device=LED
+D6 device=LED
+D7 device=LED
+D8 device=LED
+D9 device=LED
+D10 device=LED
+D11 device=LED
+D12 device=LED
+D13 device=LED
+D14 device=LED
+D15 device=LED
+D16 device=LED
+D17 device=LED
+D18 device=LED
+D19 device=LED
+D20 device=LED
+D21 device=LED
+D22 device=LED
+D23 device=LED
+D24 device=LED
+D25 device=LED
+D26 device=LED
+D27 device=LED
+D28 device=LED
+D29 device=LED
+D30 device=LED
+D31 device=LED
+D32 device=LED
+D33 device=LED
+D34 device=LED
+D35 device=LED
+D36 device=LED
+D37 device=LED
+D38 device=LED
+D39 device=LED
+D40 device=LED
+D41 device=LED
+D42 device=LED
+D43 device=LED
+D44 device=LED
+D45 device=LED
+D46 device=LED
+D47 device=LED
+D48 device=LED
+P2 device=CONNECTOR_26
+P3 device=CONNECTOR_26
+P4 device=CONNECTOR_26
+S1 device=SPDT
+S2 device=SPDT
+S3 device=SPDT
+S4 device=SPDT
+S5 device=SPDT
+S6 device=SPDT
+S7 device=SPDT
+S8 device=SPDT
+S9 device=SPST
+S10 device=SPDT
+S11 device=SPDT
+S12 device=SPDT
+S13 device=SPST
+S14 device=SPST
+S15 device=SPDT
+S16 device=SPDT
+
+END components
+
+No "no-connect" nets found
+
+START renamed-nets
+
+
+END renamed-nets
+
+START nets
+
+SW_BRIGHT_C : P4 20, S14 1
+SW_BRIGHT_NO : P4 19, S14 2
+SW_PD0 : P4 8, S8 2
+SW_PD1 : P4 7, S7 2
+SW_PD2 : P4 6, S6 2
+SW_PD3 : P4 5, S5 2
+SW_PD4 : P4 4, S4 2
+SW_PD5 : P4 3, S3 2
+SW_PD6 : P4 2, S2 2
+SW_PD7 : P4 1, S1 2
+SW_PD_COM : P4 9, P4 10, S1 1, S2 1, S3 1, S4 1, S5 1, S6 1, S7 1, S8 1
+SW_PSW_COM : P4 25, P4 26, S9 1, S10 1, S11 1, S12 1, S13 1, S15 1, S16 1
+\_SW_MAN\_ : P4 11, S9 2
+\_SW_NEXT_NC\_ : P4 14, S11 2
+\_SW_NEXT_NO\_ : P4 15, S11 3
+\_SW_NMI_NC\_ : P4 21, S15 2
+\_SW_NMI_NO\_ : P4 22, S15 3
+\_SW_RESET_NC\_ : P4 23, S16 2
+\_SW_RESET_NO\_ : P4 24, S16 3
+\_SW_STEP_NC\_ : P4 16, S12 2
+\_SW_STEP_NO\_ : P4 17, S12 3
+\_SW_STOP\_ : P4 18, S13 2
+\_SW_WRITE_NC\_ : P4 12, S10 2
+\_SW_WRITE_NO\_ : P4 13, S10 3
+unnamed_net1 : D1 1, D2 1, D3 1, D4 1, D5 1, D6 1, D7 1, D8 1, D9 1, D10 1, D11 1, D12 1, D13 1, D14 1, D15 1, D16 1, D17 1, D18 1, D19 1, D20 1, D21 1, D22 1, D23 1, D24 1, P2 1, P2 2
+unnamed_net2 : D1 2, P2 3
+unnamed_net3 : D2 2, P2 4
+unnamed_net4 : D3 2, P2 5
+unnamed_net5 : D4 2, P2 6
+unnamed_net6 : D5 2, P2 7
+unnamed_net7 : D6 2, P2 8
+unnamed_net8 : D7 2, P2 9
+unnamed_net9 : D8 2, P2 10
+unnamed_net10 : D9 2, P2 11
+unnamed_net11 : D10 2, P2 12
+unnamed_net12 : D11 2, P2 13
+unnamed_net13 : D12 2, P2 14
+unnamed_net14 : D13 2, P2 15
+unnamed_net15 : D14 2, P2 16
+unnamed_net16 : D15 2, P2 17
+unnamed_net17 : D16 2, P2 18
+unnamed_net18 : D17 2, P2 19
+unnamed_net19 : D18 2, P2 20
+unnamed_net20 : D19 2, P2 21
+unnamed_net21 : D20 2, P2 22
+unnamed_net22 : D21 2, P2 23
+unnamed_net23 : D22 2, P2 24
+unnamed_net24 : D23 2, P2 25
+unnamed_net25 : D24 2, P2 26
+unnamed_net26 : D25 2, P3 1
+unnamed_net27 : D26 2, P3 2
+unnamed_net28 : D27 2, P3 3
+unnamed_net29 : D28 2, P3 4
+unnamed_net30 : D29 2, P3 5
+unnamed_net31 : D30 2, P3 6
+unnamed_net32 : D31 2, P3 7
+unnamed_net33 : D32 2, P3 8
+unnamed_net34 : D33 2, P3 9
+unnamed_net35 : D34 2, P3 10
+unnamed_net36 : D35 2, P3 11
+unnamed_net37 : D36 2, P3 12
+unnamed_net38 : D37 2, P3 13
+unnamed_net39 : D38 2, P3 14
+unnamed_net40 : D39 2, P3 15
+unnamed_net41 : D40 2, P3 16
+unnamed_net42 : D41 2, P3 17
+unnamed_net43 : D42 2, P3 18
+unnamed_net44 : D43 2, P3 19
+unnamed_net45 : D44 2, P3 20
+unnamed_net46 : D45 2, P3 21
+unnamed_net47 : D46 2, P3 22
+unnamed_net48 : D47 2, P3 23
+unnamed_net49 : D48 2, P3 24
+unnamed_net50 : D25 1, D26 1, D27 1, D28 1, D29 1, D30 1, D31 1, D32 1, D33 1, D34 1, D35 1, D36 1, D37 1, D38 1, D39 1, D40 1, D41 1, D42 1, D43 1, D44 1, D45 1, D46 1, D47 1, D48 1, P3 25, P3 26
+
+END nets
+

@@ -1,0 +1,5 @@
+#!/bin/bash
+# Script to the file transfer program "stran"
+# Merlin, 18/4/2021
+
+python3 /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/tools/stran/stran.py "$@"

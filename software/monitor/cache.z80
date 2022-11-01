@@ -1,0 +1,1004 @@
+; *******************************************************
+; * Memory Card Cache Routines for ZARC Z80 Computer    *
+; * Written by: Merlin Skinner                          *
+; * Date Started: 23/11/2020                            *
+; *******************************************************
+;
+; Routines associated with the MMC memory card sector cache. The need for this
+; is primarily from the CP/M system, which uses 128-byte sectors. The required
+; blocking and deblocking needs some form of cache. For reading, a single sector
+; would suffice, but writing is more tricky to avoid excess wear on the MMC.
+;
+; This cache uses a number of MMC sector buffers for both read and write.
+; Routines are provided for both MMC and CP/M sized sector reads and writes.
+;
+;
+monitor         equ 1                   ; Flag part of monitor build
+cache           equ 1                   ; Flag module for includes
+;
+;
+;
+; ************
+; * Includes *
+; ************
+;
+                include "macros.i"
+                include "z80.i"
+                include "zarc.i"        ; Hardware definitions
+                include "monitor.i"
+                include "io_map.i"      ; I/O addresses mapping
+                include "io.i"          ; I/O routines
+                include "utility.i"     ; Utility functions
+                include "mmc.i"         ; Memory card
+                include "disks.i"       ; Disk parameters
+                include "interrupts.i"  ; Interrupts
+                include "cache.i"       ; MMC sector cache
+                include "cpm.i"         ; CP/M support
+                include "maths.i"       ; Mathematical functions
+;
+;
+; *************
+; * Externals *
+; *************
+;
+; Routines
+                public cacold       ; Reset cache (cold start)
+                public cawarm       ; Initialise cache (warm start)
+                public carpt        ; Report status
+                public caflus       ; Flush cache
+                public cars         ; Read sector
+                public caws         ; Write sector
+                public cacrs        ; Read CP/M sector
+                public cacws        ; Write CP/M sector
+;
+; Variables
+;
+; (None)
+;
+;
+;
+; *************
+; * Constants *
+; *************
+;
+; (None)
+;
+;
+;
+; *************
+; * Main Code *
+; *************
+;
+                cseg                    ; Code segment
+;
+; Reset cache. Deletes any cached data, and is intended for use only during a
+; monitor "cold start". Call cainit before using the cache.
+cacold          push bc
+                push de
+                push ix
+; Initialise the cache, discarding any sector data.
+                ld ix, cache_buffers        ; Point to first buffer
+                ld de, MCCAS_SIZE           ; Pre-load structure size
+                ld b, MCCA_BUFFERS          ; Number of sector buffer structures
+rst_buff_loop   ld (ix + MCCAS_STATUS), 0   ; Flag no valid data
+                add ix, de
+                djnz rst_buff_loop
+                pop ix
+                pop de
+                pop bc
+                ret
+;
+;
+; Reinitialise the cache, preserving as much data as possible. This is intended
+; for use during a monitor "warm start".
+cawarm          push bc
+                push de
+                push hl
+                push ix
+                ld ix, cache_buffers        ; Point to first buffer
+; Initialise without disturbing cached data where possible. Buffers containing
+; sectors with bad checksums are discarded.
+                ld b, MCCA_BUFFERS          ; Number of sector buffer structures
+                ld c, 0                     ; Checksum error counter
+                ld de, 0                    ; Reset counters
+;
+; Examine in buffer in turn.
+in_sec_loop     ld a, (ix + MCCAS_STATUS)   ; Fetch status
+                bit MCCAS_STAT_VALID_BIT, a
+                jr z, in_sec_done           ; Jump if buffer not in use
+; Verify checksum.
+                call calc_csum
+; HL - newly computed checksum
+                ld a, l
+                cp (ix + MCCAS_CSUM)
+                jr nz, in_bad_csum
+                ld a, h
+                cp (ix + MCCAS_CSUM + 1)
+                jr z, in_good_csum
+; If the checksum is bad, we can't trust the data regardless of what the status
+; byte says.
+in_bad_csum     inc c                       ; Count errors
+                ld (ix + MCCAS_STATUS), 0   ; Mark buffer as free
+                jr in_sec_done
+;
+; The sector data checksum matches, so we have confidence in the data. Examine the
+; status byte next.
+in_good_csum    inc d                       ; Count used buffers
+                ld a, (ix + MCCAS_STATUS)   ; Fetch status
+                and MCCAS_STAT_DIRT_MASK
+                jr z, in_sec_done
+; Buffer is dirty (has some unwritten data).
+                inc e
+in_sec_done     ld hl, MCCAS_SIZE           ; Structure size
+; Update pointer without disturbing the counts in DE.
+                ex de, hl
+                add ix, de
+                ex de, hl
+                djnz in_sec_loop
+                ld a, d
+                ld (used_buffs), a          ; Number of buffers in use
+                ld a, e
+                ld (dirty_buffs), a         ; Number of dirty buffers
+;
+; Complain if we found buffers marked as valid but with bad checksums.
+                ld a, c
+                and a
+                jr z, in_all_good
+                call cwpdby                 ; Print error count in decimal
+                ld hl, in_badsum_msg        ; "corrupt cache buffers discarded"
+                call conwms                 ; Print message
+;
+; Set preferred next buffer to use.
+in_all_good     xor a                       ; Use the first one
+                ld (next_buff), a
+;
+in_exit         pop ix
+                pop hl
+                pop de
+                pop bc
+                ret
+;
+;
+; Report cache status to the console. This is mainly for debugging, but may be
+; of more general interest. The report is of the form:
+;   <buffer no.> - <status> [<checksum error>]
+; for each buffer. <status> is one of:
+;   "unused"
+;   <sector no.> "clean" - no unwritten data
+;   <sector no.> "dirty" - unwritten sector
+;   <sector no.> "grubby: xxxx" - partically unwritten (CP/M sectors)
+; Last line is:
+;   In use: x, 0, dirty: y, next read buffer: z
+carpt           push bc
+                push de
+                push ix
+                ld hl, rpt_title_msg        ; "MMC Cache Status:"
+                call conwms                 ; Print message
+; Loop through each cache structure.
+                ld ix, cache_buffers        ; Point to first buffer
+                ld b, 0                     ; Sector buffer structure count
+; Print buffer number.
+rpt_buff_loop   ld a, b
+                call cwpdby                 ; Print buffer number in decimal
+                ld hl, rpt_sep_msg          ; " - "
+                call conwms                 ; Print message
+;
+                ld a, (ix + MCCAS_STATUS)
+                bit MCCAS_STAT_VALID_BIT, a
+                jr nz, rpt_used             ; Jump if buffer is used
+; Unused buffer.
+                ld hl, rpt_unused_msg       ; "unused"
+                call conwms                 ; Print message
+                jr rpt_buff_done
+; Buffer in use. Print sector number.
+rpt_used        ld l, (ix + MCCAS_SECTOR)
+                ld h, (ix + MCCAS_SECTOR + 1)
+                ld e, (ix + MCCAS_SECTOR + 2)
+                ld d, 0
+                call cwpdlo                 ; Print DEHL in decimal
+                call cwpspc                 ; Print a space
+;
+                ld a, (ix + MCCAS_STATUS)
+                cp MCCAS_STAT_VALID_MASK
+                jr nz, rpt_unclean
+; No other bits are set, so the buffer is clean.
+                ld hl, rpt_clean_msg        ; "clean"
+                call conwms                 ; Print message
+                jr rpt_checksum
+;
+; One or more CP/M sectors contain unwritten data
+rpt_unclean     cp MCCAS_STAT_VALID_MASK + MCCAS_STAT_DIRT_MASK
+                jr nz, rpt_grubby
+; The buffer contains no unmodified CP/M sectors (i.e. is completely unwritten).
+                ld hl, rpt_dirty_msg        ; "dirty"
+                call conwms                 ; Print message
+                jr rpt_checksum
+;
+; The buffer contains a mixture of clean and dirty CP/M sectors.
+rpt_grubby      rla                         ; Position status bits for display
+                rla
+                rla
+                rla
+                ld c, a                     ; Save status (in bits 7 .. 4)
+                ld hl, rpt_grubby_msg       ; "grubby:"
+                call conwms                 ; Print message
+; Print status bits in binary - "1" = dirty.
+                push bc
+                ld b, MMC_SECTOR_SIZE / CPM_SECTOR_SIZE
+rpt_grub_loop   ld a, "0"
+                rl c
+                jr nc, rpt_grub_bit
+                inc a                       ; Make it a "1"
+rpt_grub_bit    call conwch                 ; Print character
+                djnz rpt_grub_loop
+                pop bc
+;
+rpt_checksum    call calc_csum
+; HL - newly computed checksum
+                ld a, l
+                cp (ix + MCCAS_CSUM)
+                jr nz, rpt_bad_csum
+                ld a, h
+                cp (ix + MCCAS_CSUM + 1)
+                jr z, rpt_buff_done
+; If the checksum is bad, report it.
+rpt_bad_csum    ld hl, rpt_badsum_msg       ; "checksum error!"
+                call conwms                 ; Print message
+;
+rpt_buff_done   call cwnwln                 ; Write new line characters to console
+                ld de, MCCAS_SIZE           ; Structure size
+                add ix, de
+                inc b                       ; Count buffers
+                ld a, b
+                cp MCCA_BUFFERS
+                jp c, rpt_buff_loop         ; Loop unless all done
+;
+; In use count.
+                ld hl, rpt_usedc_msg        ; "In use:"
+                call conwms                 ; Print message
+                ld a, (used_buffs)
+                call cwpdby                 ; Print A in decimal
+;
+; Dirty count.
+                ld hl, rpt_dirtyc_msg       ; "Dirty:"
+                call conwms                 ; Print message
+                ld a, (dirty_buffs)
+                call cwpdby                 ; Print A in decimal
+;
+; Preferred next buffer to use
+                ld hl, rpt_nexrd_msg        ; "Next read buffer:"
+                call conwms                 ; Print message
+                ld a, (next_buff)
+                call cwpdby                 ; Print A in decimal
+                call cwnwln                 ; Write new line characters to console
+;
+                pop ix
+                pop de
+                pop bc
+                ret
+;
+;
+; Flush cache. All dirty or grubby buffers are written to the MMC.
+; Returns with:
+; A - zero (OK) or error code (SPI_ERR_xxx)
+caflus          ld a, (dirty_buffs)
+                and a
+                ret z                       ; Normal return with A = 0
+                call clean_one
+                and a
+                jr z, caflus                ; Keep going except on error
+                ret                         ; Return with error code in A
+;
+;
+; Maintain the level of "dirt" in the cache by writing a buffer if the level is
+; too high. This must be called from time to time to make sure there is always
+; at least one buffer available for re-use.
+; On return, at least one buffer is guaranteed to be clean.
+maintain        ld a, (dirty_buffs)
+                cp MCCA_DIRT_THRES
+                jr nc, clean_one            ; Clean one and return
+; Thereis nothing to do as the cache is clean enough.
+mnt_flush_exit  xor a                       ; Flag success
+                ret
+;
+;
+; Find a dirty (or grubby) buffer and write it. Fully dirty buffers are a priority
+; as grubby ones may yet have more data written to them.
+; Returns with:
+; A - zero (OK) or error code (SPI_ERR_xxx)
+clean_one       push bc
+                push de
+                push hl
+                push ix
+                ld ix, cache_buffers        ; Point to first buffer
+                ld de, MCCAS_SIZE           ; Pre-load structure size
+                ld b, MCCA_BUFFERS          ; Number of sector buffer structures
+mnt_dirt_loop   ld a, (ix + MCCAS_STATUS)
+                cp MCCAS_STAT_VALID_MASK + MCCAS_STAT_DIRT_MASK
+                jr z, mnt_found_dirt        ; Jump if dirty buffer found
+                add ix, de
+                djnz mnt_dirt_loop
+;
+; There are no fully dirty buffers, so look for a grubby one.
+                ld ix, cache_buffers        ; Point to first buffer
+                ld b, MCCA_BUFFERS          ; Number of sector buffer structures
+mnt_grub_loop   ld a, (ix + MCCAS_STATUS)
+                bit MCCAS_STAT_VALID_BIT, a
+                jr z, mnt_gr_skip
+                and MCCAS_STAT_DIRT_MASK
+                jr nz, mnt_found_dirt       ; Jump if dirty buffer found
+mnt_gr_skip     add ix, de
+                djnz mnt_grub_loop
+;
+                call panic                  ; Should never go here!
+;
+; Found buffer to write.
+; IX - address of sector buffer structure to write.
+; Find start of sector data.
+mnt_found_dirt  push ix
+                pop hl
+                ld bc, MCCAS_DATA
+                add hl, bc
+                ld e, (ix + MCCAS_SECTOR)
+                ld d, (ix + MCCAS_SECTOR + 1)
+                ld c, (ix + MCCAS_SECTOR + 2); CDE - sector number
+; HL - sector buffer start address
+; IX - pointer to partition table entry structure
+                call mcrws                  ; Raw write sector
+                and a
+                jr nz, mnt_exit
+; Successful write. Update status to reflect this. The data is still valid, so
+; we only clear the dirty bits.
+                ld (ix + MCCAS_STATUS), MCCAS_STAT_VALID_MASK
+; There are one fewer dirty buffers.
+                ld hl, dirty_buffs
+                dec (hl)
+;
+mnt_ok          xor a               ; Successful return
+; Exit with A - zero (OK) or error code (SPI_ERR_xxx)
+mnt_exit        pop ix
+                pop hl
+                pop de
+                pop bc
+                ret
+;
+;
+; Read an MMC sector. Length is MMC_SECTOR_SIZE bytes.
+; Call with:
+; CDE - sector number (0 to (sectors - 1))
+; HL - destination address
+; Returns with:
+; A - zero (OK) or error code (SPI_ERR_xxx)
+; HL - updated pointer to buffer (points to location after last written)
+cars            push bc
+                push ix
+                call read_mmc_sect          ; Read sector into cache
+                and a
+                jr nz, mrse_exit
+; Copy cached sector to required address.
+; HL - destination address
+; IX - address of sector buffer structure containing the required sector.
+                ex de, hl                   ; Move address to DE
+; Find start of sector data.
+                push ix
+                pop hl
+                ld bc, MCCAS_DATA
+                add hl, bc
+                ld bc, MMC_SECTOR_SIZE      ; Length
+; BC - byte counter
+; DE - destination address
+; HL - address of sector data
+                ldir
+                ex de, hl                   ; Move next address to HL
+                xor a                       ; Indicate success
+; Exit with A = zero (OK) or error code (SPI_ERR_xxx) 
+mrse_exit       pop ix
+                pop bc
+                ret
+;
+;
+; Read an MMC sector into cache. Length is MMC_SECTOR_SIZE bytes. This is used for
+; normal sector reads and CP/M sector reads and writes.
+; Call with:
+; CDE - sector number (0 to (sectors - 1))
+; Returns with:
+; A - zero (OK) or error code (SPI_ERR_xxx)
+; IX - points to sector cache structure entry used.
+read_mmc_sect   push hl
+                push bc
+                push de
+                call find_sec               ; Is it in the cache?
+                jr c, mrs_found
+                pop de                      ; Restore sector number
+                pop bc
+                push bc                     ; Leave a copy on the stack
+                push de
+                call find_new_buff          ; Find buffer we can use
+; Find address of sector data.
+                push ix
+                pop hl
+                ld bc, MCCAS_DATA
+                add hl, bc
+                pop de                      ; Restore sector number
+                pop bc
+; CDE - sector number (0 to (sectors - 1))
+; HL - address of data in structure
+; IX - pointer to partition table entry structure
+                push hl
+                call mcrrs                  ; Raw read sector
+                pop hl
+                and a
+                jr nz, mrs_exit
+; Successful read. Update status to reflect this.
+                ld (ix + MCCAS_STATUS), MCCAS_STAT_VALID_MASK
+; Calculate checksum (simple sum of all of the bytes in the sector data).
+                call calc_csum
+; HL - newly computed checksum
+                ld (ix + MCCAS_CSUM), l
+                ld (ix + MCCAS_CSUM + 1), h
+                jr mrs_have_sec
+;
+mrs_found       pop de                      ; Discard sector number
+                pop bc
+; IX - address of sector buffer structure containing the required sector.
+mrs_have_sec    xor a                       ; Indicate success
+; A - zero (OK) or error code (SPI_ERR_xxx)
+mrs_exit        pop hl
+                ret
+;
+;
+; Write an MMC sector. Length is MMC_SECTOR_SIZE bytes.
+; Call with:
+; CDE - sector number (0 to (sectors - 1))
+; HL - source address
+; Returns with:
+; A - zero (OK) or error code (SPI_ERR_xxx)
+; HL - updated pointer to buffer (points to location after last read)
+caws            push hl
+                push bc
+                push de
+                call find_sec               ; Is it in the cache?
+                jr c, mws_found
+                pop de                      ; Restore sector number
+                pop bc
+                call find_new_buff          ; Find buffer we can use
+; HL - address of data in structure
+; IX - pointer to partition table entry structure
+; Save current status for later.
+                jr mws_have_buff
+;
+; Sector was already in a buffer.
+mws_found       pop de                      ; Discard sector number
+                pop bc
+;
+mws_have_buff   ld a, (ix + MCCAS_STATUS)
+                ld (mws_buff_status), a
+; Find data address in structure.
+                push ix
+                pop hl
+                ld bc, MCCAS_DATA
+                add hl, bc
+; HL - sector buffer start address
+; The buffer is marked as invalid until the copy is complete. This avoids
+; potential issues due to the system being stopped before the copy is complete.
+                ld (ix + MCCAS_STATUS), 0   ; Flag no valid data
+                pop de                      ; Fetch source address
+                ex de, hl                   ; Swap source and destination
+; Copy buffer
+                ld bc, MMC_SECTOR_SIZE      ; Length
+; BC - byte counter
+; DE - destination address
+; HL - source address
+                ldir
+                ex de, hl                   ; Save next address in DE
+; Calculate checksum (simple sum of all of the bytes in the sector data).
+                call calc_csum
+; HL - newly computed checksum
+                ld (ix + MCCAS_CSUM), l
+                ld (ix + MCCAS_CSUM + 1), h
+                ex de, hl                   ; Recover next address to HL
+;
+; Successful write. Update status to reflect this.
+                ld (ix + MCCAS_STATUS), MCCAS_STAT_VALID_MASK + MCCAS_STAT_DIRT_MASK
+;
+; Update counters. Which if either is incremented depends on the previous status
+; of the buffer.
+                push hl                     ; Save next address
+                ld a, (mws_buff_status)     ; Fetch old buffer status
+                bit MCCAS_STAT_VALID_BIT, a
+                jr z, mws_more_dirt
+; Buffer was previously used.
+                and MCCAS_STAT_DIRT_MASK
+                jr z, mws_more_dirt
+; Buffer was previously dirty, so nothing to do.
+                jr mws_exit
+;
+; Increment dirty count.
+mws_more_dirt   ld hl, dirty_buffs
+                inc (hl)
+;
+mws_exit        pop hl                      ; Restore next address
+                xor a                       ; Indicate success
+                ret
+;
+;
+; Read CP/M sector. Length is CPM_SECTOR_SIZE bytes.
+; Call with:
+; CDE - CP/M (128-byte) sector number (offset into partition)
+; HL - destination address
+; IX - pointer to partition table entry structure
+; Returns with:
+; A - zero (OK) or error code (SPI_ERR_xxx)
+; HL - updated pointer to destination (points to location after last written)
+; IX is preserved.
+cacrs           push bc
+                push ix
+                push hl
+                call cpm_to_mmc         ; Find 512-byte sector and offset
+                call c, panic           ; Panic if sector out of range
+; CDE - MMC (512-byte) sector number
+; HL - offset into sector (0, 128, 256 or 384)
+                push hl
+                call read_mmc_sect      ; Read MMC sector into cache
+; A - zero (OK) or error code (SPI_ERR_xxx)
+; IX - points to sector cache structure entry used.
+                and a
+                jr z, crs_rd_ok         ; Exit with error code in A
+;
+; An error has occurred. Return with error code in A.
+                pop hl                  ; Discard offset into sector
+                pop hl
+                jr crs_exit
+;
+; Find start of sector data.
+crs_rd_ok       push ix
+                pop hl
+                ld bc, MCCAS_DATA
+                add hl, bc
+; HL - start of MMC sector data.
+                pop bc
+                add hl, bc              ; Add offset into sector
+                pop de
+                ld bc, CPM_SECTOR_SIZE  ; Length
+; BC - byte counter
+; DE - destination address
+; HL - address of sector data
+                ldir
+                ex de, hl                   ; Move next address to HL
+                xor a                       ; Indicate success
+crs_exit        pop ix
+                pop bc
+                ret
+;
+;
+; Write CP/M sector. Length is CPM_SECTOR_SIZE bytes.
+; Call with:
+; CDE - CP/M (128-byte) sector number (offset into partition)
+; HL - source address
+; IX - pointer to partition table entry structure
+; Returns with:
+; A - zero (OK) or error code (SPI_ERR_xxx)
+; HL - updated pointer to source (points to location after last read)
+; IX is preserved.
+cacws           push bc
+                push ix
+                exx
+                push de                 ; Save DE' and HL'
+                push hl
+                exx
+                push hl
+                call cpm_to_mmc         ; Find 512-byte sector and offset
+                call c, panic           ; Panic if sector out of range
+; CDE - MMC (512-byte) sector number
+; HL - offset into sector (0, 128, 256 or 384)
+                push hl
+; As we are writing only part of an MMC sector, we must first read the sector
+; into cache.
+                call read_mmc_sect      ; Read MMC sector into cache
+; A - zero (OK) or error code (SPI_ERR_xxx)
+; IX - points to sector cache structure entry used.
+                and a
+                jr z, cws_rd_ok         ; Exit with error code in A
+;
+; An error has occurred. Return with error code in A.
+                pop hl                  ; Discard offset into sector
+                pop hl
+                jr cws_exit
+;
+; Find start of sector data.
+cws_rd_ok       push ix
+                pop hl
+                ld bc, MCCAS_DATA
+                add hl, bc
+; HL - start of MMC sector data.
+                pop bc
+                add hl, bc              ; Add offset into sector
+;
+; BC - offset into sector (0, 128, 256 or 384)
+                ld a, (ix + MCCAS_STATUS)
+                ld (mws_buff_status), a ; Save old status
+; Find relevant status bit and mark it dirty.
+                ld a, 1
+                rr b                    ; Find bit 1
+                jr nc, cws_fmask_1dn
+                rlca                     ; Move mask twice if bit 1 is set
+                rlca
+cws_fmask_1dn   rl c                    ; Find bit 0
+                jr nc, cws_fmask_0dn
+                rlca                     ; Move mask once if bit 0 is set
+; A - status bit mask (MCCAS_STAT_CPMx_MASK)
+cws_fmask_0dn   or (ix + MCCAS_STATUS)
+                ld (ix + MCCAS_STATUS), a   ; Set relevant dirty bit
+;
+                pop de                  ; Source address
+                ex de, hl
+; DE - address of sector data
+; HL - source address
+                ld bc, CPM_SECTOR_SIZE  ; Length
+                exx
+                ld l, (ix + MCCAS_CSUM)
+                ld h, (ix + MCCAS_CSUM + 1)
+                ld d, 0                 ; Pre-load high byte for 16-bit add
+                exx
+; BC - byte counter
+; H'L' - checksum
+; DE - address of sector data
+; HL - source address
+; Copy the data, updating the checksum as we go.
+cws_copy_loop   ld a, (de)
+                exx
+                ld e, a
+                and a
+                sbc hl, de              ; Subtract old byte from checksum
+                exx
+                ld a, (hl)              ; Fetch new byte
+                ldi                     ; Copy the byte and update pointers etc.
+                exx
+                ld e, a
+                add hl, de              ; Add new byte to checksum
+                exx
+                ld a, b
+                or c
+                jr nz, cws_copy_loop
+; Write new checksum.
+                exx
+                ld (ix + MCCAS_CSUM), l
+                ld (ix + MCCAS_CSUM + 1), h
+                exx
+;
+; Update dirty buffer count if appropriate.
+                ld a, (mws_buff_status)     ; Fetch old buffer status
+                and MCCAS_STAT_DIRT_MASK
+                jr nz, cws_success          ; Exit if buffer was already dirty
+; Increment dirty count.
+                ld a, (dirty_buffs)
+                inc a
+                ld (dirty_buffs), a
+;
+cws_success     xor a                       ; Indicate success
+cws_exit        exx
+                pop hl
+                pop de
+                exx
+                pop ix
+                pop bc
+                ret
+;
+;
+; Find a space to store a new sector. This is used by both sector reads and sector
+; writes.
+; Call with:
+; CDE - sector number (0 to (sectors - 1)) for new buffer.
+; Returns with:
+; A - zero (OK) or error code (SPI_ERR_xxx)
+; IX - pointer to partition table entry structure
+find_new_buff   call maintain               ; Maintain cache dirtiness level
+; We are now guaranteed to have at least one buffer available.
+                push hl
+                push bc
+                push de
+; First look for an unused buffer. In order to avoid using the same buffer and
+; associated sectors every time, next_buff is used as the start point for the
+; search.
+                ld a, (next_buff)           ; Start searching from this point
+                ld c, a                     ; Save for later
+                call num_to_addr
+                ld b, MCCA_BUFFERS          ; Number of sector buffer structures
+; B - loop counter
+; C - sector buffer structure number
+; IX - structure address
+                ld de, MCCAS_SIZE           ; Pre-load structure size
+fnb_unu_loop    bit MCCAS_STAT_VALID_BIT, (ix + MCCAS_STATUS)
+                jr z, fnb_found_new         ; Jump if buffer is unused
+; Buffer is already in use.
+                add ix, de
+                inc c
+                ld a, c
+                cp MCCA_BUFFERS
+                jr c, fnb_unu_end
+; Wrap-around required.
+                ld ix, cache_buffers
+                ld c, 0
+fnb_unu_end     djnz fnb_unu_loop
+;
+; All buffers are in use. Now try for a "clean" buffer (i.e. one with no unwritten
+; data).
+                ld a, (next_buff)           ; Start searching from this point
+                ld c, a                     ; Save for later
+                call num_to_addr
+                ld b, MCCA_BUFFERS          ; Number of sector buffer structures
+; B - loop counter
+; C - sector buffer structure number
+; IX - structure address
+                ld de, MCCAS_SIZE           ; Pre-load structure size
+fnb_cln_loop    ld a, (ix + MCCAS_STATUS)
+                cp MCCAS_STAT_VALID_MASK
+                jr z, fnb_found_used        ; Jump if buffer is valid and clean
+; Buffer is dirty (has unwritten data).
+                add ix, de
+                inc c
+                ld a, c
+                cp MCCA_BUFFERS
+                jr c, fnb_cln_end
+; Wrap-around required.
+                ld ix, cache_buffers
+                ld c, 0
+fnb_cln_end     djnz fnb_cln_loop
+; All buffers are dirty. This should not be the case, as the "maintain" call
+; earlier should not allow this.
+                call panic
+;
+; We have found an unused buffer to use.
+fnb_found_new   ld hl, used_buffs
+                inc (hl)                    ; Mark one more in use
+;
+; Go here if a search revealed found a buffer we can use, rather than having
+; to force one to be freed.
+; C - sector buffer structure number
+; IX - structure address
+fnb_found_used  ld hl, next_buff
+                ld (hl), c
+                call inc_next_buff          ; Increment and wrap-around
+;
+fnb_have_buff   ld (ix + MCCAS_STATUS), 0   ; Mark buffer unused
+                pop de                      ; Restore sector number
+                pop bc
+; CDE - sector number
+; HL - sector buffer start address
+                ld (ix + MCCAS_SECTOR), e
+                ld (ix + MCCAS_SECTOR + 1), d
+                ld (ix + MCCAS_SECTOR + 2), c
+; IX - address of sector buffer structure containing the required sector.
+                xor a                       ; Indicate success
+fnb_exit        pop hl
+                ret
+;
+; Exit with error code in A.
+fnb_error       pop de                      ; Restore sector number
+                pop bc
+                jr fnb_exit
+;
+;
+; Increment next_buff and wrap around if necessary.
+inc_next_buff   push hl
+                ld hl, next_buff
+                ld a, (hl)
+                inc a
+                cp MCCA_BUFFERS
+                jr c, inb_inc_dn
+                xor a                       ; Reset on overflow
+inb_inc_dn      ld (hl), a
+                pop hl
+                ret
+;
+;
+; Calculate checksum (simple sum of all of the bytes in the sector data).
+; Call with:
+; IX - points to sector cache structure entry
+; Returns with:
+; HL - checksum
+; IX is preserved.
+calc_csum       push bc
+                push de
+; Find start of sector data.
+                push ix
+                pop hl
+                ld bc, MCCAS_DATA
+                add hl, bc
+                ld bc, MMC_SECTOR_SIZE      ; Length
+                ld de, 0
+csum_loop       ld a, e
+                add (hl)
+                ld e, a
+                ld a, d
+                adc 0                       ; Propagate carry
+                ld d, a
+                inc hl                      ; Next address
+                dec bc
+                ld a, b
+                or c
+                jr nz, csum_loop
+                ex de, hl                   ; Move result to HL
+                pop de
+                pop bc
+                ret
+;
+;
+; Convert CP/M 128-byte sector number into a 512-byte one in the relevant
+; partition.
+; Call with:
+; CDE - CP/M (128-byte) sector number (offset into partition)
+; IX - pointer to partition table entry structure
+; Returns with:
+; CDE - MMC (512-byte) sector number
+; HL - offset into sector (0, 128, 256 or 384)
+; IX - preserved
+; carry - set on error (sector out of range)
+                assert MMC_SECTOR_SIZE = (CPM_SECTOR_SIZE << 2)
+cpm_to_mmc      push bc                 ; Save B
+                xor a                   ; Clear A and reset carry
+                rr c                    ; Divide sector number by two
+                rr d
+                rr e
+                rra                     ; Save bit 7 of the offset
+; A bit 7 = bit 7
+                and a                   ; Divide by two again
+                rr c
+                rr d
+                rr e
+                rla                     ; Save bit 8 of the offset
+; A bit 0 = bit 8
+; Carry = bit 7
+                rla
+; A bit 1 = bit 8
+; A bit 0 = bit 7
+                ld b, a
+; B - CP/M sector number within MMC sector (0 - 3)
+; CDE - 512-byte sector offset into partition
+; Check that the sector is within the partition. Subtracting the partition size
+; should cause a carry.
+                ld a, e
+                sub (ix + DPART_SIZE_SECS)
+                ld a, d
+                sbc (ix + DPART_SIZE_SECS + 1)
+                ld a, c
+                sbc (ix + DPART_SIZE_SECS + 2)
+                ld a, 0
+                sbc (ix + DPART_SIZE_SECS + 3)
+                jr nc, ctm_error
+; Add start sector of partition.
+                ld a, e
+                add (ix + DPART_START_LBA)
+                ld e, a
+                ld a, d
+                adc (ix + DPART_START_LBA + 1)
+                ld d, a
+                ld a, c
+                adc (ix + DPART_START_LBA + 2)
+                ld c, a
+                xor a
+                adc (ix + DPART_START_LBA + 3)
+; The result should fit in 24 bits, so A should be zero
+                and a
+                call nz, panic
+; Find offset into sector.
+                ld hl, 0
+                ld a, b                 ; Fetch offset bits
+                rra                     ; Rotate bit 7 into carry
+                rr l
+                rra                     ; Rotate bit 8 into carry
+                rl h
+; Restore B (from BC on stack).
+                pop af
+                ld b, a
+                and a                   ; Flag success
+                ret
+;
+; Error exit (with carry set).
+; Restore B (from BC on stack).
+ctm_error       pop af
+                ld b, a
+                scf
+                ret
+;
+;
+; Attempt to locate an MMC sector in the cache.
+; CDE - sector number
+; Returns with:
+; IX - points to the relevant buffer structure if found
+; carry - set if sector found in the cache
+find_sec        push bc
+                push hl
+                ld ix, cache_buffers        ; Point to first buffer
+                ld hl, MCCAS_SIZE           ; Pre-load structure size
+                ld b, MCCA_BUFFERS          ; Number of sector buffer structures
+infs_sec_loop   bit MCCAS_STAT_VALID_BIT, (ix + MCCAS_STATUS)
+                jr z, infs_next             ; Skip if no valid data
+                ld a, (ix + MCCAS_SECTOR)
+                cp e
+                jr nz, infs_next
+                ld a, (ix + MCCAS_SECTOR + 1)
+                cp d
+                jr nz, infs_next
+                ld a, (ix + MCCAS_SECTOR + 2)
+                cp c
+                jr nz, infs_next
+; Sector found!
+                scf
+                jr infs_exit
+; Update pointer without disturbing DE.
+infs_next       ex de, hl
+                add ix, de
+                ex de, hl
+                djnz infs_sec_loop
+                and a                       ; Reset carry (indicate not found)
+infs_exit       pop hl
+                pop bc
+                ret
+;
+;
+; Find sector buffer structure address from index number.
+; Call with:
+; A - buffer number (0 to (MCCA_BUFFERS - 1))
+; Returns with:
+; IX - structure address
+num_to_addr     push bc
+                push de
+                push hl
+                cp MCCA_BUFFERS
+                jr c, nta_nrb_ok
+                call panic                  ; Should never go here
+; Find the corresponding address.
+nta_nrb_ok      ld b, 0
+                ld c, a
+                ld de, MCCAS_SIZE           ; Structure size
+                call mamwwu                 ; 16-bit * 16-bit unsigned multiply
+; DEHL - result
+                ld a, d
+                or e
+                call nz, panic              ; MS 16 bits should be zero
+                ld bc, cache_buffers
+                add hl, bc                  ; Add base address
+                push hl
+                pop ix
+                pop hl
+                pop de
+                pop bc
+                ret
+;
+;
+;
+; *************
+; * Constants *
+; *************
+;
+rpt_title_msg   byte "MMC Cache Status:", 0x0d, 0x0a, 0
+rpt_sep_msg     byte " - ", 0
+rpt_unused_msg  byte "unused", 0
+rpt_clean_msg   byte "clean", 0
+rpt_dirty_msg   byte "dirty", 0
+rpt_grubby_msg  byte "grubby: ", 0
+rpt_usedc_msg   byte "In use: ", 0
+rpt_dirtyc_msg  byte ", dirty: ", 0
+rpt_nexrd_msg   byte ", next read buffer: ", 0
+rpt_badsum_msg  byte ", checksum error!", 0
+in_badsum_msg   byte " corrupt MMC cache buffers discarded!", 0x0d, 0x0a, 0
+;
+;
+;
+; *************
+; * Variables *
+; *************
+;
+;
+; Note: linker "-c" option is used, so no data is initialised here.
+                dseg                ; Data segment
+;
+next_buff       defs 1              ; Preferred next buffer to use
+used_buffs      defs 1              ; Number of buffers in use
+dirty_buffs     defs 1              ; Number of dirty buffers
+mws_buff_status defs 1              ; Temporary sector buffer status
+cache_buffers   defs MCCAS_SIZE * MCCA_BUFFERS  ; Sector buffer structures
+;
+                end
+

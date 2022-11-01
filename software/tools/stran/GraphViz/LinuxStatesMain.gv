@@ -1,0 +1,65 @@
+digraph CPU_Block {
+#    node [shape=box]; course; institute; student;
+#    node [shape=ellipse]; {node [label="name"] name0; name1; name2;}
+#        code; grade; number;
+#    node [shape=diamond,style=filled,color=lightgrey]; "C-I"; "S-C"; "S-I";
+
+#    code -- course;
+#    course -- "C-I" [label="n"];
+#   "AM-AC-2WT1" -- "AM-AF-3330" [label="F1303\n61611937AA00",len=1\n00];
+
+    graph [rankdir=LR]
+    edge [color=black];
+
+    node [shape=ellipse color=aquamarine style=filled];
+
+    {
+        node [shape=box color=lightskyblue]
+        rank=source;
+        "Start";
+        node [color=firebrick1]
+        "Error";
+    }
+
+    {
+        node [color=lightskyblue]
+        rank=sink;
+        "Transmit\nStates";
+        "Receive\nStates";
+        "Directory\nStates";
+        "End" [shape=box];
+    }
+
+
+    "Start" -> "Sync\nSequence";
+    "Sync\nSequence" -> "Idle";
+
+    "Idle" -> "Send Exit" [label="Normal exit"];
+    "Send Exit" -> "Exit Await\nResponse"
+    "Exit Await\nResponse" -> "Send Exit" [label = "Timeout,\nretry"];
+    "Exit Await\nResponse" -> "Send Exit" [label = "NAK"];
+    "Exit Await\nResponse" -> "End" [label = "Timeout\nOut of retries"];
+    "Exit Await\nResponse" -> "End" [label = "ACK"]
+
+    "Idle" -> "Idle" [label = "Idle\ncharacter"];
+    "Idle" -> "Transmit\nStates" [label = "Send file"];
+    "Transmit\nStates" -> "Idle"
+
+    "Idle" -> "Receive\nStates" [label = "Receive file"];
+    "Receive\nStates" -> "Idle"
+
+    "Idle" -> "Directory\nStates" [label = "Read\ndirectory"];
+    "Directory\nStates" -> "Idle"
+
+    "Error" -> "Sync\nSequence "
+    "Sync\nSequence " -> "Send Abort"
+    "Send Abort" -> "Abort Await\nResponse"
+    "Abort Await\nResponse" -> "Send Abort" [label = "Timeout,\nretry"];
+    "Abort Await\nResponse" -> "Send Abort" [label = "NAK"];
+    "Abort Await\nResponse" -> "Idle" [label = "Timeout\nOut of retries"];
+    "Abort Await\nResponse" -> "Idle" [label = "ACK"]
+
+    label = "Linux Side Master State Diagram";
+    fontsize=20;
+}
+

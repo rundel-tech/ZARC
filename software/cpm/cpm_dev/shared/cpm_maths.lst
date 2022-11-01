@@ -1,0 +1,1122 @@
+   1:				; *******************************************************
+   2:				; * Mathematical Routines for CP/M Applications         *
+   3:				; * Version: V1.0                                       *
+   4:				; * Merlin Skinner, 10/9/2022                           *
+   5:				; *******************************************************
+   6:				;
+   7:				; Integer mathematical routines for use with CP/M applications.
+   8:				;
+   9:				; Routines preserve all registers not required as operands or return
+  10:				; values except AF unless otherwise stated below.
+  11:				;
+  12:				;
+  13:				                title MAths
+  14:				;
+  15:     -	0001'         	CPMM            equ 1                   ; Flag module for includes
+  16:				;
+  17:				;
+  18:				;
+  19:				; ************
+  20:				; * Includes *
+  21:				; ************
+  22:				;
+  23:				;
+  24:				                include "macros.i"
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//macros.i ****
+   1:				; ***********************************
+   2:				; * ZARC Macro Definitions          *
+   3:				; * Written by: Merlin Skinner      *
+   4:				; * Date Started: 30/7/2020         *
+   5:				; ***********************************
+   6:				;
+   7:				;
+   8:				;
+   9:				; **********
+  10:				; * Macros *
+  11:				; **********
+  12:				;
+  13:				;
+  14:				; Initialise enumeration.
+  15:				; The absolute segment is used so the offsets are not marked as relocatable. This
+  16:				; avoids "Not relocatable" errors.
+  17:				ENUM_START      macro
+  18:				                .aseg
+  19:				enum_counter    set 0
+  20:				                endm
+  21:				;
+  22:				; Invoke for each item.
+  23:				ENUM            macro x
+  24:				x               equ enum_counter
+  25:				enum_counter    set enum_counter + 1
+  26:				                endm
+  27:				;
+  28:				ENUM_END        macro x
+  29:				x               set enum_counter    ; Set label to count of items
+  30:				                .cseg
+  31:				                endm
+  32:				;
+  33:				;
+  34:				; Initialise a structure. This is used to generate offsets for data structures.
+  35:				; The absolute segment is used so the offsets are not marked as relocatable. This
+  36:				; avoids "Not relocatable" errors.
+  37:				STRUCT          macro
+  38:				                .aseg
+  39:				str_offset      set 0
+  40:				                endm
+  41:				;
+  42:				; Add a byte entry.
+  43:				STR_BYTE        macro x
+  44:				x               equ str_offset
+  45:				str_offset      set str_offset + 1
+  46:				                endm
+  47:				;
+  48:				; Add a word (16-bit) entry.
+  49:				STR_WORD        macro x
+  50:				x               equ str_offset
+  51:				str_offset      set str_offset + 2
+  52:				                endm
+  53:				;
+  54:				; Add a 3 byte (24-bit) entry.
+  55:				STR_24BIT       macro x
+  56:				x               equ str_offset
+  57:				str_offset      set str_offset + 3
+  58:				                endm
+  59:				;
+  60:				; Add a long (32-bit) entry.
+  61:				STR_LONG        macro x
+  62:				x               equ str_offset
+  63:				str_offset      set str_offset + 4
+  64:				                endm
+  65:				;
+  66:				; Add an arbitrary length entry.
+  67:				STR_BLOCK       macro x, size   ; <name>, <size>
+  68:				x               equ str_offset
+  69:				str_offset      set str_offset + size
+  70:				                endm
+  71:				;
+  72:				; End of structure (used to set size)
+  73:				STR_END         macro x
+  74:				x               equ str_offset
+  75:				                .cseg
+  76:				                endm
+  77:				;
+  78:				;
+  79:				; Calculate offsets into jump tables.
+  80:				; The absolute segment is used so the offsets are not marked as relocatable. This
+  81:				; avoids "Not relocatable" errors.
+  82:				JPTBL_START     macro x
+  83:				                .aseg
+  84:				jptbl_addr      set x               ; Set start address
+  85:				                endm
+  86:				;
+  87:				; Invoke for each item.
+  88:				JPTBL_ENTRY     macro x
+  89:				x               equ jptbl_addr
+  90:				jptbl_addr      set jptbl_addr + 3
+  91:				                endm
+  92:				;
+  93:				; Invoke for a data block in the jump table
+  94:				JPTBL_BLOCK     macro x, size   ; <name>, <size>
+  95:				x               equ jptbl_addr
+  96:				jptbl_addr      set jptbl_addr + size
+  97:				                endm
+  98:				;
+  99:				JPTBL_END       macro x
+ 100:				x               set jptbl_addr      ; Set label to next address
+ 101:				                .cseg
+ 102:				                endm
+ 103:				;
+ 104:				;
+ 105:				; Define bits and masks. This is inspired by the Commodore Amiga BITDEF mechanism.
+ 106:				; Given:
+ 107:				; BITDEF I2C_CSR_STOP, 2
+ 108:				; Yields:
+ 109:				; I2C_CSR_STOP_BIT  EQU 2       ; Bit number
+ 110:				; I2C_CSR_STOP_MASK EQU 1<<2    ; Bit mask
+ 111:				BITDEF          macro n, b      ; <Name>, <bit>
+ 112:				n`_BIT          equ b
+ 113:				n`_MASK         equ 1 << b
+ 114:				                endm
+ 115:				;
+ 116:				;
+ 117:				; Force alignment. This asserts an appropriate number of zero bytes to achieve
+ 118:				; the required alignment. Note that these macros cannot work for relocatable
+ 119:				; files.
+ 120:				; 16-bit
+ 121:				ALIGN_WORD      macro
+ 122:				                if $ and 1
+ 123:				                    byte 0
+ 124:				                endif
+ 125:				                endm
+ 126:				;
+ 127:				; 32-bit
+ 128:				ALIGN_LONG      macro
+ 129:				                ALIGN_WORD
+ 130:				                if $ and 2
+ 131:				                    byte 0, 0
+ 132:				                endif
+ 133:				                endm
+ 134:				
+**** cpm_maths.z80 ****
+  25:				                include "z80.i"
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//z80.i ****
+   1:				; ***********************************
+   2:				; * ZARC Z80 Definitions            *
+   3:				; * Written by: Merlin Skinner      *
+   4:				; * Date Started: 28/5/2020         *
+   5:				; ***********************************
+   6:				;
+   7:				; Definitions related to the Z80 itself.
+   8:				;
+   9:				; Z80 Vectors
+  10:     -	0000'         	Z80_RST00_VEC   equ 0x0000      ; RST instruction vectors
+  11:     -	0008'         	Z80_RST08_VEC   equ 0x0008
+  12:     -	0010'         	Z80_RST10_VEC   equ 0x0010
+  13:     -	0018'         	Z80_RST18_VEC   equ 0x0018
+  14:     -	0020'         	Z80_RST20_VEC   equ 0x0020
+  15:     -	0028'         	Z80_RST28_VEC   equ 0x0028
+  16:     -	0030'         	Z80_RST30_VEC   equ 0x0030
+  17:     -	0038'         	Z80_RST38_VEC   equ 0x0038
+  18:     -	0066'         	Z80_NMI_VEC     equ 0x0066      ; NMI vectors
+  19:				
+**** cpm_maths.z80 ****
+  26:				                include "cpm.i"
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//cpm.i ****
+   1:				; *******************************************************
+   2:				; * ZARC Monitor CP/M Definitions                       *
+   3:				; * Written by: Merlin Skinner                          *
+   4:				; * Date Started: 26/5/2020                             *
+   5:				; *******************************************************
+   6:				;
+   7:				; Definitions related CP/M running under the monitor programme.
+   8:				;
+   9:				; Note that ld80 only considers the first six characters of labels significant.
+  10:				;
+  11:				; The following conditionals are intended to allow the same include file to be
+  12:				; used in the defining module and elsewhere as required. Some includes are used
+  13:				; for other applications than the monitor, such as the CP/M BIOS. In these cases,
+  14:				; the extern and public statements are not desirable.
+  15:				;
+  16:     -	0000'         	            ifdef monitor           ; Meaningful for monitor build only
+  28:				            endif
+  29:				;
+  30:				;
+  31:				;
+  32:				; ****************
+  33:				; * Memory Usage *
+  34:				; ****************
+  35:				;
+  36:				;
+  37:				; Note: memory banks are allocated by the monitor's initialisation code.
+  38:     -	0004'         	MMAP_CPM_PAGES      equ 4               ; Number of 16 kB pages
+  39:				;
+  40:				; The MS byte of INT_VEC_TABLE comes from the Z80 I register, and the LS byte
+  41:				; from the FPGA. The 0xe0 offset is chosen to allow the table to reside at the
+  42:				; top of memory (0xffe0 to 0xffff).
+  43:     -	FFE0'         	INT_VEC_TABLE   equ 0xffe0              ; Interrupt mode 2 vector table
+  44:				;
+  45:				; Copied from CP/M manual appendix A.
+  46:				; MSIZE             equ 64              ; CP/M version memory size in kilobytes
+  47:				;
+  48:				; "BIAS" is the address offset from 0x3400 for memory systems other than 16 K.
+  49:				;BIAS               equ (MSIZE-20) * 1024
+  50:     -	A200'         	CPM_BIAS            equ 0xa200          ; For CompuPro64K_CPM
+  51:     -	D600'         	CCP_START           equ 0x3400 + CPM_BIAS   ; Base of CCP
+  52:     -	DE06'         	BDOS_START          equ CCP_START + 0x0806  ; Base of BDOS
+  53:     -	EC00'         	BIOS_START          equ CCP_START + 0x1600  ; Base of BIOS
+  54:     -	002C'         	BIOS_CPM_START_SEC  equ 44              ; First CP/M sector of BIOS
+  55:     -	1000'         	BIOS_MAX_SIZE       equ 4096            ; 2 KB allocation for BIOS stored on MMC (ZARC)
+  56:     -	0100'         	TPA_START           equ 0x0100          ; Transient Programme Area
+  57:				;
+  58:				; Page zero.
+  59:     -	0003'         	IOBYTE              equ 0x0003          ; Intel I/O byte
+  60:     -	0004'         	CDISK               equ 0x0004          ; Current disk (0="A") & user no. (in high nibble)
+  61:     -	005C'         	FCB1                equ 0x005c          ; Default FCB 1
+  62:     -	006C'         	FCB2                equ 0x006c          ; Default FCB 2 (overwritten if FCB 1 is opened)
+  63:				; Default 128-byte disk buffer, also filled with the command line when a transient
+  64:				; is loaded under the CCP.
+  65:     -	0080'         	DEF_BUFFER          equ 0x80
+  66:     -	0080'         	DEF_BUFFER_SIZE     equ 0x80
+  67:				;
+  68:				; IOBYTE bit definitions.
+  69:     -	0003'         	IOB_CON_MASK        equ 0x03
+  70:     -	000C'         	IOB_RDR_MASK        equ 0x0c
+  71:     -	0030'         	IOB_PUN_MASK        equ 0x30
+  72:     -	00C0'         	IOB_LST_MASK        equ 0xc0
+  73:				;
+  74:				; BIOS option bits.
+  75:     -	        	BITDEF BIOS_OPT_DEBUG, 0                ; Enable BIOS debugging messages
+  76:     -	        	BITDEF BIOS_OPT_NOINTS, 1               ; Disables interrupts (use basic I/O mode)
+  77:     -	        	BITDEF BIOS_OPT_RAWCON, 2               ; Disables ADM-3A to VT-100 translation
+  78:				;
+  79:				;
+  80:				;
+  81:				; ***************
+  82:				; * Disk System *
+  83:				; ***************
+  84:				;
+  85:				;
+  86:     -	0080'         	CPM_SECTOR_SIZE     equ 128             ; CP/M disk sector size
+  87:     -	0010'         	NUM_DISKS           equ 16              ; Number of disk drives
+  88:     -	0010'         	NUM_DISKS_MAX       equ 16              ; Maximum number of disk drives
+  89:     -	0000'         	CPM_SYS_SIZE        equ 1024 * 1024     ; System area size (bytes)
+  90:     -	0000'         	CPM_DISK_SIZE       equ 1024 * 1024     ; Disk size (bytes)
+  91:     -	0008'         	FILENAME_SIZE       equ 8               ; Filename size
+  92:     -	0003'         	FILEEXT_SIZE        equ 3               ; File extension size
+  93:     -	001A'         	FILE_EOF            equ 0x1a            ; End of file (^Z)
+  94:     -	000F'         	MAX_USER            equ 15              ; Maximum user number
+  95:				;
+  96:     -	0001'         	BDOS_READ_SEQ_EOF   equ 1               ; Sequential read EOF error code
+  97:				;
+  98:				; Disk Parameter Header (DPH) structure.
+  99:     -	        	                STRUCT
+ 100:     -	        	                STR_WORD DPH_XLT        ; Address of sector translation table
+ 101:     -	        	                STR_WORD DPH_SCRATCH0   ; BDOS scratch area
+ 102:     -	        	                STR_WORD DPH_SCRATCH1
+ 103:     -	        	                STR_WORD DPH_SCRATCH2
+ 104:     -	        	                STR_WORD DPH_DIRBF      ; BDOS directory scratch area
+ 105:     -	        	                STR_WORD DPH_DPB        ; Pointer to DPB
+ 106:     -	        	                STR_WORD DPH_CSV        ; Pointer to the directory checksum vector
+ 107:     -	        	                STR_WORD DPH_ALV        ; Pointer to the allocation vector
+ 108:     -	        	                STR_END DPH_SIZE
+ 109:				;
+ 110:				;
+ 111:				; Disk Parameter Block (DPB) structure.
+ 112:     -	        	                STRUCT
+ 113:     -	        	                STR_WORD DPB_SPT        ; Number of 128-byte records per track
+ 114:     -	        	                STR_BYTE DPB_BSH        ; Block shift. 3 => 1k, 4 => 2k, 5 => 4k....
+ 115:     -	        	                STR_BYTE DPB_BLM        ; Block mask. 7 => 1k, 0Fh => 2k, 1Fh => 4k...
+ 116:     -	        	                STR_BYTE DPB_EXM        ; Extent mask
+ 117:     -	        	                STR_WORD DPB_DSM        ; Maximum block number
+ 118:     -	        	                STR_WORD DPB_DRM        ; Maximum directory entry number
+ 119:     -	        	                STR_BYTE DPB_AL0        ; Directory allocation bitmap
+ 120:     -	        	                STR_BYTE DPB_AL1
+ 121:     -	        	                STR_WORD DPB_CKS        ; Checksum vector size, 0 for a fixed disc
+ 122:     -	        	                STR_WORD DPB_OFF        ; Offset, number of reserved tracks
+ 123:     -	        	                STR_END DPB_SIZE
+ 124:				;
+ 125:				;
+ 126:				; Directory entry structure.
+ 127:     -	        	                STRUCT
+ 128:     -	        	                STR_BYTE DIRE_USER      ; User number. 0xe5 if entry unused
+ 129:     -	        	                STR_BLOCK DIRE_NAME, FILENAME_SIZE  ; Filename
+ 130:     -	        	                STR_BLOCK DIRE_TYP, FILEEXT_SIZE    ; File type
+ 131:     -	        	                STR_BYTE DIRE_EX        ; Extent counter, low byte (0-31)
+ 132:     -	        	                STR_BYTE DIRE_S1        ; Reserved, set to 0
+ 133:     -	        	                STR_BYTE DIRE_S2        ; Extent counter, high byte
+ 134:     -	        	                STR_BYTE DIRE_RC        ; Record count (low byte)
+ 135:     -	        	                STR_BLOCK DIRE_ALLOC, 16 ; Associated block numbers
+ 136:     -	        	                STR_END DIRE_SIZE
+ 137:				;
+ 138:				;
+ 139:				; File Control Block (FCB) structure.
+ 140:     -	        	                STRUCT
+ 141:     -	        	                STR_BYTE FCB_DRIVE      ; Drive. 0 for default, 1-16 for A-P
+ 142:     -	        	                STR_BLOCK FCB_NAME, FILENAME_SIZE   ; Filename in ASCII upper-case
+ 143:     -	        	                STR_BLOCK FCB_TYP, FILEEXT_SIZE     ; File type
+ 144:     -	        	                STR_BYTE FCB_EX         ; Current extent (*)
+ 145:     -	        	                STR_BYTE FCB_S1         ; Reserved (*)
+ 146:     -	        	                STR_BYTE FCB_S2         ; Reserved (*)
+ 147:     -	        	                STR_BYTE FCB_RC         ; Reserved (*)
+ 148:     -	        	                STR_BLOCK FCB_ALLOC, 16 ; Associated block numbers
+ 149:     -	        	                STR_BYTE FCB_CR         ; Current record within extent
+ 150:     -	        	                STR_BLOCK FCB_RECORD, 3 ; Record number (low byte first)
+ 151:     -	        	                STR_END FCB_SIZE
+ 152:				;
+ 153:				; * - Set this to 0 when opening a file and then leave it to CP/M. You can rewind
+ 154:				; a file by setting EX, RC, S2 and CR to 0.
+ 155:				;
+ 156:				;
+ 157:				;
+ 158:				; **************
+ 159:				; * BIOS Calls *
+ 160:				; **************
+ 161:				;
+ 162:				;
+ 163:				; Calculate offsets into jump tables. Entries here must match the jump table in
+ 164:				; the BIOS. The base address of the BIOS must be added to these addresses. A call
+ 165:				; routine might look like:
+ 166:				;
+ 167:				; Call BIOS, allowing for its unknown base address.
+ 168:				; Call with:
+ 169:				; BC - operand (depends on BIOS function called)
+ 170:				; DE - operand (depends on BIOS function called)
+ 171:				; HL - offset for the routine (e.g. BIOS_CONIN)
+ 172:				; call_bios       push de
+ 173:				;                 ex de, hl
+ 174:				;                 ld hl, (1)              ; Find WBOOT (warm boot) address
+ 175:				;                 add hl, de              ; Add offset
+ 176:				;                 pop de
+ 177:				;                 jp (hl)                 ; Jump to BIOS then return to caller
+ 178:				;
+ 179:				; The above method is a bit clumsy, but then application code shouldn't normally
+ 180:				; call the BIOS directly.
+ 181:				;
+ 182:     -	        	    JPTBL_START 0                   ; Generate offsets as BIOS_START isn't always known
+ 183:				;
+ 184:				; From monitor.z80
+ 185:				; Note - cold start routine omitted to align with use of address at (1) to find BIOS.
+ 186:     -	        	    JPTBL_ENTRY BIOS_WBOOT          ; Warm boot - reload command processor
+ 187:     -	        	    JPTBL_ENTRY BIOS_CONST          ; Console status
+ 188:     -	        	    JPTBL_ENTRY BIOS_CONIN          ; Console input
+ 189:     -	        	    JPTBL_ENTRY BIOS_CONOUT         ; Console output
+ 190:     -	        	    JPTBL_ENTRY BIOS_PLIST          ; Printer output
+ 191:     -	        	    JPTBL_ENTRY BIOS_PUNCH          ; Paper tape punch output
+ 192:     -	        	    JPTBL_ENTRY BIOS_READER         ; Paper tape reader input
+ 193:     -	        	    JPTBL_ENTRY BIOS_HOME           ; Move disc head to track 0
+ 194:     -	        	    JPTBL_ENTRY BIOS_SELDSK         ; Select disc drive
+ 195:     -	        	    JPTBL_ENTRY BIOS_SETTRK         ; Set track number
+ 196:     -	        	    JPTBL_ENTRY BIOS_SETSEC         ; Set sector number
+ 197:     -	        	    JPTBL_ENTRY BIOS_SETDMA         ; Set DMA address
+ 198:     -	        	    JPTBL_ENTRY BIOS_READ           ; Read a sector
+ 199:     -	        	    JPTBL_ENTRY BIOS_WRITE          ; Write a sector
+ 200:				; CP/M 2 functions.
+ 201:     -	        	    JPTBL_ENTRY BIOS_LISTST         ; Status of list device
+ 202:     -	        	    JPTBL_ENTRY BIOS_SECTRAN        ; Sector translation for skewing
+ 203:				; CP/M 3 functions (not supported yet). From https://www.seasip.info/Cpm/bios.html
+ 204:     -	        	    JPTBL_ENTRY BIOS_CONOST         ; Status of console output
+ 205:     -	        	    JPTBL_ENTRY BIOS_AUXIST         ; Status of auxiliary input
+ 206:     -	        	    JPTBL_ENTRY BIOS_AUXOST         ; Status of auxiliary output
+ 207:     -	        	    JPTBL_ENTRY BIOS_DEVTBL         ; Address of devices table
+ 208:     -	        	    JPTBL_ENTRY BIOS_DEVINI         ; Initialise a device
+ 209:     -	        	    JPTBL_ENTRY BIOS_DRVTBL         ; Address of discs table
+ 210:     -	        	    JPTBL_ENTRY BIOS_MULTIO         ; Read/write multiple sectors
+ 211:     -	        	    JPTBL_ENTRY BIOS_FLUSH          ; Flush host buffers
+ 212:     -	        	    JPTBL_ENTRY BIOS_MOVE           ; Move a block of memory
+ 213:     -	        	    JPTBL_ENTRY BIOS_TIME           ; Real time clock
+ 214:     -	        	    JPTBL_ENTRY BIOS_SELMEM         ; Select memory bank
+ 215:     -	        	    JPTBL_ENTRY BIOS_SETBNK         ; Select bank for DMA operation
+ 216:     -	        	    JPTBL_ENTRY BIOS_XMOVE          ; Preload banks for MOVE
+ 217:     -	        	    JPTBL_ENTRY BIOS_USERF          ; System-depedent functions
+ 218:     -	        	    JPTBL_ENTRY BIOS_RESERV1        ; Reserved
+ 219:     -	        	    JPTBL_ENTRY BIOS_RESERV2        ; Reserved
+ 220:				; ZARC-specific items.
+ 221:     -	        	    JPTBL_BLOCK BIOS_ID, 3          ; BIOS ID ("ZRC")
+ 222:     -	        	    JPTBL_BLOCK BIOS_VER, 3         ; Version (see below)
+ 223:     -	        	    JPTBL_ENTRY BIOS_STARTUP        ; CP/M startup entry point
+ 224:     -	        	    JPTBL_ENTRY BIOS_MON_CALL       ; Call monitor function
+ 225:     -	        	    JPTBL_ENTRY BIOS_SUPER          ; Set supervisor state
+ 226:     -	        	    JPTBL_ENTRY BIOS_INT_DISABLE    ; Disable interrupts and keep count
+ 227:     -	        	    JPTBL_ENTRY BIOS_INT_ENABLE     ; Enable interrupts if safe
+ 228:     -	        	    JPTBL_ENTRY BIOS_TIRD           ; Read time and date
+ 229:     -	        	    JPTBL_ENTRY BIOS_SET_TIMER      ; Set timer
+ 230:     -	        	    JPTBL_ENTRY BIOS_GET_TIMER      ; Get timer
+ 231:				;
+ 232:     -	        	    JPTBL_END BIOS_JPTBL_NEXT
+ 233:				;
+ 234:				; BIOS_VER is <reserved (zero)>, <major version>, <minor version>. The reserved
+ 235:				; byte may flag capabilities at some point.
+ 236:				;
+ 237:				;
+ 238:				;
+ 239:				; **************
+ 240:				; * BDOS Calls *
+ 241:				; **************
+ 242:				;
+ 243:				;
+ 244:				; From http://www.gaby.de/cpm/manuals/archive/cpm22htm/ch5.htm#Section_5.2
+ 245:				; In general, the function number is passed in register C with the information
+ 246:				; address in the double byte pair DE. Single byte values are returned in register
+ 247:				; A, with double byte values returned in HL. A zero value is returned when the
+ 248:				; function number is out of range. For reasons of compatibility, register A = L
+ 249:				; and register B = H upon return in all cases. Example call:
+ 250:				;   ld c, BDOS_CONIN    ; Read next character
+ 251:				;   call BDOS           ; Return character in A
+ 252:				;
+ 253:     -	0005'         	BDOS        equ 5               ; BDOS entry point
+ 254:				;
+ 255:     -	0000'         	BDOS_SYS_RST        equ 0       ; System Reset
+ 256:     -	0001'         	BDOS_CON_IN         equ 1       ; Console Input
+ 257:     -	0002'         	BDOS_CON_OUT        equ 2       ; Console Output
+ 258:     -	0003'         	BDOS_RDR_IN         equ 3       ; Reader Input
+ 259:     -	0004'         	BDOS_PUN_OUT        equ 4       ; Punch Output
+ 260:     -	0005'         	BDOS_LST_OUT        equ 5       ; List Output
+ 261:     -	0006'         	BDOS_DIRECT_CON_IO  equ 6       ; Direct Console I/O
+ 262:     -	0007'         	BDOS_GET_IO_BYTE    equ 7       ; Get I/O Byte
+ 263:     -	0008'         	BDOS_SET_IO_BYTE    equ 8       ; Set I/O Byte
+ 264:     -	0009'         	BDOS_PRINT_STRING   equ 9       ; Print String
+ 265:     -	000A'         	BDOS_READ_CON_BUFF  equ 10      ; Read Console Buffer
+ 266:     -	000B'         	BDOS_GET_CON_STAT   equ 11      ; Get Console Status
+ 267:     -	000C'         	BDOS_VERSION        equ 12      ; Return Version Number
+ 268:     -	000D'         	BDOS_RESET_DISK_SYS equ 13      ; Reset Disk System
+ 269:     -	000E'         	BDOS_SEL_DISK       equ 14      ; Select Disk
+ 270:     -	000F'         	BDOS_OPEN_FILE      equ 15      ; Open File
+ 271:     -	0010'         	BDOS_CLOSE_FILE     equ 16      ; Close File
+ 272:     -	0011'         	BDOS_SEARCH_FIRST   equ 17      ; Search for First
+ 273:     -	0012'         	BDOS_SEARCH_NEXT    equ 18      ; Search for Next
+ 274:     -	0013'         	BDOS_DELETE_FILE    equ 19      ; Delete File
+ 275:     -	0014'         	BDOS_READ_SEQ       equ 20      ; Read Sequential
+ 276:     -	0015'         	BDOS_WRITE_SEQ      equ 21      ; Write Sequential
+ 277:     -	0016'         	BDOS_MAKE_FILE      equ 22      ; Make File
+ 278:     -	0017'         	BDOS_RENAME_FILE    equ 23      ; Rename File
+ 279:     -	0018'         	BDOS_GET_LOGIN_VEC  equ 24      ; Return Login Vector
+ 280:     -	0019'         	BDOS_GET_CURR_DISK  equ 25      ; Return Current Disk
+ 281:     -	001A'         	BDOS_SET_DMA_ADDR   equ 26      ; Set DMA Address
+ 282:     -	001B'         	BDOS_GET_ALLOC_ADDR equ 27      ; Get Addr (Alloc)
+ 283:     -	001C'         	BDOS_WRITE_PROT     equ 28      ; Write Protect Disk
+ 284:     -	001D'         	BDOS_GET_RO_VEC     equ 29      ; Get R/O Vector
+ 285:     -	001E'         	BDOS_SET_FILE_ATTR  equ 30      ; Set File Attributes
+ 286:     -	001F'         	BDOS_GET_DPB        equ 31      ; Get Addr (Disk Parms)
+ 287:     -	0020'         	BDOS_GET_SET_USER   equ 32      ; Set/Get User Code
+ 288:     -	0021'         	BDOS_READ_RANDOM    equ 33      ; Read Random
+ 289:     -	0022'         	BDOS_WRITE_RANDOM   equ 34      ; Write Random
+ 290:     -	0023'         	BDOS_GET_FILE_SIZE  equ 35      ; Compute File Size
+ 291:     -	0024'         	BDOS_SET_RANDOM_REC equ 36      ; Set Random Record
+ 292:     -	0025'         	BDOS_RESET_DRIVES   equ 37      ; Selectively reset disc drives
+ 293:     -	0028'         	BDOS_WRITE_RAN_ZFILL equ 40     ; Write Random with Zero Fill
+ 294:				
+ 295:				; Functions 28 and 32 should be avoided in application programs to maintain upward
+ 296:				; compatibility with CP/M.
+ 297:				;
+ 298:				
+**** cpm_maths.z80 ****
+  27:				                include "cpm_maths.i"
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//cpm_maths.i ****
+   1:				; *******************************************************
+   2:				; * Mathematical Routines for CP/M Applications         *
+   3:				; * Version: V1.0                                       *
+   4:				; * Merlin Skinner, 10/9/2022                           *
+   5:				; *******************************************************
+   6:				;
+   7:				; Note that ld80 only considers the first six characters of labels significant.
+   8:				;
+   9:     -	0000'         	            ifndef CPMM         ; Inhibit for this module
+  27:				            endif
+  28:				;
+**** cpm_maths.z80 ****
+  28:				;
+  29:				;
+  30:				;
+  31:				; *************
+  32:				; * Externals *
+  33:				; *************
+  34:				;
+  35:				;
+  36:				; Variables
+  37:				; None.
+  38:				;
+  39:				; Functions.
+  40:				; CP/M specific.
+  41:				; 32-bit arithmetic.
+  42:				                public mclr32       ; 32-bit clear (zero)
+  43:				                public mcop32       ; 32-bit copy from (hl) to (de)
+  44:				                public minc32       ; 32-bit increment
+  45:				                public mcp32        ; 32-bit compare (hl) - (de)
+  46:				                public madd32       ; 32-bit add (hl) <- (hl) + (de)
+  47:				                public msub32       ; 32-bit sub (hl) <- (hl) - (de)
+  48:				;
+  49:				; Derived from the monitor's utility.z80.
+  50:				                public madlbu       ; 32-bit / 8-bit unsigned divide
+  51:				                public madwbu       ; 16-bit / 8-bit unsigned divide
+  52:				                public madbbu       ; 8-bit / 8-bit unsigned divide
+  53:				                public mamwwu       ; 16-bit * 16-bit unsigned multiply
+  54:				                public mamlbu       ; 32-bit * 8-bit unsigned multiply
+  55:				                public crc16x       ; Software CRC-16 (XMODEM)
+  56:				;
+  57:				;
+  58:				;
+  59:				; ********
+  60:				; * Code *
+  61:				; ********
+  62:				;
+  63:				;
+  64:				                cseg                    ; Code segment
+  65:				;
+  66:				; 32-bit / 8-bit unsigned divide. Uses restoring algorithm. Derived from code at
+  67:				; https://wikiti.brandonw.net/index.php?title=Z80_Routines:Math:Division
+  68:				; Call with:
+  69:				; DEHL - dividend
+  70:				; C - divisor
+  71:				; Returns with:
+  72:				; DEHL - quotient
+  73:				; A - remainder
+  74:    0+11	0000' C5      	madlbu          push bc
+  75:   11+7	0001' 0620    	                ld b, 32            ; Loop counter
+  76:   18+4	0003' AF      	                xor a
+  77:   22+11	0004' 29      	dulb_bitloop    add	hl, hl          ; Shift MS bit of dividend into carry
+  78:   33+8	0005' CB13    	                rl e
+  79:   41+8	0007' CB12    	                rl d
+  80:   49+4	0009' 17      	                rla                 ; Collect bit in LS of A
+  81:   53+7+5	000A' 3803    	                jr c, dulb_dosub
+  82:   60+4	000C' B9      	                cp c
+  83:   64+7+5	000D' 3802    	                jr c, dulb_nextbit
+  84:   71+4	000F' 91      	dulb_dosub      sub	a, c
+  85:   75+4	0010' 2C      	                inc	l
+  86:   79+8+5	0011' 10F1    	dulb_nextbit    djnz	dulb_bitloop
+  87:   87+10	0013' C1      	                pop bc
+  88:   97+10	0014' C9      	                ret
+  89:				;
+  90:				;
+  91:				; 16-bit / 8-bit unsigned divide. Uses restoring algorithm. Derived from code at
+  92:				; https://wikiti.brandonw.net/index.php?title=Z80_Routines:Math:Division
+  93:				; Call with:
+  94:				; HL - dividend
+  95:				; C - divisor
+  96:				; Returns with:
+  97:				; HL - quotient
+  98:				; A - remainder
+  99:  107+11	0015' C5      	madwbu          push bc
+ 100:  118+7	0016' 0610    	                ld b, 16            ; Loop counter
+ 101:  125+4	0018' AF      	                xor a
+ 102:  129+11	0019' 29      	duwb_bitloop    add hl, hl          ; Shift MS bit of dividend into carry
+ 103:  140+4	001A' 17      	                rla                 ; Collect bit in LS of A
+ 104:  144+7+5	001B' 3803    	                jr c, duwb_dosub
+ 105:  151+4	001D' B9      	                cp c
+ 106:  155+7+5	001E' 3802    	                jr c, duwb_nextbit
+ 107:  162+4	0020' 91      	duwb_dosub      sub	a, c
+ 108:  166+4	0021' 2C      	                inc	l
+ 109:  170+8+5	0022' 10F5    	duwb_nextbit    djnz duwb_bitloop
+ 110:  178+10	0024' C1      	                pop bc
+ 111:  188+10	0025' C9      	                ret
+ 112:				;
+ 113:				;
+ 114:				; 8-bit / 8-bit unsigned divide. Uses restoring algorithm. Derived from code at
+ 115:				; https://wikiti.brandonw.net/index.php?title=Z80_Routines:Math:Division
+ 116:				; Call with:
+ 117:				; L - dividend
+ 118:				; C - divisor
+ 119:				; Returns with:
+ 120:				; L - quotient
+ 121:				; A - remainder
+ 122:  198+11	0026' C5      	madbbu          push bc
+ 123:  209+7	0027' 0608    	                ld b, 8             ; Loop counter
+ 124:  216+4	0029' AF      	                xor a
+ 125:  220+8	002A' CB25    	dubb_bitloop    sla l               ; Shift MS bit of dividend into carry
+ 126:  228+4	002C' 17      	                rla                 ; Collect bit in LS of A
+ 127:  232+4	002D' B9      	                cp c
+ 128:  236+7+5	002E' 3802    	                jr c, dubb_nextbit
+ 129:  243+4	0030' 91      	dubb_dosub      sub c
+ 130:  247+4	0031' 2C      	                inc l
+ 131:  251+8+5	0032' 10F6    	dubb_nextbit    djnz dubb_bitloop
+ 132:  259+10	0034' C1      	                pop bc
+ 133:  269+10	0035' C9      	                ret
+ 134:				;
+ 135:				;
+ 136:				; 16-bit * 16-bit unsigned multiply. Uses restoring algorithm. Derived from code at
+ 137:				; https://wikiti.brandonw.net/index.php?title=Z80_Routines:Math:Multiplication
+ 138:				; Call with:
+ 139:				; BC - multiplicand
+ 140:				; DE - multiplier
+ 141:				; Returns with:
+ 142:				; DEHL - result
+ 143:  279+10	0036' 210000  	mamwwu          ld hl, 0            ; Zero LSW of result
+ 144:				; Optimised 1st iteration
+ 145:  289+8	0039' CB23    	                sla	e               ; Shift multiplier
+ 146:  297+8	003B' CB12    	                rl d
+ 147:  305+7+5	003D' 3002    	                jr nc, muww_sk_ld
+ 148:				; Set result to multiplicand if the MS bit of the multiplier was set.
+ 149:  312+4	003F' 60      	                ld h, b
+ 150:  316+4	0040' 69      	                ld l, c
+ 151:  320+7	0041' 3E0F    	muww_sk_ld      ld a, 15
+ 152:				; A - loop counter
+ 153:				; BC - multiplicand
+ 154:				; DE - multiplier (MS bits) and result (LS bits).
+ 155:				; HL - LSW of result
+ 156:  327+11	0043' 29      	muww_loop       add hl, hl          ; Shift result (DEHL) left
+ 157:  338+8	0044' CB13    	                rl e
+ 158:  346+8	0046' CB12    	                rl d
+ 159:  354+7+5	0048' 3004    	                jr nc, muww_nc      ; Jump if multiplier bit is zero
+ 160:  361+11	004A' 09      	                add hl, bc          ; Add multiplicand to result
+ 161:  372+7+5	004B' 3001    	                jr nc, muww_nc
+ 162:  379+6	004D' 13      	                inc de              ; Propagate the carry into DE
+ 163:  385+4	004E' 3D      	muww_nc         dec a
+ 164:  389+7+5	004F' 20F2    	                jr nz, muww_loop
+ 165:  396+10	0051' C9      	                ret
+ 166:				;
+ 167:				;
+ 168:				; 32-bit * 8-bit unsigned multiply. Uses restoring algorithm. Derived from mamwwu
+ 169:				; above.
+ 170:				; Call with:
+ 171:				; DEHL - multiplicand
+ 172:				; C - multiplier
+ 173:				; Returns with:
+ 174:				; CDEHL - result
+ 175:  406+4	0052' 79      	mamlbu          ld a, c
+ 176:				; Save some registers.
+ 177:  410+11	0053' C5      	                push bc
+ 178:  421+4	0054' D9      	                exx
+ 179:  425+11	0055' C5      	                push bc
+ 180:  436+11	0056' E5      	                push hl
+ 181:  447+4	0057' D9      	                exx
+ 182:				; Setup registers for the multiply.
+ 183:  451+11	0058' D5      	                push de
+ 184:  462+11	0059' E5      	                push hl
+ 185:  473+10	005A' C1      	                pop bc              ; LSW of multiplicand
+ 186:  483+4	005B' A7      	                and a               ; Reset carry
+ 187:  487+15	005C' ED62    	                sbc hl, hl          ; Zero LS 32-bits of result
+ 188:  502+4	005E' D9      	                exx
+ 189:  506+10	005F' C1      	                pop bc              ; MSW of multiplicand
+ 190:  516+15	0060' ED62    	                sbc hl, hl          ; Zero MS 32-bits of result
+ 191:  531+4	0062' D9      	                exx
+ 192:  535+4	0063' 5F      	                ld e, a             ; Multiplier
+ 193:				; B'C'BC - multiplicand
+ 194:				; E - multiplier
+ 195:				; H'L'HL - result
+ 196:				; Optimised 1st iteration
+ 197:  539+8	0064' CB23    	                sla	e		        ; Shift multiplier
+ 198:  547+7+5	0066' 3006    	                jr nc, mulb_sk_ld
+ 199:				; Set result to multiplicand if the MS bit of the multiplier was set.
+ 200:  554+4	0068' 69      	                ld l, c
+ 201:  558+4	0069' 60      	                ld h, b
+ 202:  562+4	006A' D9      	                exx
+ 203:  566+4	006B' 69      	                ld l, c
+ 204:  570+4	006C' 60      	                ld h, b
+ 205:  574+4	006D' D9      	                exx
+ 206:  578+7	006E' 3E07    	mulb_sk_ld      ld a, 7
+ 207:				; A - loop counter
+ 208:				; B'C'BC - multiplicand
+ 209:				; E - multiplier (MS bits) and result (LS bits).
+ 210:				; H'L'HL - result
+ 211:  585+11	0070' 29      	mulb_loop       add hl, hl          ; Shift result (CH'L'HL) left
+ 212:  596+4	0071' D9      	                exx
+ 213:  600+15	0072' ED6A    	                adc hl, hl
+ 214:  615+4	0074' D9      	                exx
+ 215:  619+8	0075' CB13    	                rl e
+ 216:  627+7+5	0077' 3008    	                jr nc, mulb_nc      ; Jump if multiplier bit is zero
+ 217:  634+11	0079' 09      	                add hl, bc          ; Add multiplicand to result
+ 218:  645+4	007A' D9      	                exx
+ 219:  649+15	007B' ED4A    	                adc hl, bc
+ 220:  664+4	007D' D9      	                exx
+ 221:  668+7+5	007E' 3001    	                jr nc, mulb_nc
+ 222:  675+4	0080' 1C      	                inc e               ; Propagate the carry into result
+ 223:  679+4	0081' 3D      	mulb_nc         dec a
+ 224:  683+7+5	0082' 20EC    	                jr nz, mulb_loop
+ 225:  690+4	0084' 7B      	                ld a, e             ; Top bits of result
+ 226:  694+4	0085' D9      	                exx
+ 227:  698+11	0086' E5      	                push hl             ; MSW of result
+ 228:  709+4	0087' D9      	                exx
+ 229:  713+10	0088' D1      	                pop de
+ 230:				; Restore registers
+ 231:  723+4	0089' D9      	                exx
+ 232:  727+10	008A' E1      	                pop hl
+ 233:  737+10	008B' C1      	                pop bc
+ 234:  747+4	008C' D9      	                exx
+ 235:  751+10	008D' C1      	                pop bc
+ 236:  761+4	008E' 4F      	                ld c, a
+ 237:				; CDEHL - result
+ 238:  765+10	008F' C9      	                ret
+ 239:				;
+ 240:				;
+ 241:				; Update CRC according to the CRC16 / XMODEM and MultiMediaCard CRC16 algorithm.
+ 242:				; Adapted from http://regregex.bbcmicro.net/crc-code.htm#crc-code.16.8080
+ 243:				; Call with:
+ 244:				; A - byte to be included
+ 245:				; HL - CRC
+ 246:				; Returns with:
+ 247:				; HL - updated CRC;
+ 248:  775+11	0090' C5      	crc16x          push bc
+ 249:				;
+ 250:  786+4	0091' AC      	                xor h
+ 251:  790+4	0092' 47      	                ld b, a
+ 252:  794+4	0093' 4D      	                ld c, l
+ 253:  798+4	0094' 0F      	                rrca
+ 254:  802+4	0095' 0F      	                rrca
+ 255:  806+4	0096' 0F      	                rrca
+ 256:  810+4	0097' 0F      	                rrca
+ 257:  814+4	0098' 6F      	                ld l, a
+ 258:  818+7	0099' E60F    	                and 0x0f
+ 259:  825+4	009B' 67      	                ld h, a
+ 260:  829+4	009C' A8      	                xor b
+ 261:  833+4	009D' 47      	                ld b, a
+ 262:  837+4	009E' AD      	                xor l
+ 263:  841+7	009F' E6F0    	                and 0xf0
+ 264:  848+4	00A1' 6F      	                ld l, a
+ 265:  852+4	00A2' A9      	                xor c
+ 266:  856+11	00A3' 29      	                add hl, hl
+ 267:  867+4	00A4' AC      	                xor h
+ 268:  871+4	00A5' 67      	                ld h, a
+ 269:  875+4	00A6' 7D      	                ld a, l
+ 270:  879+4	00A7' A8      	                xor b
+ 271:  883+4	00A8' 6F      	                ld l, a
+ 272:				;
+ 273:  887+10	00A9' C1      	                pop bc
+ 274:  897+10	00AA' C9      	                ret
+ 275:				;
+ 276:				;
+ 277:				; *** 32-bit arithmetic ***
+ 278:				;
+ 279:				; Variables are assumed to be little-endian.
+ 280:				;
+ 281:				;
+ 282:				; Clear (zero) the 32-bit variable at (hl).
+ 283:				; Call with:
+ 284:				; HL - pointer to first byte of variable.  An incremented pointer is returned to
+ 285:				; ease processing of arrays.
+ 286:  907+4	00AB' AF      	mclr32          xor a
+ 287:  911+7	00AC' 77      	                ld (hl), a
+ 288:  918+6	00AD' 23      	                inc hl
+ 289:  924+7	00AE' 77      	                ld (hl), a
+ 290:  931+6	00AF' 23      	                inc hl
+ 291:  937+7	00B0' 77      	                ld (hl), a
+ 292:  944+6	00B1' 23      	                inc hl
+ 293:  950+7	00B2' 77      	                ld (hl), a
+ 294:  957+6	00B3' 23      	                inc hl
+ 295:  963+10	00B4' C9      	                ret
+ 296:				;
+ 297:				;
+ 298:				; Copy a 32-bit number from (hl) to (de).
+ 299:				; Call with:
+ 300:				; DE - pointer to first byte of destination.
+ 301:				; HL - pointer to first byte of source.
+ 302:  973+7	00B5' 7E      	mcop32          ld a, (hl)
+ 303:  980+7	00B6' 12      	                ld (de), a
+ 304:  987+6	00B7' 23      	                inc hl
+ 305:  993+6	00B8' 13      	                inc de
+ 306:  999+7	00B9' 7E      	                ld a, (hl)
+ 307: 1006+7	00BA' 12      	                ld (de), a
+ 308: 1013+6	00BB' 23      	                inc hl
+ 309: 1019+6	00BC' 13      	                inc de
+ 310: 1025+7	00BD' 7E      	                ld a, (hl)
+ 311: 1032+7	00BE' 12      	                ld (de), a
+ 312: 1039+6	00BF' 23      	                inc hl
+ 313: 1045+6	00C0' 13      	                inc de
+ 314: 1051+7	00C1' 7E      	                ld a, (hl)
+ 315: 1058+7	00C2' 12      	                ld (de), a
+ 316: 1065+10	00C3' C9      	                ret
+ 317:				;
+ 318:				;
+ 319:				; Increment the 32-bit variable at (hl). An incremented pointer is returned to
+ 320:				; ease processing of arrays.
+ 321:				; Call with:
+ 322:				; HL - pointer to first byte of variable.
+ 323:				; Returns with:
+ 324:				; Carry flag - arithmetic carry from MSB
+ 325: 1075+7	00C4' 7E      	minc32          ld a, (hl)
+ 326: 1082+7	00C5' C601    	                add a, 1                ; Not inc, as we need carry
+ 327: 1089+7	00C7' 77      	                ld (hl), a
+ 328: 1096+6	00C8' 23      	                inc hl
+ 329: 1102+7	00C9' 7E      	                ld a, (hl)
+ 330: 1109+7	00CA' CE00    	                adc a, 0
+ 331: 1116+7	00CC' 77      	                ld (hl), a
+ 332: 1123+6	00CD' 23      	                inc hl
+ 333: 1129+7	00CE' 7E      	                ld a, (hl)
+ 334: 1136+7	00CF' CE00    	                adc a, 0
+ 335: 1143+7	00D1' 77      	                ld (hl), a
+ 336: 1150+6	00D2' 23      	                inc hl
+ 337: 1156+7	00D3' 7E      	                ld a, (hl)
+ 338: 1163+7	00D4' CE00    	                adc a, 0
+ 339: 1170+7	00D6' 77      	                ld (hl), a
+ 340: 1177+6	00D7' 23      	                inc hl
+ 341: 1183+10	00D8' C9      	                ret
+ 342:				;
+ 343:				;
+ 344:				; Compare two 32-bit numbers by calculating (hl) - (de). Incremented
+ 345:				; pointers are returned to ease processing of arrays.
+ 346:				; Call with:
+ 347:				; DE - pointer to first byte of subtrahend.
+ 348:				; HL - pointer to first byte of minuend.
+ 349:				; Returns with:
+ 350:				; DE - pointer to first byte after subtrahend.
+ 351:				; HL - pointer to first byte after minuend.
+ 352:				; Carry flag - arithmetic carry from MSB
+ 353: 1193+4	00D9' EB      	mcp32           ex de, hl
+ 354: 1197+7	00DA' 1A      	                ld a, (de)
+ 355: 1204+7	00DB' 96      	                sub (hl)
+ 356: 1211+6	00DC' 23      	                inc hl
+ 357: 1217+6	00DD' 13      	                inc de
+ 358: 1223+7	00DE' 1A      	                ld a, (de)
+ 359: 1230+7	00DF' 9E      	                sbc (hl)
+ 360: 1237+6	00E0' 23      	                inc hl
+ 361: 1243+6	00E1' 13      	                inc de
+ 362: 1249+7	00E2' 1A      	                ld a, (de)
+ 363: 1256+7	00E3' 9E      	                sbc (hl)
+ 364: 1263+6	00E4' 23      	                inc hl
+ 365: 1269+6	00E5' 13      	                inc de
+ 366: 1275+7	00E6' 1A      	                ld a, (de)
+ 367: 1282+7	00E7' 9E      	                sbc (hl)
+ 368: 1289+6	00E8' 23      	                inc hl
+ 369: 1295+6	00E9' 13      	                inc de
+ 370: 1301+10	00EA' C9      	                ret
+ 371:				;
+ 372:				;
+ 373:				; Add two 32-bit numbers by calculating (hl) <- (hl) + (de). Incremented
+ 374:				; pointers are returned to ease processing of arrays.
+ 375:				; Call with:
+ 376:				; DE - pointer to first byte of addend 1.
+ 377:				; HL - pointer to first byte of addend 2 and sum.
+ 378:				; Returns with:
+ 379:				; DE - pointer to first byte after addend 1.
+ 380:				; HL - pointer to first byte after addend 2 and sum.
+ 381:				; Carry flag - arithmetic carry from MSB
+ 382: 1311+7	00EB' 1A      	madd32          ld a, (de)
+ 383: 1318+7	00EC' 86      	                add (hl)
+ 384: 1325+7	00ED' 77      	                ld (hl), a
+ 385: 1332+6	00EE' 23      	                inc hl
+ 386: 1338+6	00EF' 13      	                inc de
+ 387: 1344+7	00F0' 1A      	                ld a, (de)
+ 388: 1351+7	00F1' 8E      	                adc (hl)
+ 389: 1358+7	00F2' 77      	                ld (hl), a
+ 390: 1365+6	00F3' 23      	                inc hl
+ 391: 1371+6	00F4' 13      	                inc de
+ 392: 1377+7	00F5' 1A      	                ld a, (de)
+ 393: 1384+7	00F6' 8E      	                adc (hl)
+ 394: 1391+7	00F7' 77      	                ld (hl), a
+ 395: 1398+6	00F8' 23      	                inc hl
+ 396: 1404+6	00F9' 13      	                inc de
+ 397: 1410+7	00FA' 1A      	                ld a, (de)
+ 398: 1417+7	00FB' 8E      	                adc (hl)
+ 399: 1424+7	00FC' 77      	                ld (hl), a
+ 400: 1431+6	00FD' 23      	                inc hl
+ 401: 1437+6	00FE' 13      	                inc de
+ 402: 1443+10	00FF' C9      	                ret
+ 403:				;
+ 404:				;
+ 405:				; Subtract two 32-bit numbers by calculating (hl) <- (hl) - (de). Incremented
+ 406:				; pointers are returned to ease processing of arrays.
+ 407:				; Call with:
+ 408:				; DE - pointer to first byte of subtrahend.
+ 409:				; HL - pointer to first byte of minuend and result.
+ 410:				; Returns with:
+ 411:				; DE - pointer to first byte after subtrahend.
+ 412:				; HL - pointer to first byte after minuend and result.
+ 413:				; Carry flag - arithmetic carry from MSB
+ 414: 1453+4	0100' EB      	msub32          ex de, hl
+ 415: 1457+7	0101' 1A      	                ld a, (de)
+ 416: 1464+7	0102' 96      	                sub (hl)
+ 417: 1471+7	0103' 12      	                ld (de), a
+ 418: 1478+6	0104' 23      	                inc hl
+ 419: 1484+6	0105' 13      	                inc de
+ 420: 1490+7	0106' 1A      	                ld a, (de)
+ 421: 1497+7	0107' 8E      	                adc (hl)
+ 422: 1504+7	0108' 12      	                ld (de), a
+ 423: 1511+6	0109' 23      	                inc hl
+ 424: 1517+6	010A' 13      	                inc de
+ 425: 1523+7	010B' 1A      	                ld a, (de)
+ 426: 1530+7	010C' 8E      	                adc (hl)
+ 427: 1537+7	010D' 12      	                ld (de), a
+ 428: 1544+6	010E' 23      	                inc hl
+ 429: 1550+6	010F' 13      	                inc de
+ 430: 1556+7	0110' 1A      	                ld a, (de)
+ 431: 1563+7	0111' 8E      	                adc (hl)
+ 432: 1570+7	0112' 12      	                ld (de), a
+ 433: 1577+6	0113' 23      	                inc hl
+ 434: 1583+6	0114' 13      	                inc de
+ 435: 1589+10	0115' C9      	                ret
+ 436:				;
+ 437:				;
+ 438:				;
+ 439:				; *************
+ 440:				; * Variables *
+ 441:				; *************
+ 442:				;
+ 443:				; Note: linker "-c" option is used, so no data is initialised here.
+ 444:				                dseg                ; Data segment
+ 445:				;
+ 446:				;gldn_x1         defs 4              ; Read long decimal temporary store
+ 447:				;
+ 448:     -	0000"         	                end
+
+
+
+Statistics:
+
+     4	passes
+     0	jr promotions
+   197	symbols
+   278	bytes
+
+    91	macro calls
+  1546	macro bytes
+     0	invented symbols
+
+
+
+Symbol Table:
+
+BDOS           =05        5
+BDOS_CLOSE_FILE=10        16
+BDOS_CON_IN    =01        1
+BDOS_CON_OUT   =02        2
+BDOS_DELETE_FILE=13        19
+BDOS_DIRECT_CON_IO=06        6
+BDOS_GET_ALLOC_ADDR=1B        27
+BDOS_GET_CON_STAT=0B        11
+BDOS_GET_CURR_DISK=19        25
+BDOS_GET_DPB   =1F        31
+BDOS_GET_FILE_SIZE=23        35
+BDOS_GET_IO_BYTE=07        7
+BDOS_GET_LOGIN_VEC=18        24
+BDOS_GET_RO_VEC=1D        29
+BDOS_GET_SET_USER=20        32
+BDOS_LST_OUT   =05        5
+BDOS_MAKE_FILE =16        22
+BDOS_OPEN_FILE =0F        15
+BDOS_PRINT_STRING=09        9
+BDOS_PUN_OUT   =04        4
+BDOS_RDR_IN    =03        3
+BDOS_READ_CON_BUFF=0A        10
+BDOS_READ_RANDOM=21        33
+BDOS_READ_SEQ  =14        20
+BDOS_READ_SEQ_EOF=01        1
+BDOS_RENAME_FILE=17        23
+BDOS_RESET_DISK_SYS=0D        13
+BDOS_RESET_DRIVES=25        37
+BDOS_SEARCH_FIRST=11        17
+BDOS_SEARCH_NEXT=12        18
+BDOS_SEL_DISK  =0E        14
+BDOS_SET_DMA_ADDR=1A        26
+BDOS_SET_FILE_ATTR=1E        30
+BDOS_SET_IO_BYTE=08        8
+BDOS_SET_RANDOM_REC=24        36
+BDOS_START     =DE06      56838
+BDOS_SYS_RST   =00        0
+BDOS_VERSION   =0C        12
+BDOS_WRITE_PROT=1C        28
+BDOS_WRITE_RANDOM=22        34
+BDOS_WRITE_RAN_ZFILL=28        40
+BDOS_WRITE_SEQ =15        21
+BIOS_AUXIST    =33        51
+BIOS_AUXOST    =36        54
+BIOS_CONIN     =06        6
+BIOS_CONOST    =30        48
+BIOS_CONOUT    =09        9
+BIOS_CONST     =03        3
+BIOS_CPM_START_SEC=2C        44
+BIOS_DEVINI    =3C        60
+BIOS_DEVTBL    =39        57
+BIOS_DRVTBL    =3F        63
+BIOS_FLUSH     =45        69
+BIOS_GET_TIMER =7B        123
+BIOS_HOME      =15        21
+BIOS_ID        =60        96
+BIOS_INT_DISABLE=6F        111
+BIOS_INT_ENABLE=72        114
+BIOS_JPTBL_NEXT=7E        126
+BIOS_LISTST    =2A        42
+BIOS_MAX_SIZE  =1000      4096
+BIOS_MON_CALL  =69        105
+BIOS_MOVE      =48        72
+BIOS_MULTIO    =42        66
+BIOS_OPT_DEBUG_BIT=00        0
+BIOS_OPT_DEBUG_MASK=01        1
+BIOS_OPT_NOINTS_BIT=01        1
+BIOS_OPT_NOINTS_MASK=02        2
+BIOS_OPT_RAWCON_BIT=02        2
+BIOS_OPT_RAWCON_MASK=04        4
+BIOS_PLIST     =0C        12
+BIOS_PUNCH     =0F        15
+BIOS_READ      =24        36
+BIOS_READER    =12        18
+BIOS_RESERV1   =5A        90
+BIOS_RESERV2   =5D        93
+BIOS_SECTRAN   =2D        45
+BIOS_SELDSK    =18        24
+BIOS_SELMEM    =4E        78
+BIOS_SETBNK    =51        81
+BIOS_SETDMA    =21        33
+BIOS_SETSEC    =1E        30
+BIOS_SETTRK    =1B        27
+BIOS_SET_TIMER =78        120
+BIOS_START     =EC00      60416
+BIOS_STARTUP   =66        102
+BIOS_SUPER     =6C        108
+BIOS_TIME      =4B        75
+BIOS_TIRD      =75        117
+BIOS_USERF     =57        87
+BIOS_VER       =63        99
+BIOS_WBOOT     =00        0
+BIOS_WRITE     =27        39
+BIOS_XMOVE     =54        84
+CCP_START      =D600      54784
+CDISK          =04        4
+CPMM           =01        1
+CPM_BIAS       =A200      41472
+CPM_DISK_SIZE  =00100000  1048576
+CPM_SECTOR_SIZE=80        128
+CPM_SYS_SIZE   =00100000  1048576
+DEF_BUFFER     =80        128
+DEF_BUFFER_SIZE=80        128
+DIRE_ALLOC     =10        16
+DIRE_EX        =0C        12
+DIRE_NAME      =01        1
+DIRE_RC        =0F        15
+DIRE_S1        =0D        13
+DIRE_S2        =0E        14
+DIRE_SIZE      =20        32
+DIRE_TYP       =09        9
+DIRE_USER      =00        0
+DPB_AL0        =09        9
+DPB_AL1        =0A        10
+DPB_BLM        =03        3
+DPB_BSH        =02        2
+DPB_CKS        =0B        11
+DPB_DRM        =07        7
+DPB_DSM        =05        5
+DPB_EXM        =04        4
+DPB_OFF        =0D        13
+DPB_SIZE       =0F        15
+DPB_SPT        =00        0
+DPH_ALV        =0E        14
+DPH_CSV        =0C        12
+DPH_DIRBF      =08        8
+DPH_DPB        =0A        10
+DPH_SCRATCH0   =02        2
+DPH_SCRATCH1   =04        4
+DPH_SCRATCH2   =06        6
+DPH_SIZE       =10        16
+DPH_XLT        =00        0
+FCB1           =5C        92
+FCB2           =6C        108
+FCB_ALLOC      =10        16
+FCB_CR         =20        32
+FCB_DRIVE      =00        0
+FCB_EX         =0C        12
+FCB_NAME       =01        1
+FCB_RC         =0F        15
+FCB_RECORD     =21        33
+FCB_S1         =0D        13
+FCB_S2         =0E        14
+FCB_SIZE       =24        36
+FCB_TYP        =09        9
+FILEEXT_SIZE   =03        3
+FILENAME_SIZE  =08        8
+FILE_EOF       =1A        26
+INT_VEC_TABLE  =FFE0      65504
+IOBYTE         =03        3
+IOB_CON_MASK   =03        3
+IOB_LST_MASK   =C0        192
+IOB_PUN_MASK   =30        48
+IOB_RDR_MASK   =0C        12
+MAX_USER       =0F        15
+MMAP_CPM_PAGES =04        4
+NUM_DISKS      =10        16
+NUM_DISKS_MAX  =10        16
+TPA_START      = 100      256
+Z80_NMI_VEC    =66        102
+Z80_RST00_VEC  =00        0
+Z80_RST08_VEC  =08        8
+Z80_RST10_VEC  =10        16
+Z80_RST18_VEC  =18        24
+Z80_RST20_VEC  =20        32
+Z80_RST28_VEC  =28        40
+Z80_RST30_VEC  =30        48
+Z80_RST38_VEC  =38        56
+crc16x          90'       144 (public)
+dubb_bitloop    2A'       42
+dubb_dosub      30'       48
+dubb_nextbit    32'       50
+dulb_bitloop    04'       4
+dulb_dosub      0F'       15
+dulb_nextbit    11'       17
+duwb_bitloop    19'       25
+duwb_dosub      20'       32
+duwb_nextbit    22'       34
+jptbl_addr     =7E        126
+madbbu          26'       38 (public)
+madd32          EB'       235 (public)
+madlbu          00'       0 (public)
+madwbu          15'       21 (public)
+mamlbu          52'       82 (public)
+mamwwu          36'       54 (public)
+mclr32          AB'       171 (public)
+mcop32          B5'       181 (public)
+mcp32           D9'       217 (public)
+minc32          C4'       196 (public)
+msub32           100'     256 (public)
+mulb_loop       70'       112
+mulb_nc         81'       129
+mulb_sk_ld      6E'       110
+muww_loop       43'       67
+muww_nc         4E'       78
+muww_sk_ld      41'       65
+str_offset     =24        36

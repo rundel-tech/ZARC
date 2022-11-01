@@ -1,0 +1,934 @@
+; *******************************************************
+; * Utility Routines for CP/M Applications              *
+; * Version: V1.0                                       *
+; * Merlin Skinner, 22/3/2021                           *
+; *******************************************************
+;
+; Support routines for use with CP/M applications. Character I/O is performed
+; using BIOS routines (rather than the BDOS) as this avoids unwanted echoing of
+; input, for example. BDOS features such as tab expansion are not that useful
+; as they are easily confused by ANSI control codes, for example.
+;
+; Routines preserve all registers not required as operands or return
+; values except AF unless otherwise stated below.
+;
+;
+                title Utilites
+;
+CPMU            equ 1                   ; Flag module for includes
+;
+;
+;
+; ************
+; * Includes *
+; ************
+;
+;
+                include "macros.i"
+                include "z80.i"
+                include "terminal.i"    ; Terminal constants
+                include "cpm.i"
+                include "cpm_utility.i"
+;
+;
+;
+; *************
+; * Externals *
+; *************
+;
+;
+; Variables
+; None.
+;
+; Functions.
+; CP/M specific.
+                public cbdos    ; Call BDOS with some registers saved
+                public cbios    ; Call BIOS with some registers saved
+                public panic    ; Fatal application error
+                public zrcdet   ; Detect ZARC
+                public z80det   ; Detect Z80 (instead of 8080 / 8085)
+;
+; Derived from the monitor's utility.z80.
+                public conwch   ; Write character to console
+                public conrch   ; Read character from the console
+                public const    ; Fetch console input status
+                public cwnwln   ; Write new line characters to console
+                public conwms   ; Print "$" terminated string to the console
+                public conwmn   ; Print message <n> in a list
+                public skpspc   ; Step hl past spaces
+                public toupca   ; Convert character in A to upper case
+                public toloca   ; Convert character in A to lower case
+                public cwvich   ; Print only visible 7-bit characters
+                public cwpspc   ; Print a space
+                public mtwdli   ; Match word in a string against list of options
+                public cwphnb   ; Print least-significant nibble in A in hexadecimal
+                public cwphby   ; Print A in hexadecimal
+                public cwphwd   ; Print HL in hexadecimal
+                public cwpdwd   ; Print HL in decimal. Leading zeros are suppressed
+                public cwpdby   ; Print A in decimal. Leading zeros are suppressed
+                public cwpdwd   ; Print HL in decimal. Leading zeros are suppressed
+                public cwpdlo   ; Print DEHL in decimal. Leading zeros are suppressed
+                public rdhxwd   ; Read a 16-bit hexadecimal number from a string
+                public rdduwd   ; Read a 16-bit unsigned decimal number from a string
+                public rddulo   ; Read a 32-bit unsigned decimal number from a string
+;
+;
+;
+; ********
+; * Code *
+; ********
+;
+;
+                cseg                    ; Code segment
+;
+; Call BDOS with IX and IY registers saved.
+cbdos           push ix
+                push iy
+                call BDOS
+                pop iy
+                pop ix
+                ret
+;
+;
+; Call BIOS with some registers saved.
+; Call with:
+; BC - operand (depends on BIOS function called)
+; DE - operand (depends on BIOS function called)
+; HL - offset for the routine (e.g. BIOS_CONIN)
+cbios           push ix
+                push iy
+                call cbios_raw
+                pop iy
+                pop ix
+                ret
+;
+;
+; Call BIOS, allowing for its unknown base address.
+; Call with:
+; BC - operand (depends on BIOS function called)
+; DE - operand (depends on BIOS function called)
+; HL - offset for the routine (e.g. BIOS_CONIN)
+cbios_raw       push de
+                ex de, hl
+                ld hl, (1)              ; Find WBOOT (warm boot) address
+                add hl, de              ; Add offset
+                pop de
+                jp (hl)                 ; Jump to BIOS then return to caller
+;
+;
+; Unrecoverable application error! Halt the application to prevent further
+; damage. Call this routine in case of a serious error.
+; Note: call is preferred (rather than jump) as it preserves the PC.
+panic           ld hl, panic_1_msg      ; "*** Software panic at PC="
+                call conwms             ; Print $-terminated string to console
+                pop hl                  ; Fetch PC
+                call cwphwd             ; Print HL in hexadecimal
+                ld hl, panic_2_msg      ; " ***"
+                call conwms             ; Print $-terminated string to console
+                jp 0                    ; Warm boot
+;
+;
+; Determine whether or not we are running on a ZARC system. Returns with carry
+; set if ZARC BIOS not found.
+zrcdet          push de
+                push hl
+                ld de, BIOS_ID          ; ID offset into BIOS jump table
+                ld hl, (1)              ; Find WBOOT (warm boot) address
+                add hl, de              ; Add offset
+                ld a, (hl)
+                cp "Z"
+                jp nz, zd_not_zarc
+                inc hl
+                ld a, (hl)
+                cp "R"
+                jp nz, zd_not_zarc
+                inc hl
+                ld a, (hl)
+                cp "C"
+                jp nz, zd_not_zarc
+                and a               ; Flag success
+;
+zd_exit         pop hl
+                pop de
+                ret
+;
+; ZARC BIOS not found.
+zd_not_zarc     scf
+                jr zd_exit
+;
+;
+; Determine whether we are running on a Z80 system. Returns with carry set if
+; the processor appears to be something else (8080 or 8085). Take care when
+; modifying this code, as it has to support all CPU types.
+z80det          push bc
+;
+                xor a
+                and a
+; From https://ee.sharif.edu/~sakhtar3/articles/8080-8085/8085%20Instruction%20Set.pdf
+; ANA r ... The CY flag is cleared and the AC is set (8085). The CY is cleared
+; and the AC is set to the OR'ing of bits 3 of the operands (8080).
+; The Z80 calls AC "half-carry" (H) and behaves like an 8085 in this regard.
+                push af
+                pop bc
+                ld a, c                 ; Flags
+                and 0x10                ; Isolate AC / half-carry
+                jp z, z8d_not_z80       ; Jump if 8080
+; 8085 or Z80. Using the method described at:
+; https://heavydeck.net/post/i8085-rl35902-z80-run-time-detection/
+; ... exploit the difference on byte 0x20 which on the i8085 translates to RIM
+; (Read Interrupt Mask) opcode and on the z80 ... is a two-byte relative jump
+; JR NZ n.
+                xor a
+                inc a                   ; Reset Z flag
+; The following (0x20, 0x04) is interpreted as RIM, INR B on an 8085.
+                jr nz, z8d_z80
+                nop                     ; 1
+; This must be an 8085.
+                jp z8d_not_z80          ; 3
+;
+; There must be four bytes between the jr nz / RIM instruction and this point
+; for this to work.
+z8d_z80         and a                   ; Flag success
+z8d_exit        pop bc
+                ret
+;
+; Z80 not found.
+z8d_not_z80     scf
+                jp z8d_exit             ; No "jr" on 8080 / 8085!
+;
+;
+; Write character to console. This "looks like" the monitor's routine of the
+; same name, thereby easing the use of monitor routines copied here. 
+; Call with:
+; A - character to write.
+conwch          push bc
+                push de
+                push hl
+;
+; BDOS version.
+;                ld e, a
+;                ld c, BDOS_CON_OUT      ; Console output
+;                call cbdos
+;
+; BIOS version.
+                ld c, a
+                ld hl, BIOS_CONOUT      ; Console output
+                call cbios              ; Call BIOS
+;
+                pop hl
+                pop de
+                pop bc
+                ret
+;
+;
+; Read character from the console. This "looks like" the monitor's routine of
+; the same name, thereby easing the use of monitor routines copied here. BIOS
+; routines are used for console I/O as this avoids unwanted echoing of input.
+; This means that the BDOS tab expansion and XON / XOFF features are not
+; available.
+; Returns with:
+; A - character.
+conrch          push bc
+                push de
+                push hl
+;
+; BDOS version.
+;                ld c, BDOS_CON_IN       ; Console input
+;                call cbdos
+;
+; BIOS version.
+                ld hl, BIOS_CONIN       ; Console input
+                call cbios              ; Call BIOS
+;
+                pop hl
+                pop de
+                pop bc
+                ret
+;
+;
+; Write new line characters to console.
+cwnwln          ld a, ascii_cr
+                call conwch
+                ld a, ascii_lf
+                jp conwch
+;
+;
+; Fetch the console input status. Returns with:
+; A - zero if no character is ready, 0xff if one is.
+const           push bc
+                push de
+                push hl
+;
+; BDOS version.
+;                ld c, BDOS_GET_CON_STAT     ; Console status
+;                call cbdos
+;
+                ld hl, BIOS_CONST       ; Console status
+                call cbios
+;
+                pop hl
+                pop de
+                pop bc
+                ret
+;
+;
+; Print "$" terminated string to the console. Note, this is different to the
+; monitor version in that it uses the "$" CP/M terminator instead of a null. It
+; also does not return with the address of the terminator in HL.
+; Call with:
+; HL - pointer to start of message
+conwms          push bc
+                push de
+;
+; BDOS version.
+;                ex de, hl
+;                ld c, BDOS_PRINT_STRING ; Print String
+;                call cbdos
+;
+cwms_loop       ld a, (hl)
+                cp "$"
+                jr z, cwms_exit
+                call conwch             ; Write character to console
+                inc hl
+                jr cwms_loop
+;
+cwms_exit       pop de
+                pop bc
+                ret
+;
+;
+; Step HL past any spaces.
+; Returns with:
+; HL - points to the first non-space character
+skpspc          ld a, ' '
+sks_loop        cp (hl)
+                ret nz                  ; Return if non-space found
+                inc hl
+                jr sks_loop
+;
+;
+; Convert character in A to upper case.
+toupca          cp 'a'
+                ret c                   ; Nothing to do if < 'a'
+                cp 'z' + 1
+                ret nc                  ; Nothing to do if > 'z'
+                sub 'a' - 'A'
+                ret
+;
+;
+; Convert character in A to lower case.
+toloca          cp 'A'
+                ret c                   ; Nothing to do if < 'A'
+                cp 'Z' + 1
+                ret nc                  ; Nothing to do if > 'Z'
+                add 'a' - 'A'
+                ret
+;
+;
+; Print a space.
+cwpspc          ld a, ' '
+                jp conwch
+;
+;
+; Print only visible 7-bit characters. Non-visible ones are substituted by the
+; character in C. If C is 0xff, non-visible characters are displayed in
+; hexadecimal. Call with:
+; A - character to display
+; C - substution character. If C is zero, non-visible characters are displayed
+; in hexadecimal.
+; Note that the hexadecimal feature is not included in the monitor version of
+; this function. 
+cwvich          push bc
+                ld b, a                 ; Save character
+                cp ' '
+                jr c, prv_do_subs       ; < ' ' is a control character
+                cp ascii_del
+                jr nc, prv_do_subs      ; >= DEL isn't visible either
+; Character is printable.
+prv_dis_exit    call conwch             ; Print visible character
+prv_exit        pop bc
+                ret
+;
+; Use substitution character
+prv_do_subs     ld a, c
+                and a
+                jr nz, prv_dis_exit
+;
+; Display in hexadecimal.
+                ld a, "{"
+                call conwch             ; Write character to console
+                ld a, b
+                call cwphby             ; Print A in hexadecimal
+                ld a, "}"
+                jr prv_dis_exit         ; Print and exit
+;
+;
+; Print least-significant nibble in A in hexadecimal.
+cwphnb          and 0x0f
+                add '0'
+                cp '9' + 1
+                jr c, pn_numeric        ; Jump if <= '9'
+                add ('A' - '9') - 1     ; Convert to alpha
+pn_numeric      jp conwch
+;
+;
+; Print A in hexadecimal.
+cwphby          push af
+                rrca
+                rrca
+                rrca
+                rrca
+                call cwphnb             ; Print MSN
+                pop af
+                jp cwphnb               ; Print LSN
+;
+;
+; Print HL in hexadecimal. Leading zeros are suppressed.
+cwphwd          ld a,h
+                call cwphby             ; Print MSB
+                ld a,l
+                jp cwphby               ; Print LSB
+;
+;
+; Print A as a decimal unsigned number. Leading zeros are suppressed.
+cwpdby          push bc
+                push de
+                push hl
+                ld e, 0                 ; Leading zeros flag
+                ld h, 0                 ; Move A to HL
+                ld l, a
+                jr pdw_byte             ; Use word code, skipping MS digits
+;
+;
+; Print HL as a decimal unsigned number. Leading zeros are suppressed.
+; Derived from code at http://map.grauw.nl/sources/external/z80bits.html
+; HL is saved because this allows common exit code with cwpdby.
+cwpdwd          push bc
+                push de
+                push hl
+                ld e, 0                 ; Leading zeros flag
+; Entry point from cwpdlo (32-bit version).
+                ld bc, -10000           ; 10^4
+                call pdw_digit
+pdl_entry       ld bc, -1000            ; 10^3
+                call pdw_digit
+; cwpdby enters here to display a single byte.
+pdw_byte        ld bc, -100             ; 10^2
+                call pdw_digit
+                ld c, -10               ; 10^1
+                call pdw_digit
+                ld e, 0xff              ; Always print the units digit
+                ld c, b
+                call pdw_digit
+                pop hl
+                pop de
+                pop bc
+                ret
+;
+pdw_digit       ld a, '0' - 1
+pdw_digloop     inc a
+                add hl, bc
+                jr c, pdw_digloop
+                sbc hl, bc
+; A - ASCII digit
+                cp '0'
+                jr nz, pdw_prdig        ; Non-zero digit, so print it
+                inc e
+                jr z, pdw_prdig         ; Print anyway if e was 0xff
+                dec e                   ; Restore flag
+                ret
+pdw_prdig       ld e, 0xff              ; Flag non-zero found
+                call conwch             ; Write character to console
+                ret
+;
+;
+; Print DEHL as a decimal unsigned number. Leading zeros are suppressed.
+cwpdlo          push bc
+                ld b, h
+                ld c, l
+; DEBC - value to display. Store this.
+                ld hl, pdl_reg
+                ld (hl), c
+                inc hl
+                ld (hl), b
+                inc hl
+                ld (hl), e
+                inc hl
+                ld (hl), d
+; Reset leading zeros flag
+                ld a, 0
+                ld (pdl_lz_flag), a
+; Digits
+                ld de, 0xca00           ; 10^9
+                ld bc, 0x3b9a
+                call pdl_digit
+                ld de, 0xe100           ; 10^8
+                ld bc, 0x05f5
+                call pdl_digit
+                ld de, 0x9680           ; 10^7
+                ld bc, 0x0098
+                call pdl_digit
+                ld de, 0x4240           ; 10^6
+                ld bc, 0x000f
+                call pdl_digit
+                ld de, 0x86a0           ; 10^5
+                ld bc, 0x0001
+                call pdl_digit
+                ld de, 0x2710           ; 10^4
+                ld bc, 0x0000
+                call pdl_digit
+; Use 16-bit version to print the remainder of the digits.
+                push de
+                push hl
+; Fetch value.
+                ld hl, pdl_reg
+                ld e, (hl)
+                inc hl
+                ld d, (hl)
+                ex de, hl
+                ld a, (pdl_lz_flag)
+                ld e, a                 ; Set leading zeros flag
+; E - leading zeros flag
+; HL - value to print
+                jp pdl_entry
+;
+; BCDE - significance of digit.
+pdl_digit       ld hl, pdl_ascii
+                ld (hl), '0' - 1
+pdl_digloop     inc (hl)                ; Update ASCII digit
+; Trial subtraction.
+                push hl                 ; Save pointer to pdl_ascii
+                ld hl, pdl_reg
+                ld a, (hl)
+                sub e
+                ld (hl), a
+                inc hl
+                ld a, (hl)
+                sbc d
+                ld (hl), a
+                inc hl
+                ld a, (hl)
+                sbc c
+                ld (hl), a
+                inc hl
+                ld a, (hl)
+                sbc b
+                ld (hl), a
+                pop hl                  ; Restore pointer to pdl_ascii
+                jr nc, pdl_digloop      ; Keep subtracting until carry
+; Reverse the last subtraction to restore the value before carry.
+                ld hl, pdl_reg
+                ld a, (hl)
+                add e
+                ld (hl), a
+                inc hl
+                ld a, (hl)
+                adc d
+                ld (hl), a
+                inc hl
+                ld a, (hl)
+                adc c
+                ld (hl), a
+                inc hl
+                ld a, (hl)
+                adc b
+                ld (hl), a
+;
+                ld hl, pdl_lz_flag      ; Point to leading zeros flag
+                ld a, (pdl_ascii)       ; Fetch ASCII digit
+                ld c, a
+                cp '0'
+                jr nz, pdl_prdig        ; Non-zero digit, so print it
+                ld a, (hl)
+                and a
+                jr nz, pdl_prdig        ; Print anyway if flag was set
+; Skip leading zeros.
+                ret
+;
+pdl_prdig       ld (hl), 0xff           ; Flag non-zero found
+                ld a, c
+                call conwch
+                ret
+;
+;
+; Print message <n> in a null terminated list. Nothing is printed if the
+; terminator is encountered before message <n> is found.
+; Call with:
+; A - number of message to print (first is zero)
+; C - message separator
+; HL - pointer to start of message
+; Returns with:
+; HL - points to the separator at the end of the message printed, or the
+; terminator (zero).
+; Carry flag is set if the message was not found (terminator encountered).
+conwmn          push bc
+                ld b, a                 ; Message number
+pmn_msg_lp      ld a, b
+                and a
+                jr z, pmn_found         ; Jump if this is the one
+; Skip to next message.
+pmn_sk_lp       ld a, (hl)
+                and a
+                jr z, pmn_error         ; Error if terminator
+                inc hl
+                cp c
+                jr nz, pmn_sk_lp        ; Keep going if not separator or terminator
+; Separator found
+                dec b
+                jr pmn_msg_lp
+; HL now points to the requied message. Print it until the separator or
+; terminator is encountered.
+pmn_found       ld a, (hl)
+                and a
+                jr z, pmn_done          ; Exit if terminator found
+                cp c
+                jr z, pmn_done          ; Exit if separator found
+                call conwch             ; Write character to console
+                inc hl                  ; Increment character pointer
+                jr pmn_found            ; Transmit next character
+; Successful completion.
+pmn_done        pop bc
+                and a
+                ret                     ; Return with carry reset (no error)
+; Terminator encountered before the message was found
+pmn_error       pop bc                  ; Restore registers
+                scf
+                ret                     ; Return with carry set (error)
+;
+;
+; Match word in a string against list of options. This is intended for matching
+; a command string against a list of available commands, but it may have other
+; uses. Strings to match may optionally be abbreviated by a ".", in which case
+; the first option that matches up to this is returned. This is similar to the
+; BBC Microcomputer method of abbreviating commands.
+; Call with:
+; A - Options (MTWDLI_xxx, e.g. MTWDLI_ABBREV). See cpm_utility.i
+; HL - points to start of string. Matching stops at a space or end of string.
+; DE - points to null terminated command list. Options are separated by spaces.
+; Returns with:
+; A - index number of word in list that matched, or zero if no match.
+; HL - points to space or terminator in string.
+mtwdli          push bc                 ; Preserve BC
+                push hl                 ; Save start of word in string
+                ld c, a                 ; Save options
+                ld b, 1                 ; Word count
+mw_char_loop    res MTWDLI_TERM_BIT, c  ; Flag no terminator found (yet)
+; End of word or end of string?
+; C - bit 0 is abbreviation enable, bit 1 is terminator found.
+                ld a, (hl)              ; Fetch character from string
+                cp ' '
+                jr z, mw_sword_end
+                and a
+                jr z, mw_sword_end
+; Check for abbreviation character if enabled.
+                bit MTWDLI_ABBREV_BIT, c    ; Abbreviations enabled?
+                jr z, mw_str_tm_dn
+                cp '.'
+                jr z, mw_dot            ; Stop matching if "." found.
+                jr mw_str_tm_dn
+; Flag end of word or end of string found
+mw_sword_end    set MTWDLI_TERM_BIT, c  ; Flag this for later
+; Repeat test for word list.
+mw_str_tm_dn    ld a, (de)              ; Fetch character from list
+                cp ' '
+                jr z, mw_end_lwd        ; End of word in list
+                and a
+                jr z, mw_end_lwd        ; End of word in list
+                bit MTWDLI_ICASE_BIT, c ; Force lower case?
+                call nz, toloca         ; Optionally convert to lower case
+; There is at least one more character to match in the string and the current word
+; in the list.
+                push bc                 ; Save counter
+                ld b, a
+                ld a, (hl)
+                bit MTWDLI_ICASE_BIT, c ; Force lower case?
+                call nz, toloca         ; Optionally convert to lower case
+                cp b
+                pop bc
+                jr nz, mw_char_mis
+; Characters matched!
+                inc hl
+                inc de
+                jr mw_char_loop
+; Mismatch. Try the next word in the list, if there is one.
+mw_char_mis     pop hl                  ; Reset string pointer
+                push hl
+                inc b                   ; Keep track of word count
+; Skip forward until the next item in the list, or the end of the list
+mw_next_lwd     inc de
+                ld a, (de)
+                and a
+                jr z, mw_no_match       ; Exit if end of word list encountered
+                cp ' '
+                jr nz, mw_next_lwd
+                inc de                  ; Point to first character of next word
+                jr mw_char_loop         ; Try this one
+;
+; End of word found in list.
+mw_end_lwd      bit MTWDLI_TERM_BIT, c  ; Terminator found?
+                jr nz, mw_end_both
+; End of word found in list, but not in the string.
+                dec de                  ; Allow for increment later
+                jr mw_char_mis          ; Try next word in list
+;
+; End of the word list reached and no match.
+mw_no_match     pop hl                  ; Fix stack
+                xor a                   ; Flag no match
+                pop bc                  ; Restore BC
+                ret
+;
+; End of words in string and list found simultanously. We have a match!                
+mw_end_both     inc sp                  ; Fix stack
+                inc sp
+                ld a, b                 ; Fetch word index number
+                pop bc                  ; Restore BC
+                ret
+;
+; "." found in string, so accept the current word as the match. We need to skip the
+; remainder of the string.
+mw_dot          inc hl                  ; Step past dot
+                jr mw_end_both
+;
+;
+; Read a 16-bit hexadecimal number from a string. Case is ignored for alphabetic
+; characters.
+; Call with:
+; HL - points to the first character of the number.
+; Returns with:
+; HL - points to first character after number.
+; DE - required number
+; C flag - set on error (too many or zero valid digits)
+rdhxwd          push bc
+                ld de, 0                ; Initial result
+                ld c, 0                 ; Count characters read
+ghn_char_lp     ld a, (hl)
+                call toupca             ; Convert to upper case.
+                cp 'A'
+                jr c, ghn_not_alpha
+                cp 'F' + 1
+                jr nc, ghn_not_alpha
+; Character is alphabetic.
+                sub 'A' - 10
+                jr ghn_got_dig
+; Character is not alphabetic.
+ghn_not_alpha   sub '0'
+                jr c, ghn_done          ; End of number if < '0'
+                cp 10
+                jr nc, ghn_done         ; End of number if not a digit
+; Value of digit is in LSN of A. Make space for it in the result.
+ghn_got_dig     ex de, hl
+                add hl, hl              ; Shift left
+                jr c, ghn_error_ex      ; No bits should fall off the end
+                add hl, hl
+                jr c, ghn_error_ex      ; No bits should fall off the end
+                add hl, hl
+                jr c, ghn_error_ex      ; No bits should fall off the end
+                add hl, hl
+                jr c, ghn_error_ex      ; No bits should fall off the end
+                ex de, hl
+; Insert new digit
+                or e
+                ld e, a
+; Count digits and check limit.
+                inc hl                  ; Point to next character
+                inc c                   ; One more digit
+                jr nz, ghn_char_lp      ; Keep going unless over limit
+                jr ghn_error
+; Too many or zero digits or overflow.
+ghn_error_ex    ex de, hl
+ghn_error       pop bc
+                scf
+                ret                     ; Return with carry flag set (error)
+; Non-hex character found.
+ghn_done        ld a, c
+                and a
+                jr z, ghn_error         ; Error if no digits read
+; Normal completion.
+                pop bc
+                ret                     ; Return with carry flag reset (OK)
+;
+;
+; Read a 16-bit unsigned decimal number from a string.
+; Call with:
+; HL - points to the first character of the number.
+; Returns with:
+; HL - points to first character after number.
+; DE - required number
+; C flag - set on error (too many or zero valid digits)
+rdduwd          push bc
+                ld de, 0                ; Initial result
+                ld c, 0                 ; Count characters read
+gdn_char_lp     ld a, (hl)
+                sub '0'
+                jr c, gdn_done          ; End of number if < '0'
+                cp 10
+                jr nc, gdn_done         ; End of number if not a digit
+; Value of digit is in LSN of A. Make space for it in the result.
+                push bc                 ; Save counter
+                ex de, hl
+                ld b, h                 ; Save result x 1
+                ld c, l
+                add hl, hl              ; Find result x 2
+                jr c, gdn_error_pop     ; No bits should fall off the end
+                add hl, hl              ; Find result x 4
+                jr c, gdn_error_pop
+                add hl, bc              ; Find result x 5
+                jr c, gdn_error_pop                
+                add hl, hl              ; Find result x 10
+                jr c, gdn_error_pop
+; Insert new digit
+                ld b, 0
+                ld c, a
+                add hl, bc              ; Add digit
+                jr c, gdn_error_pop
+                ex de, hl
+                pop bc                  ; Restore counter
+; Count digits and check limit.
+                inc hl                  ; Point to next character
+                inc c                   ; One more digit
+                jr nz, gdn_char_lp      ; Keep going unless 256 digits (unlikely)
+                jr gdn_error
+; Too many or zero digits or overflow.
+gdn_error_pop   ex de, hl               ; Move pointer back to HL
+                pop bc                  ; Clean up stack
+gdn_error       pop bc                  ; Restore original BC
+                scf
+                ret                     ; Return with carry flag set (error)
+; Non-digit character found.
+gdn_done        ld a, c
+                and a
+                jr z, gdn_error         ; Error if no digits read
+; Normal completion.
+                pop bc
+                ret                     ; Return with carry flag reset (OK)
+;
+;
+; Read a 32-bit unsigned decimal number from a string.
+; Call with:
+; HL - points to the first character of the number.
+; Returns with:
+; HL - points to first character after number.
+; BCDE - required number
+; C flag - set on error (too many or zero valid digits)
+rddulo          ld bc, 0                ; Initial result
+                ld d, b
+                ld e, c
+                ld a, 0                 ; Count characters read
+gldn_char_lp    push af                 ; Save counter
+                ld a, (hl)
+                sub '0'
+                jr c, gldn_done         ; End of number if < '0'
+                cp 10
+                jr nc, gldn_done        ; End of number if not a digit
+; Value of digit is in LSN of A. Make space for it in the result.
+                push hl                 ; Save pointer
+                push af                 ; Save digit
+; Save result x 1 
+                ld hl, gldn_x1
+                ld (hl), e
+                inc hl
+                ld (hl), d
+                inc hl
+                ld (hl), c
+                inc hl
+                ld (hl), b
+; Find result x 2
+                sla e
+                rl d
+                rl c
+                rl b
+                jr c, gldn_error_pop    ; No bits should fall off the end
+; Find result x 4
+                sla e
+                rl d
+                rl c
+                rl b
+                jr c, gldn_error_pop    ; No bits should fall off the end
+; Add "x 1" to obtain result x 5
+                ld hl, gldn_x1
+                ld a, e
+                add (hl)
+                ld e, a
+                inc hl
+                ld a, d
+                adc (hl)
+                ld d, a
+                inc hl
+                ld a, c
+                adc (hl)
+                ld c, a
+                inc hl
+                ld a, b
+                adc (hl)
+                ld b, a
+                jr c, gldn_error_pop    ; No bits should fall off the end
+; Find result x 10
+                sla e
+                rl d
+                rl c
+                rl b
+                jr c, gldn_error_pop    ; No bits should fall off the end
+                pop af                  ; Restore digit
+; Insert new digit
+                ld l, 0                 ; Cache zero
+                add e
+                ld e, a
+                ld a, l
+                adc d
+                ld d, a
+                ld a, l
+                adc c
+                ld c, a
+                ld a, l
+                adc b
+                ld b, a
+                jr c, gldn_error_pop    ; No bits should fall off the end
+; BCDE - required number
+                pop hl                  ; Restore pointer
+; Count digits and check limit.
+                inc hl                  ; Point to next character
+                pop af                  ; Restore counter
+                inc a                   ; One more digit
+                jr nz, gldn_char_lp     ; Keep going unless 256 digits (unlikely)
+                jr gldn_error
+; Too many or zero digits or overflow.
+gldn_error_pop  pop hl                  ; Restore pointer
+                pop af                  ; Discard counter
+gldn_error      scf
+                ret                     ; Return with carry flag set (error)
+; Non-digit character found.
+gldn_done       pop af                  ; Restore counter
+                and a
+                jr z, gldn_error        ; Error if no digits read
+; Normal completion.
+                ret                     ; Return with carry flag reset (OK)
+;
+;
+;
+; *************
+; * Constants *
+; *************
+;
+;
+panic_1_msg     byte 0x0d, 0x0a, "*** Software panic at PC=", "$"
+panic_2_msg     byte " ***", 0x0d, 0x0a, "$"
+curv_seq_msg    byte 0x1b, "[?25$"
+ccls_seq_msg    byte 0x1b, "[J$"
+;
+;
+;
+; *************
+; * Variables *
+; *************
+;
+; Note: linker "-c" option is used, so no data is initialised here.
+                dseg                ; Data segment
+;
+gldn_x1         defs 4              ; Read long decimal temporary store
+; cwpdlo (32-bit decimal print) variables
+pdl_reg         defs 4              ; Working store
+pdl_lz_flag     defs 1              ; Leading zero flag
+pdl_ascii       defs 1              ; ASCII digit
+;
+                end
+

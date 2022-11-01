@@ -1,0 +1,1981 @@
+   1:				; *******************************************************
+   2:				; * Serial File Transfer for ZARC Z80 Computer (STran)  *
+   3:				; * Version: V1.0                                       *
+   4:				; * Merlin Skinner, 20/3/2021                           *
+   5:				; *******************************************************
+   6:				;
+   7:				; This program is intended to run under CP/M 2.2. It communicates with a Python
+   8:				; program running on a Linux (or potentially Windows) system to transfer files
+   9:				; between the two environments. This code (the CP/M) end functions as a server,
+  10:				; responding to commands from the Linux end.
+  11:				;
+  12:				; There are other programs that perform similar tasks, such as kermit.
+  13:				; Unfortunately, these turn out to be somewhat cumbersome to use, with several
+  14:				; commands required for each file transferred.
+  15:				;
+  16:				; Unlike at least some of the alternative programs, this is capable of
+  17:				; transferring data on either the console or another serial line. BIOS functions
+  18:				; are used for serial I/O, which should make this portable.
+  19:				;
+  20:				; A break (^C) character may be used to force return to CP/M. Note that this
+  21:				; will not be recognised immediately when using separate serial lines for
+  22:				; console and data. This is because CP/M does not provide a method for detecting
+  23:				; whether or not a character has been received for anything but the console
+  24:				; port. Hence the system will likely be stuck waiting for a character to arrive
+  25:				; on the data (READER) port before a break check can be made.
+  26:				;
+  27:				; See STran_Manual.odt for more information.
+  28:				;
+  29:				                title Serial File Transfer for ZARC Z80 Computer (STran)
+  30:				;
+  31:				;
+  32:				;
+  33:				; ************
+  34:				; * Includes *
+  35:				; ************
+  36:				;
+  37:				;
+  38:				                include "macros.i"
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//macros.i ****
+   1:				; ***********************************
+   2:				; * ZARC Macro Definitions          *
+   3:				; * Written by: Merlin Skinner      *
+   4:				; * Date Started: 30/7/2020         *
+   5:				; ***********************************
+   6:				;
+   7:				;
+   8:				;
+   9:				; **********
+  10:				; * Macros *
+  11:				; **********
+  12:				;
+  13:				;
+  14:				; Initialise enumeration.
+  15:				; The absolute segment is used so the offsets are not marked as relocatable. This
+  16:				; avoids "Not relocatable" errors.
+  17:				ENUM_START      macro
+  18:				                .aseg
+  19:				enum_counter    set 0
+  20:				                endm
+  21:				;
+  22:				; Invoke for each item.
+  23:				ENUM            macro x
+  24:				x               equ enum_counter
+  25:				enum_counter    set enum_counter + 1
+  26:				                endm
+  27:				;
+  28:				ENUM_END        macro x
+  29:				x               set enum_counter    ; Set label to count of items
+  30:				                .cseg
+  31:				                endm
+  32:				;
+  33:				;
+  34:				; Initialise a structure. This is used to generate offsets for data structures.
+  35:				; The absolute segment is used so the offsets are not marked as relocatable. This
+  36:				; avoids "Not relocatable" errors.
+  37:				STRUCT          macro
+  38:				                .aseg
+  39:				str_offset      set 0
+  40:				                endm
+  41:				;
+  42:				; Add a byte entry.
+  43:				STR_BYTE        macro x
+  44:				x               equ str_offset
+  45:				str_offset      set str_offset + 1
+  46:				                endm
+  47:				;
+  48:				; Add a word (16-bit) entry.
+  49:				STR_WORD        macro x
+  50:				x               equ str_offset
+  51:				str_offset      set str_offset + 2
+  52:				                endm
+  53:				;
+  54:				; Add a 3 byte (24-bit) entry.
+  55:				STR_24BIT       macro x
+  56:				x               equ str_offset
+  57:				str_offset      set str_offset + 3
+  58:				                endm
+  59:				;
+  60:				; Add a long (32-bit) entry.
+  61:				STR_LONG        macro x
+  62:				x               equ str_offset
+  63:				str_offset      set str_offset + 4
+  64:				                endm
+  65:				;
+  66:				; Add an arbitrary length entry.
+  67:				STR_BLOCK       macro x, size   ; <name>, <size>
+  68:				x               equ str_offset
+  69:				str_offset      set str_offset + size
+  70:				                endm
+  71:				;
+  72:				; End of structure (used to set size)
+  73:				STR_END         macro x
+  74:				x               equ str_offset
+  75:				                .cseg
+  76:				                endm
+  77:				;
+  78:				;
+  79:				; Calculate offsets into jump tables.
+  80:				; The absolute segment is used so the offsets are not marked as relocatable. This
+  81:				; avoids "Not relocatable" errors.
+  82:				JPTBL_START     macro x
+  83:				                .aseg
+  84:				jptbl_addr      set x               ; Set start address
+  85:				                endm
+  86:				;
+  87:				; Invoke for each item.
+  88:				JPTBL_ENTRY     macro x
+  89:				x               equ jptbl_addr
+  90:				jptbl_addr      set jptbl_addr + 3
+  91:				                endm
+  92:				;
+  93:				; Invoke for a data block in the jump table
+  94:				JPTBL_BLOCK     macro x, size   ; <name>, <size>
+  95:				x               equ jptbl_addr
+  96:				jptbl_addr      set jptbl_addr + size
+  97:				                endm
+  98:				;
+  99:				JPTBL_END       macro x
+ 100:				x               set jptbl_addr      ; Set label to next address
+ 101:				                .cseg
+ 102:				                endm
+ 103:				;
+ 104:				;
+ 105:				; Define bits and masks. This is inspired by the Commodore Amiga BITDEF mechanism.
+ 106:				; Given:
+ 107:				; BITDEF I2C_CSR_STOP, 2
+ 108:				; Yields:
+ 109:				; I2C_CSR_STOP_BIT  EQU 2       ; Bit number
+ 110:				; I2C_CSR_STOP_MASK EQU 1<<2    ; Bit mask
+ 111:				BITDEF          macro n, b      ; <Name>, <bit>
+ 112:				n`_BIT          equ b
+ 113:				n`_MASK         equ 1 << b
+ 114:				                endm
+ 115:				;
+ 116:				;
+ 117:				; Force alignment. This asserts an appropriate number of zero bytes to achieve
+ 118:				; the required alignment. Note that these macros cannot work for relocatable
+ 119:				; files.
+ 120:				; 16-bit
+ 121:				ALIGN_WORD      macro
+ 122:				                if $ and 1
+ 123:				                    byte 0
+ 124:				                endif
+ 125:				                endm
+ 126:				;
+ 127:				; 32-bit
+ 128:				ALIGN_LONG      macro
+ 129:				                ALIGN_WORD
+ 130:				                if $ and 2
+ 131:				                    byte 0, 0
+ 132:				                endif
+ 133:				                endm
+ 134:				
+**** stran.z80 ****
+  39:				                include "cpm.i"
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//cpm.i ****
+   1:				; *******************************************************
+   2:				; * ZARC Monitor CP/M Definitions                       *
+   3:				; * Written by: Merlin Skinner                          *
+   4:				; * Date Started: 26/5/2020                             *
+   5:				; *******************************************************
+   6:				;
+   7:				; Definitions related CP/M running under the monitor programme.
+   8:				;
+   9:				; Note that ld80 only considers the first six characters of labels significant.
+  10:				;
+  11:				; The following conditionals are intended to allow the same include file to be
+  12:				; used in the defining module and elsewhere as required. Some includes are used
+  13:				; for other applications than the monitor, such as the CP/M BIOS. In these cases,
+  14:				; the extern and public statements are not desirable.
+  15:				;
+  16:     -	0000'         	            ifdef monitor           ; Meaningful for monitor build only
+  28:				            endif
+  29:				;
+  30:				;
+  31:				;
+  32:				; ****************
+  33:				; * Memory Usage *
+  34:				; ****************
+  35:				;
+  36:				;
+  37:				; Note: memory banks are allocated by the monitor's initialisation code.
+  38:     -	0004'         	MMAP_CPM_PAGES      equ 4               ; Number of 16 kB pages
+  39:				;
+  40:				; The MS byte of INT_VEC_TABLE comes from the Z80 I register, and the LS byte
+  41:				; from the FPGA. The 0xe0 offset is chosen to allow the table to reside at the
+  42:				; top of memory (0xffe0 to 0xffff).
+  43:     -	FFE0'         	INT_VEC_TABLE   equ 0xffe0              ; Interrupt mode 2 vector table
+  44:				;
+  45:				; Copied from CP/M manual appendix A.
+  46:				; MSIZE             equ 64              ; CP/M version memory size in kilobytes
+  47:				;
+  48:				; "BIAS" is the address offset from 0x3400 for memory systems other than 16 K.
+  49:				;BIAS               equ (MSIZE-20) * 1024
+  50:     -	A200'         	CPM_BIAS            equ 0xa200          ; For CompuPro64K_CPM
+  51:     -	D600'         	CCP_START           equ 0x3400 + CPM_BIAS   ; Base of CCP
+  52:     -	DE06'         	BDOS_START          equ CCP_START + 0x0806  ; Base of BDOS
+  53:     -	EC00'         	BIOS_START          equ CCP_START + 0x1600  ; Base of BIOS
+  54:     -	002C'         	BIOS_CPM_START_SEC  equ 44              ; First CP/M sector of BIOS
+  55:     -	1000'         	BIOS_MAX_SIZE       equ 4096            ; 2 KB allocation for BIOS stored on MMC (ZARC)
+  56:     -	0100'         	TPA_START           equ 0x0100          ; Transient Programme Area
+  57:				;
+  58:				; Page zero.
+  59:     -	0003'         	IOBYTE              equ 0x0003          ; Intel I/O byte
+  60:     -	0004'         	CDISK               equ 0x0004          ; Current disk (0="A") & user no. (in high nibble)
+  61:     -	005C'         	FCB1                equ 0x005c          ; Default FCB 1
+  62:     -	006C'         	FCB2                equ 0x006c          ; Default FCB 2 (overwritten if FCB 1 is opened)
+  63:				; Default 128-byte disk buffer, also filled with the command line when a transient
+  64:				; is loaded under the CCP.
+  65:     -	0080'         	DEF_BUFFER          equ 0x80
+  66:     -	0080'         	DEF_BUFFER_SIZE     equ 0x80
+  67:				;
+  68:				; IOBYTE bit definitions.
+  69:     -	0003'         	IOB_CON_MASK        equ 0x03
+  70:     -	000C'         	IOB_RDR_MASK        equ 0x0c
+  71:     -	0030'         	IOB_PUN_MASK        equ 0x30
+  72:     -	00C0'         	IOB_LST_MASK        equ 0xc0
+  73:				;
+  74:				; BIOS option bits.
+  75:     -	        	BITDEF BIOS_OPT_DEBUG, 0                ; Enable BIOS debugging messages
+  76:     -	        	BITDEF BIOS_OPT_NOINTS, 1               ; Disables interrupts (use basic I/O mode)
+  77:     -	        	BITDEF BIOS_OPT_RAWCON, 2               ; Disables ADM-3A to VT-100 translation
+  78:				;
+  79:				;
+  80:				;
+  81:				; ***************
+  82:				; * Disk System *
+  83:				; ***************
+  84:				;
+  85:				;
+  86:     -	0080'         	CPM_SECTOR_SIZE     equ 128             ; CP/M disk sector size
+  87:     -	0010'         	NUM_DISKS           equ 16              ; Number of disk drives
+  88:     -	0010'         	NUM_DISKS_MAX       equ 16              ; Maximum number of disk drives
+  89:     -	0000'         	CPM_SYS_SIZE        equ 1024 * 1024     ; System area size (bytes)
+  90:     -	0000'         	CPM_DISK_SIZE       equ 1024 * 1024     ; Disk size (bytes)
+  91:     -	0008'         	FILENAME_SIZE       equ 8               ; Filename size
+  92:     -	0003'         	FILEEXT_SIZE        equ 3               ; File extension size
+  93:     -	001A'         	FILE_EOF            equ 0x1a            ; End of file (^Z)
+  94:     -	000F'         	MAX_USER            equ 15              ; Maximum user number
+  95:				;
+  96:     -	0001'         	BDOS_READ_SEQ_EOF   equ 1               ; Sequential read EOF error code
+  97:				;
+  98:				; Disk Parameter Header (DPH) structure.
+  99:     -	        	                STRUCT
+ 100:     -	        	                STR_WORD DPH_XLT        ; Address of sector translation table
+ 101:     -	        	                STR_WORD DPH_SCRATCH0   ; BDOS scratch area
+ 102:     -	        	                STR_WORD DPH_SCRATCH1
+ 103:     -	        	                STR_WORD DPH_SCRATCH2
+ 104:     -	        	                STR_WORD DPH_DIRBF      ; BDOS directory scratch area
+ 105:     -	        	                STR_WORD DPH_DPB        ; Pointer to DPB
+ 106:     -	        	                STR_WORD DPH_CSV        ; Pointer to the directory checksum vector
+ 107:     -	        	                STR_WORD DPH_ALV        ; Pointer to the allocation vector
+ 108:     -	        	                STR_END DPH_SIZE
+ 109:				;
+ 110:				;
+ 111:				; Disk Parameter Block (DPB) structure.
+ 112:     -	        	                STRUCT
+ 113:     -	        	                STR_WORD DPB_SPT        ; Number of 128-byte records per track
+ 114:     -	        	                STR_BYTE DPB_BSH        ; Block shift. 3 => 1k, 4 => 2k, 5 => 4k....
+ 115:     -	        	                STR_BYTE DPB_BLM        ; Block mask. 7 => 1k, 0Fh => 2k, 1Fh => 4k...
+ 116:     -	        	                STR_BYTE DPB_EXM        ; Extent mask
+ 117:     -	        	                STR_WORD DPB_DSM        ; Maximum block number
+ 118:     -	        	                STR_WORD DPB_DRM        ; Maximum directory entry number
+ 119:     -	        	                STR_BYTE DPB_AL0        ; Directory allocation bitmap
+ 120:     -	        	                STR_BYTE DPB_AL1
+ 121:     -	        	                STR_WORD DPB_CKS        ; Checksum vector size, 0 for a fixed disc
+ 122:     -	        	                STR_WORD DPB_OFF        ; Offset, number of reserved tracks
+ 123:     -	        	                STR_END DPB_SIZE
+ 124:				;
+ 125:				;
+ 126:				; Directory entry structure.
+ 127:     -	        	                STRUCT
+ 128:     -	        	                STR_BYTE DIRE_USER      ; User number. 0xe5 if entry unused
+ 129:     -	        	                STR_BLOCK DIRE_NAME, FILENAME_SIZE  ; Filename
+ 130:     -	        	                STR_BLOCK DIRE_TYP, FILEEXT_SIZE    ; File type
+ 131:     -	        	                STR_BYTE DIRE_EX        ; Extent counter, low byte (0-31)
+ 132:     -	        	                STR_BYTE DIRE_S1        ; Reserved, set to 0
+ 133:     -	        	                STR_BYTE DIRE_S2        ; Extent counter, high byte
+ 134:     -	        	                STR_BYTE DIRE_RC        ; Record count (low byte)
+ 135:     -	        	                STR_BLOCK DIRE_ALLOC, 16 ; Associated block numbers
+ 136:     -	        	                STR_END DIRE_SIZE
+ 137:				;
+ 138:				;
+ 139:				; File Control Block (FCB) structure.
+ 140:     -	        	                STRUCT
+ 141:     -	        	                STR_BYTE FCB_DRIVE      ; Drive. 0 for default, 1-16 for A-P
+ 142:     -	        	                STR_BLOCK FCB_NAME, FILENAME_SIZE   ; Filename in ASCII upper-case
+ 143:     -	        	                STR_BLOCK FCB_TYP, FILEEXT_SIZE     ; File type
+ 144:     -	        	                STR_BYTE FCB_EX         ; Current extent (*)
+ 145:     -	        	                STR_BYTE FCB_S1         ; Reserved (*)
+ 146:     -	        	                STR_BYTE FCB_S2         ; Reserved (*)
+ 147:     -	        	                STR_BYTE FCB_RC         ; Reserved (*)
+ 148:     -	        	                STR_BLOCK FCB_ALLOC, 16 ; Associated block numbers
+ 149:     -	        	                STR_BYTE FCB_CR         ; Current record within extent
+ 150:     -	        	                STR_BLOCK FCB_RECORD, 3 ; Record number (low byte first)
+ 151:     -	        	                STR_END FCB_SIZE
+ 152:				;
+ 153:				; * - Set this to 0 when opening a file and then leave it to CP/M. You can rewind
+ 154:				; a file by setting EX, RC, S2 and CR to 0.
+ 155:				;
+ 156:				;
+ 157:				;
+ 158:				; **************
+ 159:				; * BIOS Calls *
+ 160:				; **************
+ 161:				;
+ 162:				;
+ 163:				; Calculate offsets into jump tables. Entries here must match the jump table in
+ 164:				; the BIOS. The base address of the BIOS must be added to these addresses. A call
+ 165:				; routine might look like:
+ 166:				;
+ 167:				; Call BIOS, allowing for its unknown base address.
+ 168:				; Call with:
+ 169:				; BC - operand (depends on BIOS function called)
+ 170:				; DE - operand (depends on BIOS function called)
+ 171:				; HL - offset for the routine (e.g. BIOS_CONIN)
+ 172:				; call_bios       push de
+ 173:				;                 ex de, hl
+ 174:				;                 ld hl, (1)              ; Find WBOOT (warm boot) address
+ 175:				;                 add hl, de              ; Add offset
+ 176:				;                 pop de
+ 177:				;                 jp (hl)                 ; Jump to BIOS then return to caller
+ 178:				;
+ 179:				; The above method is a bit clumsy, but then application code shouldn't normally
+ 180:				; call the BIOS directly.
+ 181:				;
+ 182:     -	        	    JPTBL_START 0                   ; Generate offsets as BIOS_START isn't always known
+ 183:				;
+ 184:				; From monitor.z80
+ 185:				; Note - cold start routine omitted to align with use of address at (1) to find BIOS.
+ 186:     -	        	    JPTBL_ENTRY BIOS_WBOOT          ; Warm boot - reload command processor
+ 187:     -	        	    JPTBL_ENTRY BIOS_CONST          ; Console status
+ 188:     -	        	    JPTBL_ENTRY BIOS_CONIN          ; Console input
+ 189:     -	        	    JPTBL_ENTRY BIOS_CONOUT         ; Console output
+ 190:     -	        	    JPTBL_ENTRY BIOS_PLIST          ; Printer output
+ 191:     -	        	    JPTBL_ENTRY BIOS_PUNCH          ; Paper tape punch output
+ 192:     -	        	    JPTBL_ENTRY BIOS_READER         ; Paper tape reader input
+ 193:     -	        	    JPTBL_ENTRY BIOS_HOME           ; Move disc head to track 0
+ 194:     -	        	    JPTBL_ENTRY BIOS_SELDSK         ; Select disc drive
+ 195:     -	        	    JPTBL_ENTRY BIOS_SETTRK         ; Set track number
+ 196:     -	        	    JPTBL_ENTRY BIOS_SETSEC         ; Set sector number
+ 197:     -	        	    JPTBL_ENTRY BIOS_SETDMA         ; Set DMA address
+ 198:     -	        	    JPTBL_ENTRY BIOS_READ           ; Read a sector
+ 199:     -	        	    JPTBL_ENTRY BIOS_WRITE          ; Write a sector
+ 200:				; CP/M 2 functions.
+ 201:     -	        	    JPTBL_ENTRY BIOS_LISTST         ; Status of list device
+ 202:     -	        	    JPTBL_ENTRY BIOS_SECTRAN        ; Sector translation for skewing
+ 203:				; CP/M 3 functions (not supported yet). From https://www.seasip.info/Cpm/bios.html
+ 204:     -	        	    JPTBL_ENTRY BIOS_CONOST         ; Status of console output
+ 205:     -	        	    JPTBL_ENTRY BIOS_AUXIST         ; Status of auxiliary input
+ 206:     -	        	    JPTBL_ENTRY BIOS_AUXOST         ; Status of auxiliary output
+ 207:     -	        	    JPTBL_ENTRY BIOS_DEVTBL         ; Address of devices table
+ 208:     -	        	    JPTBL_ENTRY BIOS_DEVINI         ; Initialise a device
+ 209:     -	        	    JPTBL_ENTRY BIOS_DRVTBL         ; Address of discs table
+ 210:     -	        	    JPTBL_ENTRY BIOS_MULTIO         ; Read/write multiple sectors
+ 211:     -	        	    JPTBL_ENTRY BIOS_FLUSH          ; Flush host buffers
+ 212:     -	        	    JPTBL_ENTRY BIOS_MOVE           ; Move a block of memory
+ 213:     -	        	    JPTBL_ENTRY BIOS_TIME           ; Real time clock
+ 214:     -	        	    JPTBL_ENTRY BIOS_SELMEM         ; Select memory bank
+ 215:     -	        	    JPTBL_ENTRY BIOS_SETBNK         ; Select bank for DMA operation
+ 216:     -	        	    JPTBL_ENTRY BIOS_XMOVE          ; Preload banks for MOVE
+ 217:     -	        	    JPTBL_ENTRY BIOS_USERF          ; System-depedent functions
+ 218:     -	        	    JPTBL_ENTRY BIOS_RESERV1        ; Reserved
+ 219:     -	        	    JPTBL_ENTRY BIOS_RESERV2        ; Reserved
+ 220:				; ZARC-specific items.
+ 221:     -	        	    JPTBL_BLOCK BIOS_ID, 3          ; BIOS ID ("ZRC")
+ 222:     -	        	    JPTBL_BLOCK BIOS_VER, 3         ; Version (see below)
+ 223:     -	        	    JPTBL_ENTRY BIOS_STARTUP        ; CP/M startup entry point
+ 224:     -	        	    JPTBL_ENTRY BIOS_MON_CALL       ; Call monitor function
+ 225:     -	        	    JPTBL_ENTRY BIOS_SUPER          ; Set supervisor state
+ 226:     -	        	    JPTBL_ENTRY BIOS_INT_DISABLE    ; Disable interrupts and keep count
+ 227:     -	        	    JPTBL_ENTRY BIOS_INT_ENABLE     ; Enable interrupts if safe
+ 228:     -	        	    JPTBL_ENTRY BIOS_TIRD           ; Read time and date
+ 229:     -	        	    JPTBL_ENTRY BIOS_SET_TIMER      ; Set timer
+ 230:     -	        	    JPTBL_ENTRY BIOS_GET_TIMER      ; Get timer
+ 231:				;
+ 232:     -	        	    JPTBL_END BIOS_JPTBL_NEXT
+ 233:				;
+ 234:				; BIOS_VER is <reserved (zero)>, <major version>, <minor version>. The reserved
+ 235:				; byte may flag capabilities at some point.
+ 236:				;
+ 237:				;
+ 238:				;
+ 239:				; **************
+ 240:				; * BDOS Calls *
+ 241:				; **************
+ 242:				;
+ 243:				;
+ 244:				; From http://www.gaby.de/cpm/manuals/archive/cpm22htm/ch5.htm#Section_5.2
+ 245:				; In general, the function number is passed in register C with the information
+ 246:				; address in the double byte pair DE. Single byte values are returned in register
+ 247:				; A, with double byte values returned in HL. A zero value is returned when the
+ 248:				; function number is out of range. For reasons of compatibility, register A = L
+ 249:				; and register B = H upon return in all cases. Example call:
+ 250:				;   ld c, BDOS_CONIN    ; Read next character
+ 251:				;   call BDOS           ; Return character in A
+ 252:				;
+ 253:     -	0005'         	BDOS        equ 5               ; BDOS entry point
+ 254:				;
+ 255:     -	0000'         	BDOS_SYS_RST        equ 0       ; System Reset
+ 256:     -	0001'         	BDOS_CON_IN         equ 1       ; Console Input
+ 257:     -	0002'         	BDOS_CON_OUT        equ 2       ; Console Output
+ 258:     -	0003'         	BDOS_RDR_IN         equ 3       ; Reader Input
+ 259:     -	0004'         	BDOS_PUN_OUT        equ 4       ; Punch Output
+ 260:     -	0005'         	BDOS_LST_OUT        equ 5       ; List Output
+ 261:     -	0006'         	BDOS_DIRECT_CON_IO  equ 6       ; Direct Console I/O
+ 262:     -	0007'         	BDOS_GET_IO_BYTE    equ 7       ; Get I/O Byte
+ 263:     -	0008'         	BDOS_SET_IO_BYTE    equ 8       ; Set I/O Byte
+ 264:     -	0009'         	BDOS_PRINT_STRING   equ 9       ; Print String
+ 265:     -	000A'         	BDOS_READ_CON_BUFF  equ 10      ; Read Console Buffer
+ 266:     -	000B'         	BDOS_GET_CON_STAT   equ 11      ; Get Console Status
+ 267:     -	000C'         	BDOS_VERSION        equ 12      ; Return Version Number
+ 268:     -	000D'         	BDOS_RESET_DISK_SYS equ 13      ; Reset Disk System
+ 269:     -	000E'         	BDOS_SEL_DISK       equ 14      ; Select Disk
+ 270:     -	000F'         	BDOS_OPEN_FILE      equ 15      ; Open File
+ 271:     -	0010'         	BDOS_CLOSE_FILE     equ 16      ; Close File
+ 272:     -	0011'         	BDOS_SEARCH_FIRST   equ 17      ; Search for First
+ 273:     -	0012'         	BDOS_SEARCH_NEXT    equ 18      ; Search for Next
+ 274:     -	0013'         	BDOS_DELETE_FILE    equ 19      ; Delete File
+ 275:     -	0014'         	BDOS_READ_SEQ       equ 20      ; Read Sequential
+ 276:     -	0015'         	BDOS_WRITE_SEQ      equ 21      ; Write Sequential
+ 277:     -	0016'         	BDOS_MAKE_FILE      equ 22      ; Make File
+ 278:     -	0017'         	BDOS_RENAME_FILE    equ 23      ; Rename File
+ 279:     -	0018'         	BDOS_GET_LOGIN_VEC  equ 24      ; Return Login Vector
+ 280:     -	0019'         	BDOS_GET_CURR_DISK  equ 25      ; Return Current Disk
+ 281:     -	001A'         	BDOS_SET_DMA_ADDR   equ 26      ; Set DMA Address
+ 282:     -	001B'         	BDOS_GET_ALLOC_ADDR equ 27      ; Get Addr (Alloc)
+ 283:     -	001C'         	BDOS_WRITE_PROT     equ 28      ; Write Protect Disk
+ 284:     -	001D'         	BDOS_GET_RO_VEC     equ 29      ; Get R/O Vector
+ 285:     -	001E'         	BDOS_SET_FILE_ATTR  equ 30      ; Set File Attributes
+ 286:     -	001F'         	BDOS_GET_DPB        equ 31      ; Get Addr (Disk Parms)
+ 287:     -	0020'         	BDOS_GET_SET_USER   equ 32      ; Set/Get User Code
+ 288:     -	0021'         	BDOS_READ_RANDOM    equ 33      ; Read Random
+ 289:     -	0022'         	BDOS_WRITE_RANDOM   equ 34      ; Write Random
+ 290:     -	0023'         	BDOS_GET_FILE_SIZE  equ 35      ; Compute File Size
+ 291:     -	0024'         	BDOS_SET_RANDOM_REC equ 36      ; Set Random Record
+ 292:     -	0025'         	BDOS_RESET_DRIVES   equ 37      ; Selectively reset disc drives
+ 293:     -	0028'         	BDOS_WRITE_RAN_ZFILL equ 40     ; Write Random with Zero Fill
+ 294:				
+ 295:				; Functions 28 and 32 should be avoided in application programs to maintain upward
+ 296:				; compatibility with CP/M.
+ 297:				;
+ 298:				
+**** stran.z80 ****
+  40:				                include "terminal.i"    ; Terminal constants
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//terminal.i ****
+   1:				; ***********************************
+   2:				; * ZARC Terminal Definitions       *
+   3:				; * Written by: Merlin Skinner      *
+   4:				; * Date Started: 16/5/2020         *
+   5:				; ***********************************
+   6:				;
+   7:				; Definitions associated with terminals connected to an RS-232 port.
+   8:				;
+   9:     -	0005'         	ASCII_ENQ           equ 0x05        ; Enquiry
+  10:     -	0008'         	ASCII_BS            equ 0x08        ; Backspace
+  11:     -	0009'         	ASCII_HT            equ 0x09
+  12:     -	000A'         	ASCII_LF            equ 0x0a        ; Line feed
+  13:     -	000B'         	ASCII_VT            equ 0x0b        ; Upline (ADM-3A)
+  14:     -	000C'         	ASCII_FF            equ 0x0c        ; Forward space (ADM-3A)
+  15:     -	000D'         	ASCII_CR            equ 0x0d        ; Carriage return
+  16:     -	0016'         	ASCII_SYN           equ 0x16        ; Synchronous idle
+  17:     -	001A'         	ASCII_SUB           equ 0x1a        ; Clear screen (ADM-3A)
+  18:     -	001B'         	ASCII_ESC           equ 0x1b        ; Escape
+  19:     -	001E'         	ASCII_RS            equ 0x1e        ; Home cursor (ADM-3A)
+  20:     -	007F'         	ASCII_DEL           equ 0x7f        ; Delete
+  21:				;
+  22:				; ZARC CP/M terminal input key codes. Some are copied from Amstrad PCW and
+  23:				; Spectrum +3, others are unique to ZARC. Delete seems very common.
+  24:     -	001F'         	ZKEY_CSR_UP         equ 0x1f        ; Cursor up
+  25:     -	001E'         	ZKEY_CSR_DOWN       equ 0x1e        ; Cursor down
+  26:     -	0006'         	ZKEY_CSR_RIGHT      equ 0x06        ; Cursor right
+  27:     -	0001'         	ZKEY_CSR_LEFT       equ 0x01        ; Cursor left
+  28:     -	0002'         	ZKEY_HOME           equ 0x02
+  29:     -	0016'         	ZKEY_INSERT         equ 0x16
+  30:     -	007F'         	ZKEY_DELETE         equ 0x7f
+  31:     -	0004'         	ZKEY_END            equ 0x04
+  32:     -	001D'         	ZKEY_PAGE_UP        equ 0x1d
+  33:     -	001C'         	ZKEY_PAGE_DOWN      equ 0x1c
+  34:				
+**** stran.z80 ****
+  41:				                include "stran.i"       ; Project include file
+**** stran.i ****
+   1:				; *******************************************************
+   2:				; * Serial File Transfer for ZARC Z80 Computer (STran)  *
+   3:				; * Include file                                        *
+   4:				; * Written by: Merlin Skinner                          *
+   5:				; * Date Started: 22/3/2021                             *
+   6:				; *******************************************************
+   7:				;
+   8:				;
+   9:				;
+  10:				; *************
+  11:				; * Constants *
+  12:				; *************
+  13:				;
+  14:				;
+  15:				;DEBUG           equ 1               ; Define to enable debug messages
+  16:				;
+  17:     -	0040'         	STACK_SIZE      equ 64              ; Stack space allocation
+  18:     -	0003'         	BREAK_CHAR      equ 'C' - 0x40
+  19:     -	0200'         	BLKLEN          equ 512             ; Maximum data block size
+  20:     -	FFFF'         	FLUSH_TIMER     equ 0xffff          ; Receive buffer flush time
+  21:				;
+  22:				; Receive error codes.
+  23:     -	        	                ENUM_START
+  24:     -	        	                ENUM RXERR_OK       ; No error
+  25:     -	        	                ENUM RXERR_BREAK    ; Break detected
+  26:     -	        	                ENUM RXERR_ENC      ; 3 to 4 coding error
+  27:     -	        	                ENUM RXERR_CRC      ; CRC error
+  28:     -	        	                ENUM_END RXERR_NUM  ; Number of possible values
+  29:				;
+  30:				;
+  31:				;
+  32:				;
+  33:				; **************
+  34:				; * Structures *
+  35:				; **************
+  36:				;
+  37:				;
+  38:				; Packet format (header).
+  39:     -	        	                STRUCT
+  40:				; Start of packet "*" is hard coded, and not stored in the structure.
+  41:     -	        	                STR_BYTE PKT_TYPE   ; Packet type
+  42:     -	        	                STR_WORD PKT_PSN    ; Packet Sequence Number
+  43:     -	        	                STR_WORD PKT_LENGTH ; Data length (0 to BLKLEN).
+  44:     -	        	                STR_BLOCK PKT_DATA, BLKLEN  ; Data (PKT_LENGTH bytes)
+  45:				; 1 or 2 bytes of padding to align to 3-byte boundary.
+  46:				; 16-bit CRC
+  47:				; 1 byte pad to align to 3-byte boundary.
+  48:     -	        	                STR_END PKT_SIZE
+  49:				;
+  50:				; File path (for command packets).
+  51:     -	        	                STRUCT
+  52:     -	        	                STR_BYTE FPTH_DRIVE     ; Drive letter
+  53:     -	        	                STR_BLOCK FPTH_NAME, 8  ; File name
+  54:     -	        	                STR_BLOCK FPTH_EXT, 3   ; File extension
+  55:     -	        	                STR_END FPTH_SIZE
+  56:				;
+  57:				; PKT_TYPE can have any of the following values:
+  58:     -	        	                ENUM_START
+  59:     -	        	                ENUM PKTYP_NULL     ; Skip zero
+  60:     -	        	                ENUM PKTYP_ACK      ; Positive acknowledgement
+  61:     -	        	                ENUM PKTYP_NAK      ; Negative acknowledgement
+  62:     -	        	                ENUM PKTYP_EXIT     ; Exit CP/M stran and return to CP/M
+  63:     -	        	                ENUM PKTYP_TX       ; Transmit file (PC to CP/M)
+  64:     -	        	                ENUM PKTYP_RX       ; Receive file (CP/M to PC)
+  65:     -	        	                ENUM PKTYP_END      ; Normal end of transfer
+  66:     -	        	                ENUM PKTYP_ABORT    ; Abort transfer
+  67:     -	        	                ENUM PKTYP_DIR      ; Read directory
+  68:     -	        	                ENUM_END PKTYP_NUM  ; Number of possible values
+  69:				; Zero is skipped to avoid a completely null packet appearing valid. This would
+  70:				; have a zero checksum, so a string of nulls could cause confusion.
+  71:				;
+  72:				; NAK reason codes:
+  73:     -	        	                ENUM_START
+  74:     -	        	                ENUM NAK_CRC        ; CRC error
+  75:     -	        	                ENUM NAK_PSN        ; Unexpected PSN
+  76:     -	        	                ENUM NAK_CMD        ; Unexpected command
+  77:     -	        	                ENUM NAK_OPEN       ; Can’t open file
+  78:     -	        	                ENUM NAK_RW_ERR     ; BDOS file read / write error
+  79:     -	        	                ENUM NAK_NO_TRAN    ; Abort when no transfer is underway
+  80:     -	        	                ENUM_END NAK_NUM    ; Number of possible values
+  81:				
+**** stran.z80 ****
+  42:				                include "cpm_utility.i" ; CP/M utilities
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//cpm_utility.i ****
+   1:				; *******************************************************
+   2:				; * Utility Routines for CP/M Applications              *
+   3:				; * Version: V1.0                                       *
+   4:				; * Merlin Skinner, 16/12/2021                          *
+   5:				; *******************************************************
+   6:				;
+   7:				; Note that ld80 only considers the first six characters of labels significant.
+   8:				;
+   9:     -	0001'         	            ifndef CPMU         ; Inhibit for this module
+  10:				; CP/M specific.
+  11:				                extern cbdos    ; Call BDOS with some registers saved
+  12:				                extern cbios    ; Call BIOS with some registers saved
+  13:				                extern panic    ; Fatal application error
+  14:				                extern zrcdet   ; Detect ZARC
+  15:				                extern z80det   ; Detect Z80 (instead of 8080 / 8085)
+  16:				;
+  17:				; Derived from the monitor's utility.z80.
+  18:				                extern conwch   ; Write character to console
+  19:				                extern conrch   ; Read character from the console
+  20:				                extern const    ; Fetch console input status
+  21:				                extern cwnwln   ; Write new line characters to console
+  22:				                extern conwms   ; Print "$" terminated string to the console
+  23:				                extern conwmn   ; Print message <n> in a list
+  24:				                extern skpspc   ; Step hl past spaces
+  25:				                extern toupca   ; Convert character in A to upper case
+  26:				                extern toloca   ; Convert character in A to lower case
+  27:				                extern cwvich   ; Print only visible 7-bit characters
+  28:				                extern cwpspc   ; Print a space
+  29:				                extern mtwdli   ; Match word in a string against list of options
+  30:				                extern cwphnb   ; Print least-significant nibble in A in hexadecimal
+  31:				                extern cwphby   ; Print A in hexadecimal
+  32:				                extern cwphwd   ; Print HL in hexadecimal
+  33:				                extern cwpdwd   ; Print HL in decimal. Leading zeros are suppressed
+  34:				                extern cwpdby   ; Print A in decimal. Leading zeros are suppressed
+  35:				                extern cwpdwd   ; Print HL in decimal. Leading zeros are suppressed
+  36:				                extern cwpdlo   ; Print DEHL in decimal. Leading zeros are suppressed
+  37:				                extern rdhxwd   ; Read a 16-bit hexadecimal number from a string
+  38:				                extern rdduwd   ; Read a 16-bit unsigned decimal number from a string
+  39:				                extern rddulo   ; Read a 32-bit unsigned decimal number from a string
+  40:				;
+  41:				            endif
+  42:				;
+  43:				;
+  44:				; mtwdli (match word in a string against list of options) option bits. Each bit
+  45:				; has the described effect if set.
+  46:     -	        	BITDEF MTWDLI_ABBREV, 0                 ; Enable "." abbreviation
+  47:     -	        	BITDEF MTWDLI_ICASE, 1                  ; Ignore case when matching
+  48:     -	        	BITDEF MTWDLI_TERM, 7                   ; Terminator found (internal use only)
+  49:				
+**** stran.z80 ****
+  43:				                include "cpm_files.i"   ; CP/M file handling
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//cpm_files.i ****
+   1:				; *******************************************************
+   2:				; * Utility Routines for CP/M Applications              *
+   3:				; * Version: V1.0                                       *
+   4:				; * Merlin Skinner, 16/12/2021                          *
+   5:				; *******************************************************
+   6:				;
+   7:				; Note that ld80 only considers the first six characters of labels significant.
+   8:				;
+   9:     -	0001'         	            ifndef CPMF         ; Inhibit for this module
+  10:				                extern finit    ; Initialise FCBR structure
+  11:				                extern fbfcb    ; Build FCB
+  12:				                extern fdel     ; Delete file *
+  13:				                extern fopen    ; Open existing file for R/W *
+  14:				                extern fmake    ; Create new file *
+  15:				                extern fwrrec   ; Write record to file *
+  16:				                extern fwrby    ; Write byte to file *
+  17:				                extern fwrblk   ; Write block to file *
+  18:				                extern frdrec   ; Read record from file *
+  19:				                extern frdby    ; Read byte from file *
+  20:				                extern frdblk   ; Read block from file *
+  21:				                extern fclose   ; Close file *
+  22:				                extern fdfcb    ; Display FCB
+  23:				                extern fdnam    ; Display filename
+  24:				                extern fdswem   ; Display sequential write error message
+  25:				                extern fdsrem   ; Display sequential read error message
+  26:				            endif
+  27:				;
+  28:				; * Any errors are reported to the console.
+  29:				;
+  30:				; FCB with record buffer. This is used by the cpm_files routines.
+  31:     -	        	                STRUCT
+  32:     -	        	                STR_BLOCK FCBR_FCB, FCB_SIZE    ; FCB structure
+  33:     -	        	                STR_BYTE FCBR_FLAGS             ; Status flags
+  34:     -	        	                STR_BYTE FCBR_CONTENTS          ; No. of bytes in RBUFF (*)
+  35:     -	        	                STR_BLOCK FCBR_RBUFF, CPM_SECTOR_SIZE   ; Record buffer
+  36:     -	        	                STR_END FCBR_SIZE               ; Structure size
+  37:				;
+  38:				; Flags are active if the bit is zero.
+  39:     -	        	BITDEF FCBR_FL_OPEN, 0          ; File is open
+  40:     -	        	BITDEF FCBR_FL_DIRTY, 1         ; RBUFF contains data to write
+  41:				
+**** stran.z80 ****
+  44:				                include "cpm_maths.i"   ; Integer mathematics
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//cpm_maths.i ****
+   1:				; *******************************************************
+   2:				; * Mathematical Routines for CP/M Applications         *
+   3:				; * Version: V1.0                                       *
+   4:				; * Merlin Skinner, 10/9/2022                           *
+   5:				; *******************************************************
+   6:				;
+   7:				; Note that ld80 only considers the first six characters of labels significant.
+   8:				;
+   9:     -	0001'         	            ifndef CPMM         ; Inhibit for this module
+  10:				; CP/M specific.
+  11:				; 32-bit arithmetic.
+  12:				                extern mclr32       ; 32-bit clear (zero)
+  13:				                extern mcop32       ; 32-bit copy from (hl) to (de)
+  14:				                extern minc32       ; 32-bit increment
+  15:				                extern mcp32        ; 32-bit compare (hl) - (de)
+  16:				                extern madd32       ; 32-bit add (hl) <- (hl) + (de)
+  17:				                extern msub32       ; 32-bit sub (hl) <- (hl) - (de)
+  18:				;
+  19:				; Derived from the monitor's maths.z80.
+  20:				                extern madlbu       ; 32-bit / 8-bit unsigned divide
+  21:				                extern madwbu       ; 16-bit / 8-bit unsigned divide
+  22:				                extern madbbu       ; 8-bit / 8-bit unsigned divide
+  23:				                extern mamwwu       ; 16-bit * 16-bit unsigned multiply
+  24:				                extern mamlbu       ; 32-bit * 8-bit unsigned multiply
+  25:				                extern crc16x       ; Software CRC-16 (XMODEM)
+  26:				;
+  27:				            endif
+  28:				;
+**** stran.z80 ****
+  45:				;
+  46:				;
+  47:				;
+  48:				; None.
+  49:				;
+  50:				;
+  51:				;
+  52:				; *************
+  53:				; * Externals *
+  54:				; *************
+  55:				;
+  56:				;
+  57:				; Variables
+  58:				                public spoflg   ; Non-zero if in single port mode
+  59:				                public zrcflg   ; Non-zero if on a ZARC system
+  60:				                public brkflg   ; Non-zero if break character detected
+  61:				;
+  62:				; From io.z80
+  63:				                extern flush    ; Flush data port receive buffer
+  64:				                extern rxpkt    ; Receive a packet
+  65:				                extern txpkt    ; Transmit a packet
+  66:				                extern txdch    ; Transmit a character to the data port
+  67:				                extern rxdch    ; Read a character from the data port
+  68:				;
+  69:				;
+  70:				;
+  71:				; *************
+  72:				; * Main Code *
+  73:				; *************
+  74:				;
+  75:				;
+  76:				; The CP/M transient area start address is set in the linker invokation (see makefile).
+  77:				                cseg                    ; Code segment
+  78:				;
+  79:				; The default stack space is very small (8 deep), which would almost certainly
+  80:				; cause issues, particularly with interrupts running.
+  81:    0+20	0000' ED730000	                ld (bdos_sp), sp
+  82:   20+10	0004' 31FB04  	                ld sp, app_stack_top    ; Switch to our stack space
+  83:				;
+  84:   30+10	0007' 212603  	                ld hl, signon_msg
+  85:   40+17	000A' CD0000  	                call conwms             ; Print $-terminated string to console
+  86:				;
+  87:				; Are we running on a ZARC system?
+  88:   57+17	000D' CD0000  	                call zrcdet
+  89:				; Carry set if ZARC BIOS not found.
+  90:   74+4	0010' 3F      	                ccf
+  91:   78+4	0011' 17      	                rla
+  92:   82+7	0012' E601    	                and 1
+  93:   89+13	0014' 320200  	                ld (zrcflg), a          ; 0x01 if ZARC, zero otherwise
+  94:				;
+  95:				; Examine the command tail, looking for operands. This is stored in the default
+  96:				; buffer. "The first byte at 0080H contains the length of the command tall, while
+  97:				; the command tail itself begins at 0081H. The command tail is terminated by a
+  98:				; byte containing a binary zero value." (http://www.cpm.z80.de/manuals/cpm22-m.pdf
+  99:				; appendix H).
+ 100:  102+10	0017' 218100  	                ld hl, DEF_BUFFER + 1
+ 101:				; No operands (yet).
+ 102:				; The terminator should follow.
+ 103:  112+17	001A' CD0000  	op_check_term   call skpspc
+ 104:  129+7	001D' 7E      	                ld a, (hl)
+ 105:  136+4	001E' A7      	                and a
+ 106:     -	0000'         	                ifdef DEBUG
+ 109:				                endif
+ 110:  140+7+5	001F' 2809    	                jr z, operands_ok
+ 111:				;
+ 112:				; Go here if we don't like the operands supplied.
+ 113:  147+10	0021' 214A03  	op_error        ld hl, op_err_msg
+ 114:  157+17	0024' CD0000  	                call conwms             ; Print $-terminated string to console
+ 115:  174+10	0027' C3BC01  	                jp exit
+ 116:				;
+ 117:				; Operand processing complete. Now determine how we check for ^C. There are
+ 118:				; three possibilities:
+ 119:				; 1 - data port and console are the same. In this case, checking is
+ 120:				;   straightforward.
+ 121:				; 2 - data port is different to the console port and we are running on a
+ 122:				;   conventional CP/M system. In this case, there is no way of checking whether
+ 123:				;   or not a character is available before calling the read routine. In this
+ 124:				;   case, stran will effectively lock up until a character arrives on the data
+ 125:				;   port.
+ 126:				; 3 - data port is different to the console port and we are running on a ZARC
+ 127:				;   system. In this case, we can use AUXIST function to check the status of the
+ 128:				;   auxiliary input (called READER in CP/M 2.x) to avoid locking up.
+ 129:				;
+ 130:				; The BDOS_GET_IO_BYTE function is not used as this is incompatible with CP/M
+ 131:				; and MP/M.
+ 132:  184+13	002A' 3A0300  	operands_ok     ld a, (IOBYTE)
+ 133:  197+4	002D' 47      	                ld b, a
+ 134:  201+7	002E' E63F    	                and IOB_CON_MASK | IOB_RDR_MASK | IOB_PUN_MASK
+ 135:  208+7+5	0030' 281F    	                jr z, ports_one         ; Jump if PUNCH, READER & CONSOLE are TTY
+ 136:				; In batch mode, The current READER is console input (and he current LIST is
+ 137:				; console output). This forces single port mode.
+ 138:  215+4	0032' 78      	                ld a, b
+ 139:  219+7	0033' E603    	                and IOB_CON_MASK
+ 140:  226+7	0035' FE02    	                cp 2
+ 141:  233+7+5	0037' 2818    	                jr z, ports_one         ; Jump if in batch mode
+ 142:				; Dual port mode.
+ 143:  240+10	0039' 219D03  	                ld hl, two_port_msg
+ 144:  250+17	003C' CD0000  	                call conwms             ; Print $-terminated string to console
+ 145:  267+4	003F' AF      	                xor a
+ 146:  271+13	0040' 320300  	                ld (spoflg), a          ; Flag dual port operation
+ 147:  284+13	0043' 3A0200  	                ld a, (zrcflg)          ; 0x01 if ZARC, zero otherwise
+ 148:  297+4	0046' A7      	                and a
+ 149:  301+7+5	0047' 2013    	                jr nz, ports_done
+ 150:				; Dual port mode and not on ZARC.
+ 151:  308+10	0049' 21EA03  	                ld hl, break_awk_msg
+ 152:  318+17	004C' CD0000  	                call conwms             ; Print $-terminated string to console
+ 153:  335+12	004F' 180B    	                jr ports_done
+ 154:				;
+ 155:  347+10	0051' 216303  	ports_one       ld hl, one_port_msg
+ 156:  357+17	0054' CD0000  	                call conwms             ; Print $-terminated string to console
+ 157:  374+7	0057' 3EFF    	                ld a, 0xff
+ 158:  381+13	0059' 320300  	                ld (spoflg), a          ; Flag single port operation
+ 159:				;
+ 160:				;
+ 161:				; Initialisation.
+ 162:  394+17	005C' CD0000  	ports_done      call flush              ; Flush data port receive buffer
+ 163:  411+4	005F' AF      	                xor a
+ 164:  415+13	0060' 320400  	                ld (brkflg), a          ; No break detected yet
+ 165:  428+14	0063' DD211304	                ld ix, fcbr
+ 166:  442+17	0067' CD0000  	                call finit              ; Initialise FCBR structure
+ 167:				;
+ 168:				; *** Main Loop ***
+ 169:				; For most of the time the following register value is maintained:
+ 170:				; IX - FCB and record buffer structure
+ 171:				; IY - received packet buffer (rx_packet_buf)
+ 172:  459+14	006A' FD210C02	main_loop       ld iy, rx_packet_buf
+ 173:				;
+ 174:  473+10	006E' 214004  	                ld hl, waiting_msg      ; "Waiting for command"
+ 175:  483+17	0071' CD0000  	                call conwms             ; Print $-terminated string to console
+ 176:				;
+ 177:  500+17	0074' CD0000  	                call rxpkt              ; Receive a packet
+ 178:				; A - 0x00 if OK or RXERR_...
+ 179:     -	0000'         	                ifdef DEBUG
+ 187:				                endif
+ 188:  517+7	0077' FE01    	                cp RXERR_BREAK
+ 189:  524+10	0079' CAAD01  	                jp z, break_exit
+ 190:  534+4	007C' A7      	                and a
+ 191:  538+7+5	007D' 20EB    	                jr nz, main_loop        ; Ignore packets with CRC or encoding errors
+ 192:				;
+ 193:  545+17	007F' CD6E02  	                call disp_rx_header     ; Display header of received packet
+ 194:				;
+ 195:  562+19	0082' FD7E00  	                ld a, (iy + PKT_TYPE)   ; Fetch packet type
+ 196:  581+7	0085' FE03    	                cp PKTYP_EXIT
+ 197:  588+10	0087' CAA101  	                jp z, cmd_exit          ; Normal exit
+ 198:  598+7	008A' FE04    	                cp PKTYP_TX
+ 199:  605+10	008C' CAAF00  	                jp z, cmd_tx            ; Transmit file (PC to CP/M)
+ 200:  615+7	008F' FE05    	                cp PKTYP_RX
+ 201:  622+10	0091' CA6A01  	                jp z, cmd_rx            ; Receive file (CP/M to PC)
+ 202:  632+7	0094' FE08    	                cp PKTYP_DIR
+ 203:  639+10	0096' CA8201  	                jp z, cmd_dir           ; Read directory
+ 204:  649+7	0099' FE07    	                cp PKTYP_ABORT
+ 205:  656+10	009B' CAA700  	                jp z, cmd_abort         ; Abort transfer
+ 206:				
+ 207:				;
+ 208:				; A packet of any other type was not expected at this point.
+ 209:  666+10	009E' 217104  	                ld hl, unexp_pkt_msg    ; "Unexpected packet type"
+ 210:  676+17	00A1' CD0000  	                call conwms             ; Print $-terminated string to console
+ 211:  693+10	00A4' C36A00  	                jp main_loop
+ 212:				;
+ 213:				; Abort transfer. In this case, no transfer is under way, so we can acknowledge it
+ 214:				; with a NAK.
+ 215:  703+7	00A7' 3E05    	cmd_abort       ld a, NAK_NO_TRAN       ; Abort when no transfer is underway
+ 216:  710+17	00A9' CD3202  	                call send_nak           ; Negative acknowledge received packet
+ 217:  727+10	00AC' C36A00  	                jp main_loop
+ 218:				;
+ 219:				;
+ 220:				; *** Transmit file (PC to CP/M) ***
+ 221:  737+10	00AF' 219D04  	cmd_tx          ld hl, tx_msg           ; "Transmit file (PC to CP/M): "
+ 222:  747+17	00B2' CD0000  	                call conwms             ; Print $-terminated string to console
+ 223:				;
+ 224:				; Check parameters
+ 225:  764+10	00B5' 210000  	                ld hl, 0
+ 226:  774+17	00B8' CD5B02  	                call chk_psn            ; Check PSN = 0
+ 227:  791+10	00BB' DA6A00  	                jp c, main_loop         ; Ignore command if not
+ 228:  801+17	00BE' CDF601  	                call chk_fn_length      ; Check data length is appropriate
+ 229:  818+10	00C1' DA6A00  	                jp c, main_loop         ; Ignore command if not
+ 230:				;
+ 231:  828+17	00C4' CDC401  	                call disp_cmd_fn        ; Display filename
+ 232:				;
+ 233:				; Find start of data field in the command packet.
+ 234:  845+15	00C7' FDE5    	                push iy
+ 235:  860+10	00C9' E1      	                pop hl
+ 236:  870+10	00CA' 010500  	                ld bc, PKT_DATA
+ 237:  880+11	00CD' 09      	                add hl, bc
+ 238:				; HL - pointer to filename
+ 239:				; IX - FCB and record buffer structure
+ 240:  891+17	00CE' CDC202  	                call sfmake             ; Setup FCB and create file
+ 241:				; Carry set on error.
+ 242:  908+7	00D1' 3E03    	                ld a, NAK_OPEN          ; Set NAK error code
+ 243:  915+10	00D3' DAB601  	                jp c, nonrec_error      ; Not a recoverable error
+ 244:				; File is open.
+ 245:  925+17	00D6' CD0C02  	                call send_ack           ; Acknowledge received packet
+ 246:				;
+ 247:				; Initialisation.
+ 248:  942+10	00D9' 210100  	                ld hl, 1
+ 249:  952+16	00DC' 22B904  	                ld (psn), hl            ; Set next PSN in file transfer
+ 250:				;
+ 251:  968+17	00DF' CD0000  	tx_loop         call rxpkt              ; Receive a packet
+ 252:				; A - 0x00 if OK or RXERR_...
+ 253:  985+7	00E2' FE01    	                cp RXERR_BREAK
+ 254:  992+10	00E4' CAAD01  	                jp z, break_exit
+ 255: 1002+4	00E7' A7      	                and a
+ 256: 1006+7+5	00E8' 20F5    	                jr nz, tx_loop          ; Ignore packets with CRC or encoding errors
+ 257:				;
+ 258: 1013+17	00EA' CD6E02  	                call disp_rx_header     ; Display header of received packet
+ 259: 1030+19	00ED' FD7E00  	                ld a, (iy + PKT_TYPE)   ; Fetch packet type
+ 260: 1049+7	00F0' FE06    	                cp PKTYP_END
+ 261: 1056+10	00F2' CA0801  	                jp z, tx_end            ; Normal end of transfer
+ 262: 1066+7	00F5' FE07    	                cp PKTYP_ABORT
+ 263: 1073+10	00F7' CA1C01  	                jp z, tx_abort          ; Abort transfer
+ 264: 1083+7	00FA' FE04    	                cp PKTYP_TX
+ 265: 1090+10	00FC' CA2E01  	                jp z, tx_data           ; Data packet
+ 266:				;
+ 267:				; A packet of any other type was not expected at this point.
+ 268: 1100+10	00FF' 217104  	                ld hl, unexp_pkt_msg    ; "Unexpected packet type"
+ 269: 1110+17	0102' CD0000  	                call conwms             ; Print $-terminated string to console
+ 270: 1127+10	0105' C3DF00  	                jp tx_loop
+ 271:				;
+ 272:				; Normal end of transfer. fclose writes any remaining data in the record buffer
+ 273:				; after padding with EOF characters.
+ 274: 1137+17	0108' CD0000  	tx_end          call fclose             ; Close file
+ 275:				; Report error if this failed.
+ 276: 1154+7	010B' 3E04    	                ld a, NAK_RW_ERR        ; BDOS file read / write error
+ 277: 1161+10	010D' DAB601  	                jp c, nonrec_error
+ 278: 1171+17	0110' CD0C02  	                call send_ack           ; Acknowledge received packet
+ 279: 1188+10	0113' 211E05  	                ld hl, tran_compl_msg   ; "Transfer complete"
+ 280: 1198+17	0116' CD0000  	                call conwms             ; Print $-terminated string to console
+ 281: 1215+10	0119' C36A00  	                jp main_loop
+ 282:				;
+ 283:				; Abort transfer. The file is deleted. BDOS errors are ignored, as there is little
+ 284:				; useful recovery action beyond reporting it.
+ 285: 1225+17	011C' CD0000  	tx_abort        call fclose             ; Close file
+ 286: 1242+17	011F' CD0000  	                call fdel               ; Delete potentially incomplete file
+ 287: 1259+17	0122' CD0C02  	                call send_ack           ; Acknowledge received packet
+ 288: 1276+10	0125' 213205  	                ld hl, tran_abort_msg   ; "Transfer aborted"
+ 289: 1286+17	0128' CD0000  	                call conwms             ; Print $-terminated string to console
+ 290: 1303+10	012B' C36A00  	                jp main_loop
+ 291:				;
+ 292:				; Data packet received. Verify PSN.
+ 293: 1313+16	012E' 2AB904  	tx_data         ld hl, (psn)
+ 294: 1329+17	0131' CD5B02  	                call chk_psn            ; Check PSN
+ 295: 1346+10	0134' D23F01  	                jp nc, tx_psn_ok
+ 296:				;
+ 297:				; Data packet has unexpected PSN.
+ 298: 1356+7	0137' 3E01    	                ld a, NAK_PSN           ; Unexpected PSN
+ 299: 1363+17	0139' CD3202  	                call send_nak           ; Negative acknowledge received packet
+ 300: 1380+10	013C' C3DF00  	                jp tx_loop              ; Await another packet
+ 301:				;
+ 302:				; PSN matches. Write received data.
+ 303:				; Find start of data field in the command packet.
+ 304: 1390+15	013F' FDE5    	tx_psn_ok       push iy
+ 305: 1405+10	0141' E1      	                pop hl
+ 306: 1415+10	0142' 010500  	                ld bc, PKT_DATA
+ 307: 1425+11	0145' 09      	                add hl, bc
+ 308: 1436+19	0146' FD4E03  	                ld c, (iy + PKT_LENGTH) ; Fetch data length
+ 309: 1455+19	0149' FD4604  	                ld b, (iy + PKT_LENGTH + 1)
+ 310:				; BC - received data count
+ 311:				; HL - received data pointer
+ 312: 1474+4	014C' 78      	tx_byte_loop    ld a, b
+ 313: 1478+4	014D' B1      	                or c
+ 314: 1482+7+5	014E' 280D    	                jr z, tx_bytes_done
+ 315: 1489+7	0150' 7E      	                ld a, (hl)
+ 316: 1496+17	0151' CD0000  	                call fwrby              ; Write byte to file
+ 317:				; Report error if this failed.
+ 318: 1513+7	0154' 3E04    	                ld a, NAK_RW_ERR        ; BDOS file read / write error
+ 319: 1520+10	0156' DAB601  	                jp c, nonrec_error
+ 320: 1530+6	0159' 23      	                inc hl
+ 321: 1536+6	015A' 0B      	                dec bc
+ 322: 1542+12	015B' 18EF    	                jr tx_byte_loop
+ 323:				;
+ 324:				; All received data has been stored, either on disk or in file_rec_buff.
+ 325: 1554+17	015D' CD0C02  	tx_bytes_done   call send_ack           ; Acknowledge received packet
+ 326:				; Increment PSN.
+ 327: 1571+16	0160' 2AB904  	                ld hl, (psn)
+ 328: 1587+6	0163' 23      	                inc hl
+ 329: 1593+16	0164' 22B904  	                ld (psn), hl
+ 330: 1609+10	0167' C3DF00  	                jp tx_loop              ; Await another packet
+ 331:				;
+ 332:				;
+ 333:				; *** Receive file (CP/M to PC) ***
+ 334: 1619+10	016A' 21BC04  	cmd_rx          ld hl, rx_msg           ; "Receive file (CP/M to PC): "
+ 335: 1629+17	016D' CD0000  	                call conwms             ; Print $-terminated string to console
+ 336:				;
+ 337:				; Check parameters
+ 338: 1646+10	0170' 210000  	                ld hl, 0
+ 339: 1656+17	0173' CD5B02  	                call chk_psn            ; Check PSN = 0
+ 340: 1673+10	0176' DA6A00  	                jp c, main_loop         ; Ignore command if not
+ 341: 1683+17	0179' CDF601  	                call chk_fn_length      ; Check data length is appropriate
+ 342: 1700+10	017C' DA6A00  	                jp c, main_loop         ; Ignore command if not
+ 343:				
+ 344: 1710+10	017F' C36A00  	                jp main_loop
+ 345:				;
+ 346:				;
+ 347:				; *** Read directory ***
+ 348: 1720+10	0182' 21DA04  	cmd_dir         ld hl, dir_msg          ; "Read CP/M directory: "
+ 349: 1730+17	0185' CD0000  	                call conwms             ; Print $-terminated string to console
+ 350:				;
+ 351:				; Check parameters
+ 352: 1747+10	0188' 210000  	                ld hl, 0
+ 353: 1757+17	018B' CD5B02  	                call chk_psn            ; Check PSN = 0
+ 354: 1774+10	018E' DA6A00  	                jp c, main_loop         ; Ignore command if not
+ 355:				; Data should be just the drive letter.
+ 356: 1784+19	0191' FD7E03  	                ld a, (iy + PKT_LENGTH)
+ 357: 1803+7	0194' FE01    	                cp 1                    ; Drive letter only
+ 358: 1810+7+5	0196' 2006    	                jr nz, cd_drv_len_err
+ 359: 1817+19	0198' FD7E04  	                ld a, (iy + PKT_LENGTH + 1)
+ 360: 1836+4	019B' A7      	                and a
+ 361: 1840+7+5	019C' 2800    	                jr z, cd_drv_len_ok
+ 362:				; Length is not as expected.
+ 363:     -	019E'         	cd_drv_len_err  ; ld hl, bad_drive_msg   ; "Bad drive letter"
+ 364:				                ; call conwms             ; Print $-terminated string to console
+ 365:				;
+ 366:     -	019E'         	cd_drv_len_ok
+ 367: 1847+10	019E' C36A00  	                jp main_loop
+ 368:				;
+ 369:				;
+ 370:				
+ 371:				
+ 372:				
+ 373:				
+ 374:				; *** Exit command ***
+ 375:				; Normal termination as a result of an exit command packet. Send an "ACK" before
+ 376:				; returning to CP/M.
+ 377: 1857+17	01A1' CD0C02  	cmd_exit        call send_ack           ; Acknowledge received packet
+ 378:				;
+ 379: 1874+10	01A4' 218A04  	                ld hl, exit_msg         ; "Session complete"
+ 380: 1884+17	01A7' CD0000  	                call conwms             ; Print $-terminated string to console
+ 381: 1901+10	01AA' C3BC01  	                jp exit
+ 382:				;
+ 383:				;
+ 384:				; Console break detected, so exit.
+ 385: 1911+10	01AD' 215D04  	break_exit      ld hl, break_msg        ; "Exiting due to ^C"
+ 386: 1921+17	01B0' CD0000  	                call conwms             ; Print $-terminated string to console
+ 387: 1938+10	01B3' C3BC01  	                jp exit
+ 388:				;
+ 389:				;
+ 390:				; Go here if a non-recoverable error occurs. Send a NAK packet and return to the
+ 391:				; main loop.
+ 392:				; A - NAK error code
+ 393:				; IY - pointer to packet buffer containing command
+ 394: 1948+17	01B6' CD3202  	nonrec_error    call send_nak           ; Negative acknowledge received packet
+ 395: 1965+10	01B9' C36A00  	                jp main_loop
+ 396:				;
+ 397:				;
+ 398:				; Return to CP/M.
+ 399:				; Close any open file.
+ 400: 1975+17	01BC' CD0000  	exit            call fclose             ; Close file
+ 401:				; Ignore any errors in this case as there is no sensible action we can take.
+ 402:				;
+ 403:				; Return
+ 404: 1992+20	01BF' ED7B0000	                ld sp, (bdos_sp)
+ 405: 2012+10	01C3' C9      	                ret                     ; Return to BDOS
+ 406:				;               jp 0                    ; Warm boot
+ 407:				;
+ 408:				;
+ 409:				;
+ 410:				; ***************
+ 411:				; * Subroutines *
+ 412:				; ***************
+ 413:				;
+ 414:				;
+ 415:				; Display filename in command packet. The data field length is assumed to have
+ 416:				; been checked by chk_fn_length before calling this routine.
+ 417:				; Call with:
+ 418:				; IY - pointer to packet buffer
+ 419:				; IY is preserved.
+ 420: 2022+11	01C4' C5      	disp_cmd_fn     push bc
+ 421: 2033+11	01C5' E5      	                push hl
+ 422:				;
+ 423:				; Find start of data field.
+ 424: 2044+15	01C6' FDE5    	                push iy
+ 425: 2059+10	01C8' E1      	                pop hl
+ 426: 2069+10	01C9' 010500  	                ld bc, PKT_DATA
+ 427: 2079+11	01CC' 09      	                add hl, bc
+ 428: 2090+7	01CD' 0E3F    	                ld c, '?'               ; Substitution character
+ 429:				;
+ 430:				; Drive letter
+ 431: 2097+7	01CF' 7E      	                ld a, (hl)              ; Fetch drive letter
+ 432: 2104+6	01D0' 23      	                inc hl
+ 433: 2110+17	01D1' CD0000  	                call cwvich             ; Print only visible 7-bit characters
+ 434: 2127+7	01D4' 3E3A    	                ld a, ":"               ; Separator
+ 435: 2134+17	01D6' CD0000  	                call conwch             ; Write character to console
+ 436:				;
+ 437:				; Filename
+ 438: 2151+7	01D9' 0608    	                ld b, FILENAME_SIZE
+ 439: 2158+7	01DB' 7E      	dcf_name_lp     ld a, (hl)              ; Fetch character
+ 440: 2165+6	01DC' 23      	                inc hl
+ 441: 2171+17	01DD' CD0000  	                call cwvich             ; Print only visible 7-bit characters
+ 442: 2188+8+5	01E0' 10F9    	                djnz dcf_name_lp
+ 443:				;
+ 444: 2196+7	01E2' 3E2E    	                ld a, "."               ; Separator
+ 445: 2203+17	01E4' CD0000  	                call conwch             ; Write character to console
+ 446:				;
+ 447:				; Extension
+ 448: 2220+7	01E7' 0603    	                ld b, FILEEXT_SIZE
+ 449: 2227+7	01E9' 7E      	dcf_ext_lp      ld a, (hl)              ; Fetch character
+ 450: 2234+6	01EA' 23      	                inc hl
+ 451: 2240+17	01EB' CD0000  	                call cwvich             ; Print only visible 7-bit characters
+ 452: 2257+8+5	01EE' 10F9    	                djnz dcf_ext_lp
+ 453:				;
+ 454: 2265+17	01F0' CD0000  	                call cwnwln             ; Write new line characters to console
+ 455: 2282+10	01F3' E1      	                pop hl
+ 456: 2292+10	01F4' C1      	                pop bc
+ 457: 2302+10	01F5' C9      	                ret
+ 458:				;
+ 459:				;
+ 460:				; Check data length in command packet is appropriate for a filename. This is
+ 461:				; <drive letter><8 character filename><3 character extension>, so 12 bytes in
+ 462:				; total.
+ 463:				; Call with:
+ 464:				; IY - pointer to packet buffer
+ 465:				; Returns with:
+ 466:				; Carry zero if all is well.
+ 467:				; IY is preserved.
+ 468: 2312+19	01F6' FD7E03  	chk_fn_length   ld a, (iy + PKT_LENGTH)
+ 469: 2331+7	01F9' FE0C    	                cp FPTH_SIZE
+ 470: 2338+7+5	01FB' 2005    	                jr nz, cfnl_error
+ 471: 2345+19	01FD' FD7E04  	                ld a, (iy + PKT_LENGTH + 1)
+ 472: 2364+4	0200' A7      	                and a
+ 473: 2368+5+6	0201' C8      	                ret z                   ; Return with carry = 0 if OK
+ 474:				; Length is not as expected.
+ 475: 2373+11	0202' E5      	cfnl_error      push hl
+ 476: 2384+10	0203' 210A05  	                ld hl, cfnl_err_msg     ; "Path length error"
+ 477: 2394+17	0206' CD0000  	                call conwms             ; Print $-terminated string to console
+ 478: 2411+10	0209' E1      	                pop hl
+ 479: 2421+4	020A' 37      	                scf                     ; Flag error
+ 480: 2425+10	020B' C9      	                ret
+ 481:				;
+ 482:				;
+ 483:				; Acknowledge received packet (send an ACK). The PSN of the ACK is set to match
+ 484:				; that of the packet we are acknowledging.
+ 485:				; Call with:
+ 486:				; IY - pointer to received packet
+ 487:				; IY is preserved.
+ 488: 2435+11	020C' E5      	send_ack        push hl
+ 489: 2446+15	020D' FDE5    	                push iy
+ 490:				;
+ 491: 2461+19	020F' FD6E01  	                ld l, (iy + PKT_PSN)    ; Fetch PSN of received packet
+ 492: 2480+19	0212' FD6602  	                ld h, (iy + PKT_PSN + 1)
+ 493:				; Send ACK packet.
+ 494: 2499+14	0215' FD210500	                ld iy, tx_packet_buf
+ 495: 2513+19	0219' FD360001	                ld (iy + PKT_TYPE), PKTYP_ACK
+ 496: 2532+19	021D' FD7501  	                ld (iy + PKT_PSN), l    ; PSN
+ 497: 2551+19	0220' FD7402  	                ld (iy + PKT_PSN + 1), h
+ 498: 2570+19	0223' FD360300	                ld (iy + PKT_LENGTH), 0 ; Length
+ 499: 2589+19	0227' FD360400	                ld (iy + PKT_LENGTH + 1), 0
+ 500: 2608+17	022B' CD0000  	                call txpkt
+ 501:				;
+ 502: 2625+14	022E' FDE1    	                pop iy
+ 503: 2639+10	0230' E1      	                pop hl
+ 504: 2649+10	0231' C9      	                ret
+ 505:				;
+ 506:				;
+ 507:				; Send Negative Acknowledgement packet (NACK). The PSN of the NACK is set to match
+ 508:				; that of the packet we are compaining about.
+ 509:				; Call with:
+ 510:				; A - NAK reason code (NAK_xxx)
+ 511:				; IY - pointer to received packet
+ 512:				; IY is preserved.
+ 513: 2659+11	0232' E5      	send_nak        push hl
+ 514: 2670+15	0233' FDE5    	                push iy
+ 515:				;
+ 516: 2685+19	0235' FD6E01  	                ld l, (iy + PKT_PSN)    ; Fetch PSN of received packet
+ 517: 2704+19	0238' FD6602  	                ld h, (iy + PKT_PSN + 1)
+ 518:				; Send NACK packet.
+ 519: 2723+14	023B' FD210500	                ld iy, tx_packet_buf
+ 520: 2737+19	023F' FD360002	                ld (iy + PKT_TYPE), PKTYP_NAK
+ 521: 2756+19	0243' FD7501  	                ld (iy + PKT_PSN), l    ; PSN
+ 522: 2775+19	0246' FD7402  	                ld (iy + PKT_PSN + 1), h
+ 523: 2794+19	0249' FD360301	                ld (iy + PKT_LENGTH), 1 ; Set data length
+ 524: 2813+19	024D' FD360400	                ld (iy + PKT_LENGTH + 1), 0
+ 525: 2832+19	0251' FD7705  	                ld (iy + PKT_DATA), a   ; Reason code
+ 526: 2851+17	0254' CD0000  	                call txpkt
+ 527:				;
+ 528: 2868+14	0257' FDE1    	                pop iy
+ 529: 2882+10	0259' E1      	                pop hl
+ 530: 2892+10	025A' C9      	                ret
+ 531:				;
+ 532:				;
+ 533:				; Check PSN against expected value. If not as expected, write an appropriate
+ 534:				; message.
+ 535:				; Call with:
+ 536:				; HL - expect PSN
+ 537:				; IY - pointer to packet buffer
+ 538:				; Returns with:
+ 539:				; Carry zero if all is well.
+ 540:				; IY is preserved.
+ 541: 2902+19	025B' FD7E01  	chk_psn         ld a, (iy + PKT_PSN)
+ 542: 2921+4	025E' BD      	                cp l
+ 543: 2925+7+5	025F' 2005    	                jr nz, cpz_error
+ 544: 2932+19	0261' FD7E02  	                ld a, (iy + PKT_PSN + 1)
+ 545: 2951+4	0264' BC      	                cp h
+ 546: 2955+5+6	0265' C8      	                ret z                   ; Return with carry = 0 if PSN = 0
+ 547:				; PSN missmatch.
+ 548: 2960+10	0266' 21F204  	cpz_error       ld hl, psn_err_msg      ; "Packet sequence error"
+ 549: 2970+17	0269' CD0000  	                call conwms             ; Print $-terminated string to console
+ 550: 2987+4	026C' 37      	                scf                     ; Flag error
+ 551: 2991+10	026D' C9      	                ret
+ 552:				;
+ 553:				;
+ 554:				; Display received packet header for debugging and activity reporting.
+ 555:				; Call with:
+ 556:				; IY - pointer to packet buffer
+ 557:				; IY is preserved.
+ 558: 3001+11	026E' C5      	disp_rx_header  push bc
+ 559: 3012+11	026F' D5      	                push de
+ 560: 3023+11	0270' E5      	                push hl
+ 561:				;
+ 562: 3034+10	0271' 216705  	                ld hl, dh_rx_msg        ; "Received"
+ 563: 3044+17	0274' CD0000  	                call conwms             ; Print $-terminated string to console
+ 564:				;
+ 565: 3061+12	0277' 180B    	                jr dh_header            ; Display header contents
+ 566:				;
+ 567:				;
+ 568:				; Display header of packet for transmission.
+ 569:				; Call with:
+ 570:				; IY - pointer to packet buffer
+ 571:				; IY is preserved.
+ 572: 3073+11	0279' C5      	disp_tx_header  push bc
+ 573: 3084+11	027A' D5      	                push de
+ 574: 3095+11	027B' E5      	                push hl
+ 575:				;
+ 576: 3106+10	027C' 217005  	                ld hl, dh_tx_msg        ; "Transmitting"
+ 577: 3116+17	027F' CD0000  	                call conwms             ; Print $-terminated string to console
+ 578:				;
+ 579: 3133+12	0282' 1800    	                jr dh_header            ; Display header contents
+ 580:				;
+ 581:				;
+ 582:				; Display packet header for debugging and activity reporting. This routine is
+ 583:				; normally entered from disp_rx_header or disp_tx_header. No registers are saved.
+ 584:				; Call with:
+ 585:				; IY - pointer to packet buffer
+ 586: 3145+10	0284' 217D05  	dh_header       ld hl, dh_start_msg     ; " packet: "
+ 587: 3155+17	0287' CD0000  	                call conwms             ; Print $-terminated string to console
+ 588:				;
+ 589:				; Display packet type.
+ 590: 3172+19	028A' FD7E00  	                ld a, (iy + PKT_TYPE)
+ 591: 3191+7	028D' 0E7C    	                ld c, "|"               ; Separator
+ 592: 3198+10	028F' 218705  	                ld hl, dh_types_msg
+ 593: 3208+17	0292' CD0000  	                call conwmn
+ 594: 3225+7+5	0295' 3006    	                jr nc, dh_type_dn
+ 595:				;
+ 596:				; Report unknown packet type.
+ 597: 3232+10	0297' 21AD05  	                ld hl, dh_bad_type_msg  ; "(unknown type)"
+ 598: 3242+17	029A' CD0000  	                call conwms             ; Print $-terminated string to console
+ 599:				;
+ 600:				; Display Packet Sequence Number (“PSN”).
+ 601: 3259+10	029D' 21BC05  	dh_type_dn      ld hl, dh_psn_msg       ; ", PSN "
+ 602: 3269+17	02A0' CD0000  	                call conwms             ; Print $-terminated string to console
+ 603:				;
+ 604: 3286+19	02A3' FD6E01  	                ld l, (iy + PKT_PSN)
+ 605: 3305+19	02A6' FD6602  	                ld h, (iy + PKT_PSN + 1)
+ 606: 3324+17	02A9' CD0000  	                call cwpdwd             ; Print decimal unsigned number
+ 607:				;
+ 608:				; Display the length.
+ 609: 3341+10	02AC' 21C305  	                ld hl, dh_len_msg       ; ", length "
+ 610: 3351+17	02AF' CD0000  	                call conwms             ; Print $-terminated string to console
+ 611:				;
+ 612: 3368+19	02B2' FD6E03  	                ld l, (iy + PKT_LENGTH)
+ 613: 3387+19	02B5' FD6604  	                ld h, (iy + PKT_LENGTH + 1)
+ 614: 3406+17	02B8' CD0000  	                call cwpdwd             ; Print decimal unsigned number
+ 615: 3423+17	02BB' CD0000  	                call cwnwln             ; Write new line characters to console
+ 616:				;
+ 617: 3440+10	02BE' E1      	                pop hl
+ 618: 3450+10	02BF' D1      	                pop de
+ 619: 3460+10	02C0' C1      	                pop bc
+ 620: 3470+10	02C1' C9      	                ret
+ 621:				;
+ 622:				;
+ 623:				; This code assumes that the CP/M FCB is at the beginning of the FCBR
+ 624:				; structure.
+ 625:     -	0001'         	                assert FCBR_FCB = 0
+ 626:				;
+ 627:				;
+ 628:				; Setup FCBR and create file from data in packet. This is similar in function
+ 629:				; to fbfcb followed by fmake from cpm_utility. There are some differences in
+ 630:				; filename handling for this application.
+ 631:				; Call with:
+ 632:				; HL - pointer to filename
+ 633:				; IX - pointer to FCBR
+ 634:				; Filename is <drive letter><8 character filename><3 character extension>, so
+ 635:				; 12 bytes in total.
+ 636:				; Returns with:
+ 637:				; Carry flag is set if there is an error.
+ 638:				; IX is preserved.
+ 639: 3480+11	02C2' C5      	sfmake          push bc
+ 640: 3491+11	02C3' D5      	                push de
+ 641: 3502+11	02C4' E5      	                push hl
+ 642:				;
+ 643:				; Set all values to zero.
+ 644: 3513+15	02C5' DDE5    	                push ix
+ 645: 3528+10	02C7' E1      	                pop hl
+ 646: 3538+7	02C8' 0624    	                ld b, FCB_SIZE
+ 647: 3545+4	02CA' AF      	                xor a
+ 648: 3549+7	02CB' 77      	of_clear_loop   ld (hl), a
+ 649: 3556+6	02CC' 23      	                inc hl
+ 650: 3562+8+5	02CD' 10FC    	                djnz of_clear_loop
+ 651:				;
+ 652: 3570+10	02CF' D1      	                pop de
+ 653: 3580+15	02D0' DDE5    	                push ix
+ 654: 3595+10	02D2' E1      	                pop hl
+ 655:				; DE - start of filename
+ 656:				; HL - FCB pointer
+ 657:				;
+ 658:				; Drive letter.
+ 659: 3605+7	02D3' 1A      	                ld a, (de)              ; Fetch drive letter
+ 660: 3612+6	02D4' 13      	                inc de
+ 661: 3618+7	02D5' FE41    	                cp "A"
+ 662: 3625+10	02D7' DA1403  	                jp c, of_bad_drive      ; Error if < "A"
+ 663: 3635+7	02DA' FE51    	                cp "A" + NUM_DISKS_MAX
+ 664: 3642+10	02DC' D21403  	                jp nc, of_bad_drive     ; Error if > "P"
+ 665: 3652+7	02DF' D640    	                sub "A" - 1             ; Make range 1 to 16
+ 666: 3659+7	02E1' 77      	of_fn_drdn      ld (hl), a
+ 667: 3666+6	02E2' 23      	                inc hl
+ 668:				;
+ 669:				; Filename. A crude check is made to ensure the name is valid, but only non-
+ 670:				; printable characters are rejected so there is some margin here.
+ 671: 3672+7	02E3' 0608    	                ld b, FILENAME_SIZE
+ 672: 3679+7	02E5' 1A      	of_fn_loop      ld a, (de)
+ 673: 3686+6	02E6' 13      	                inc de
+ 674: 3692+7	02E7' FE20    	                cp " "
+ 675: 3699+10	02E9' DA1D03  	                jp c, of_bad_name       ; < ' ' is a control character
+ 676: 3709+7	02EC' FE7F    	                cp ascii_del
+ 677: 3716+10	02EE' D21D03  	                jp nc, of_bad_name      ; >= DEL isn't valid either
+ 678: 3726+7	02F1' 77      	                ld (hl), a
+ 679: 3733+6	02F2' 23      	                inc hl
+ 680: 3739+8+5	02F3' 10F0    	                djnz of_fn_loop
+ 681:				;
+ 682:				; Further check that the first character isn't a space. An all-space name is
+ 683:				; potentially problematic.
+ 684: 3747+19	02F5' DD7E01  	                ld a, (ix + FCB_NAME)
+ 685: 3766+7	02F8' FE20    	                cp ' '
+ 686: 3773+7+5	02FA' 2821    	                jr z, of_bad_name
+ 687:				;
+ 688:				; Extension, rejecting invalid characters as for the name.
+ 689: 3780+7	02FC' 0603    	                ld b, FILEEXT_SIZE
+ 690: 3787+7	02FE' 1A      	of_ext_loop     ld a, (de)
+ 691: 3794+6	02FF' 13      	                inc de
+ 692: 3800+7	0300' FE20    	                cp " "
+ 693: 3807+10	0302' DA1D03  	                jp c, of_bad_name       ; < ' ' is a control character
+ 694: 3817+7	0305' FE7F    	                cp ascii_del
+ 695: 3824+10	0307' D21D03  	                jp nc, of_bad_name      ; >= DEL isn't valid either
+ 696: 3834+7	030A' 77      	                ld (hl), a
+ 697: 3841+6	030B' 23      	                inc hl
+ 698: 3847+8+5	030C' 10F0    	                djnz of_ext_loop
+ 699:				;
+ 700: 3855+17	030E' CD0000  	                call fmake              ; Create new file and report errors
+ 701:				; A - BDOS error code if carry = 1
+ 702:				; Carry flag is set if BDOS reported an error.
+ 703:				;
+ 704:				; Return with carry set on error.
+ 705: 3872+10	0311' D1      	of_exit         pop de
+ 706: 3882+10	0312' C1      	                pop bc
+ 707: 3892+10	0313' C9      	                ret
+ 708:				;
+ 709:				; Drive letter out of range.
+ 710: 3902+10	0314' 214505  	of_bad_drive    ld hl, bad_drive_msg    ; "Bad drive letter"
+ 711: 3912+17	0317' CD0000  	                call conwms             ; Print $-terminated string to console
+ 712: 3929+4	031A' 37      	                scf                     ; Flag error
+ 713: 3933+12	031B' 18F4    	                jr of_exit
+ 714:				;
+ 715:				; Bad filename or extension.
+ 716: 3945+10	031D' 215805  	of_bad_name     ld hl, bad_fn_msg       ; "Bad filename"
+ 717: 3955+17	0320' CD0000  	                call conwms             ; Print $-terminated string to console
+ 718: 3972+4	0323' 37      	                scf                     ; Flag error
+ 719: 3976+12	0324' 18EB    	                jr of_exit
+ 720:				;
+ 721:				;
+ 722:				;
+ 723:				; *************
+ 724:				; * Constants *
+ 725:				; *************
+ 726:				;
+ 727:				;
+ 728:     -	0326' 2A2A2A20	signon_msg      byte "*** Serial File Transfer V1.0 ***"
+	              53657269
+	              616C2046
+	              696C6520
+	              5472616E
+	              73666572
+	              2056312E
+	              30202A2A
+	              2A
+ 729:     -	0347' 0D0A24  	cr_lf_msg       byte 0x0d, 0x0a, "$"
+ 730:     -	034A' 556E6578	op_err_msg      byte "Unexpected operand(s).", 0x0d, 0x0a, "$"
+	              70656374
+	              6564206F
+	              70657261
+	              6E642873
+	              292E0D0A
+	              24
+ 731:     -	0363' 436F6E73	one_port_msg    byte "Console and data share a common port. Press ^C to exit."
+	              6F6C6520
+	              616E6420
+	              64617461
+	              20736861
+	              72652061
+	              20636F6D
+	              6D6F6E20
+	              706F7274
+	              2E205072
+	              65737320
+	              5E432074
+	              6F206578
+	              69742E
+ 732:     -	039A' 0D0A24  	                byte 0x0d, 0x0a, "$"
+ 733:     -	039D' 436F6E73	two_port_msg    byte "Console and data use separate ports. Press ^C on the "
+	              6F6C6520
+	              616E6420
+	              64617461
+	              20757365
+	              20736570
+	              61726174
+	              6520706F
+	              7274732E
+	              20507265
+	              7373205E
+	              43206F6E
+	              20746865
+	              20
+ 734:     -	03D2' 636F6E73	                byte "console port to exit.", 0x0d, 0x0a, "$"
+	              6F6C6520
+	              706F7274
+	              20746F20
+	              65786974
+	              2E0D0A24
+ 735:     -	03EA' 54686973	break_awk_msg   byte "This will not be detected until a character is received "
+	              2077696C
+	              6C206E6F
+	              74206265
+	              20646574
+	              65637465
+	              6420756E
+	              74696C20
+	              61206368
+	              61726163
+	              74657220
+	              69732072
+	              65636569
+	              76656420
+ 736:     -	0422' 6F6E2074	                byte "on the reader (RDR:)", 0x0d, 0x0a
+	              68652072
+	              65616465
+	              72202852
+	              44523A29
+	              0D0A
+ 737:     -	0438' 706F7274	                byte "port.", 0x0d, 0x0a, "$"
+	              2E0D0A24
+ 738:     -	0440' 57616974	waiting_msg     byte "Waiting for command packet", 0x0d, 0x0a, "$"
+	              696E6720
+	              666F7220
+	              636F6D6D
+	              616E6420
+	              7061636B
+	              65740D0A
+	              24
+ 739:     -	045D' 45786974	break_msg       byte "Exiting due to ^C", 0x0d, 0x0a, "$"
+	              696E6720
+	              64756520
+	              746F205E
+	              430D0A24
+ 740:     -	0471' 556E6578	unexp_pkt_msg   byte "Unexpected packet type", 0x0d, 0x0a, "$"
+	              70656374
+	              65642070
+	              61636B65
+	              74207479
+	              70650D0A
+	              24
+ 741:     -	048A' 53657373	exit_msg        byte "Session complete", 0x0d, 0x0a, "$"
+	              696F6E20
+	              636F6D70
+	              6C657465
+	              0D0A24
+ 742:     -	049D' 5472616E	tx_msg          byte "Transmit file (PC to CP/M): ", 0x0d, 0x0a, "$"
+	              736D6974
+	              2066696C
+	              65202850
+	              4320746F
+	              2043502F
+	              4D293A20
+	              0D0A24
+ 743:     -	04BC' 52656365	rx_msg          byte "Receive file (CP/M to PC): ", 0x0d, 0x0a, "$"
+	              69766520
+	              66696C65
+	              20284350
+	              2F4D2074
+	              6F205043
+	              293A200D
+	              0A24
+ 744:     -	04DA' 52656164	dir_msg         byte "Read CP/M directory: ", 0x0d, 0x0a, "$"
+	              2043502F
+	              4D206469
+	              72656374
+	              6F72793A
+	              200D0A24
+ 745:     -	04F2' 5061636B	psn_err_msg     byte "Packet sequence error", 0x0d, 0x0a, "$"
+	              65742073
+	              65717565
+	              6E636520
+	              6572726F
+	              720D0A24
+ 746:     -	050A' 50617468	cfnl_err_msg    byte "Path length error", 0x0d, 0x0a, "$"
+	              206C656E
+	              67746820
+	              6572726F
+	              720D0A24
+ 747:     -	051E' 5472616E	tran_compl_msg  byte "Transfer complete", 0x0d, 0x0a, "$"
+	              73666572
+	              20636F6D
+	              706C6574
+	              650D0A24
+ 748:     -	0532' 5472616E	tran_abort_msg  byte "Transfer aborted", 0x0d, 0x0a, "$"
+	              73666572
+	              2061626F
+	              72746564
+	              0D0A24
+ 749:     -	0545' 42616420	bad_drive_msg   byte "Bad drive letter", 0x0d, 0x0a, "$"
+	              64726976
+	              65206C65
+	              74746572
+	              0D0A24
+ 750:     -	0558' 42616420	bad_fn_msg      byte "Bad filename", 0x0d, 0x0a, "$"
+	              66696C65
+	              6E616D65
+	              0D0A24
+ 751:				;
+ 752:				; Display packet header messages.
+ 753:     -	0567' 52656365	dh_rx_msg       byte "Received", "$"
+	              69766564
+	              24
+ 754:     -	0570' 5472616E	dh_tx_msg       byte "Transmitting", "$"
+	              736D6974
+	              74696E67
+	              24
+ 755:     -	057D' 20706163	dh_start_msg    byte " packet: ", "$"
+	              6B65743A
+	              2024
+ 756:     -	0587' 4E554C4C	dh_types_msg    byte "NULL|ACK|NAK|Exit|Tx|Rx|End|Abort|Dir", 0
+	              7C41434B
+	              7C4E414B
+	              7C457869
+	              747C5478
+	              7C52787C
+	              456E647C
+	              41626F72
+	              747C4469
+	              7200
+ 757:     -	05AD' 28756E6B	dh_bad_type_msg byte "(unknown type)", "$"
+	              6E6F776E
+	              20747970
+	              652924
+ 758:     -	05BC' 2C205053	dh_psn_msg      byte ", PSN ", "$"
+	              4E2024
+ 759:     -	05C3' 2C206C65	dh_len_msg      byte ", length ", "$"
+	              6E677468
+	              2024
+ 760:				;
+ 761:				;
+ 762:				;
+ 763:				; *************
+ 764:				; * Variables *
+ 765:				; *************
+ 766:				;
+ 767:				;
+ 768:				; Note: linker "-c" option is used, so no data is initialised here.
+ 769:				                dseg                ; Data segment
+ 770:				;
+ 771:     -	0000"         	bdos_sp         defs 2              ; BDOS's stack pointer
+ 772:     -	0002"         	zrcflg          defs 1              ; Non-zero if on a ZARC system
+ 773:     -	0003"         	spoflg          defs 1              ; Non-zero if in single port mode
+ 774:     -	0004"         	brkflg          defs 1              ; Non-zero if break character detected
+ 775:     -	0005"         	tx_packet_buf   defs PKT_SIZE + 2   ; Transmit packet buffer
+ 776:     -	020C"         	rx_packet_buf   defs PKT_SIZE + 2   ; Receive packet buffer
+ 777:     -	0413"         	fcbr            defs FCBR_SIZE      ; FCB and record buffer structure
+ 778:     -	04B9"         	psn             defs 2              ; Packet Sequence Number (PSN)
+ 779:				;
+ 780:     -	04BB"         	                defs STACK_SIZE     ; Stack space
+ 781:     -	04FB"         	app_stack_top
+ 782:				;
+ 783:     -	04FB"         	                end
+
+
+
+Statistics:
+
+     4	passes
+     0	jr promotions
+   371	symbols
+  1485	bytes
+
+   138	macro calls
+  1546	macro bytes
+     0	invented symbols
+
+
+
+Symbol Table:
+
+ASCII_BS       =08        8
+ASCII_CR       =0D        13
+ASCII_DEL      =7F        127
+ASCII_ENQ      =05        5
+ASCII_ESC      =1B        27
+ASCII_FF       =0C        12
+ASCII_HT       =09        9
+ASCII_LF       =0A        10
+ASCII_RS       =1E        30
+ASCII_SUB      =1A        26
+ASCII_SYN      =16        22
+ASCII_VT       =0B        11
+BDOS           =05        5
+BDOS_CLOSE_FILE=10        16
+BDOS_CON_IN    =01        1
+BDOS_CON_OUT   =02        2
+BDOS_DELETE_FILE=13        19
+BDOS_DIRECT_CON_IO=06        6
+BDOS_GET_ALLOC_ADDR=1B        27
+BDOS_GET_CON_STAT=0B        11
+BDOS_GET_CURR_DISK=19        25
+BDOS_GET_DPB   =1F        31
+BDOS_GET_FILE_SIZE=23        35
+BDOS_GET_IO_BYTE=07        7
+BDOS_GET_LOGIN_VEC=18        24
+BDOS_GET_RO_VEC=1D        29
+BDOS_GET_SET_USER=20        32
+BDOS_LST_OUT   =05        5
+BDOS_MAKE_FILE =16        22
+BDOS_OPEN_FILE =0F        15
+BDOS_PRINT_STRING=09        9
+BDOS_PUN_OUT   =04        4
+BDOS_RDR_IN    =03        3
+BDOS_READ_CON_BUFF=0A        10
+BDOS_READ_RANDOM=21        33
+BDOS_READ_SEQ  =14        20
+BDOS_READ_SEQ_EOF=01        1
+BDOS_RENAME_FILE=17        23
+BDOS_RESET_DISK_SYS=0D        13
+BDOS_RESET_DRIVES=25        37
+BDOS_SEARCH_FIRST=11        17
+BDOS_SEARCH_NEXT=12        18
+BDOS_SEL_DISK  =0E        14
+BDOS_SET_DMA_ADDR=1A        26
+BDOS_SET_FILE_ATTR=1E        30
+BDOS_SET_IO_BYTE=08        8
+BDOS_SET_RANDOM_REC=24        36
+BDOS_START     =DE06      56838
+BDOS_SYS_RST   =00        0
+BDOS_VERSION   =0C        12
+BDOS_WRITE_PROT=1C        28
+BDOS_WRITE_RANDOM=22        34
+BDOS_WRITE_RAN_ZFILL=28        40
+BDOS_WRITE_SEQ =15        21
+BIOS_AUXIST    =33        51
+BIOS_AUXOST    =36        54
+BIOS_CONIN     =06        6
+BIOS_CONOST    =30        48
+BIOS_CONOUT    =09        9
+BIOS_CONST     =03        3
+BIOS_CPM_START_SEC=2C        44
+BIOS_DEVINI    =3C        60
+BIOS_DEVTBL    =39        57
+BIOS_DRVTBL    =3F        63
+BIOS_FLUSH     =45        69
+BIOS_GET_TIMER =7B        123
+BIOS_HOME      =15        21
+BIOS_ID        =60        96
+BIOS_INT_DISABLE=6F        111
+BIOS_INT_ENABLE=72        114
+BIOS_JPTBL_NEXT=7E        126
+BIOS_LISTST    =2A        42
+BIOS_MAX_SIZE  =1000      4096
+BIOS_MON_CALL  =69        105
+BIOS_MOVE      =48        72
+BIOS_MULTIO    =42        66
+BIOS_OPT_DEBUG_BIT=00        0
+BIOS_OPT_DEBUG_MASK=01        1
+BIOS_OPT_NOINTS_BIT=01        1
+BIOS_OPT_NOINTS_MASK=02        2
+BIOS_OPT_RAWCON_BIT=02        2
+BIOS_OPT_RAWCON_MASK=04        4
+BIOS_PLIST     =0C        12
+BIOS_PUNCH     =0F        15
+BIOS_READ      =24        36
+BIOS_READER    =12        18
+BIOS_RESERV1   =5A        90
+BIOS_RESERV2   =5D        93
+BIOS_SECTRAN   =2D        45
+BIOS_SELDSK    =18        24
+BIOS_SELMEM    =4E        78
+BIOS_SETBNK    =51        81
+BIOS_SETDMA    =21        33
+BIOS_SETSEC    =1E        30
+BIOS_SETTRK    =1B        27
+BIOS_SET_TIMER =78        120
+BIOS_START     =EC00      60416
+BIOS_STARTUP   =66        102
+BIOS_SUPER     =6C        108
+BIOS_TIME      =4B        75
+BIOS_TIRD      =75        117
+BIOS_USERF     =57        87
+BIOS_VER       =63        99
+BIOS_WBOOT     =00        0
+BIOS_WRITE     =27        39
+BIOS_XMOVE     =54        84
+BLKLEN         = 200      512
+BREAK_CHAR     =03        3
+CCP_START      =D600      54784
+CDISK          =04        4
+CPM_BIAS       =A200      41472
+CPM_DISK_SIZE  =00100000  1048576
+CPM_SECTOR_SIZE=80        128
+CPM_SYS_SIZE   =00100000  1048576
+DEF_BUFFER     =80        128
+DEF_BUFFER_SIZE=80        128
+DIRE_ALLOC     =10        16
+DIRE_EX        =0C        12
+DIRE_NAME      =01        1
+DIRE_RC        =0F        15
+DIRE_S1        =0D        13
+DIRE_S2        =0E        14
+DIRE_SIZE      =20        32
+DIRE_TYP       =09        9
+DIRE_USER      =00        0
+DPB_AL0        =09        9
+DPB_AL1        =0A        10
+DPB_BLM        =03        3
+DPB_BSH        =02        2
+DPB_CKS        =0B        11
+DPB_DRM        =07        7
+DPB_DSM        =05        5
+DPB_EXM        =04        4
+DPB_OFF        =0D        13
+DPB_SIZE       =0F        15
+DPB_SPT        =00        0
+DPH_ALV        =0E        14
+DPH_CSV        =0C        12
+DPH_DIRBF      =08        8
+DPH_DPB        =0A        10
+DPH_SCRATCH0   =02        2
+DPH_SCRATCH1   =04        4
+DPH_SCRATCH2   =06        6
+DPH_SIZE       =10        16
+DPH_XLT        =00        0
+FCB1           =5C        92
+FCB2           =6C        108
+FCBR_CONTENTS  =25        37
+FCBR_FCB       =00        0
+FCBR_FLAGS     =24        36
+FCBR_FL_DIRTY_BIT=01        1
+FCBR_FL_DIRTY_MASK=02        2
+FCBR_FL_OPEN_BIT=00        0
+FCBR_FL_OPEN_MASK=01        1
+FCBR_RBUFF     =26        38
+FCBR_SIZE      =A6        166
+FCB_ALLOC      =10        16
+FCB_CR         =20        32
+FCB_DRIVE      =00        0
+FCB_EX         =0C        12
+FCB_NAME       =01        1
+FCB_RC         =0F        15
+FCB_RECORD     =21        33
+FCB_S1         =0D        13
+FCB_S2         =0E        14
+FCB_SIZE       =24        36
+FCB_TYP        =09        9
+FILEEXT_SIZE   =03        3
+FILENAME_SIZE  =08        8
+FILE_EOF       =1A        26
+FLUSH_TIMER    =FFFF      65535
+FPTH_DRIVE     =00        0
+FPTH_EXT       =09        9
+FPTH_NAME      =01        1
+FPTH_SIZE      =0C        12
+INT_VEC_TABLE  =FFE0      65504
+IOBYTE         =03        3
+IOB_CON_MASK   =03        3
+IOB_LST_MASK   =C0        192
+IOB_PUN_MASK   =30        48
+IOB_RDR_MASK   =0C        12
+MAX_USER       =0F        15
+MMAP_CPM_PAGES =04        4
+MTWDLI_ABBREV_BIT=00        0
+MTWDLI_ABBREV_MASK=01        1
+MTWDLI_ICASE_BIT=01        1
+MTWDLI_ICASE_MASK=02        2
+MTWDLI_TERM_BIT=07        7
+MTWDLI_TERM_MASK=80        128
+NAK_CMD        =02        2
+NAK_CRC        =00        0
+NAK_NO_TRAN    =05        5
+NAK_NUM        =06        6
+NAK_OPEN       =03        3
+NAK_PSN        =01        1
+NAK_RW_ERR     =04        4
+NUM_DISKS      =10        16
+NUM_DISKS_MAX  =10        16
+PKTYP_ABORT    =07        7
+PKTYP_ACK      =01        1
+PKTYP_DIR      =08        8
+PKTYP_END      =06        6
+PKTYP_EXIT     =03        3
+PKTYP_NAK      =02        2
+PKTYP_NULL     =00        0
+PKTYP_NUM      =09        9
+PKTYP_RX       =05        5
+PKTYP_TX       =04        4
+PKT_DATA       =05        5
+PKT_LENGTH     =03        3
+PKT_PSN        =01        1
+PKT_SIZE       = 205      517
+PKT_TYPE       =00        0
+RXERR_BREAK    =01        1
+RXERR_CRC      =03        3
+RXERR_ENC      =02        2
+RXERR_NUM      =04        4
+RXERR_OK       =00        0
+STACK_SIZE     =40        64
+TPA_START      = 100      256
+ZKEY_CSR_DOWN  =1E        30
+ZKEY_CSR_LEFT  =01        1
+ZKEY_CSR_RIGHT =06        6
+ZKEY_CSR_UP    =1F        31
+ZKEY_DELETE    =7F        127
+ZKEY_END       =04        4
+ZKEY_HOME      =02        2
+ZKEY_INSERT    =16        22
+ZKEY_PAGE_DOWN =1C        28
+ZKEY_PAGE_UP   =1D        29
+app_stack_top    4FB"     1275
+bad_drive_msg    545'     1349
+bad_fn_msg       558'     1368
+bdos_sp         00"       0
+break_awk_msg    3EA'     1002
+break_exit       1AD'     429
+break_msg        45D'     1117
+brkflg          04"       4 (public)
+cbdos           00        0 (extern)
+cbios           00        0 (extern)
+cd_drv_len_err   19E'     414
+cd_drv_len_ok    19E'     414
+cfnl_err_msg     50A'     1290
+cfnl_error       202'     514
+chk_fn_length    1F6'     502
+chk_psn          25B'     603
+cmd_abort       A7'       167
+cmd_dir          182'     386
+cmd_exit         1A1'     417
+cmd_rx           16A'     362
+cmd_tx          AF'       175
+conrch          00        0 (extern)
+const           00        0 (extern)
+conwch          00        0 (extern)
+conwmn          00        0 (extern)
+conwms          00        0 (extern)
+cpz_error        266'     614
+cr_lf_msg        347'     839
+crc16x          00        0 (extern)
+cwnwln          00        0 (extern)
+cwpdby          00        0 (extern)
+cwpdlo          00        0 (extern)
+cwpdwd          00        0 (extern)
+cwphby          00        0 (extern)
+cwphnb          00        0 (extern)
+cwphwd          00        0 (extern)
+cwpspc          00        0 (extern)
+cwvich          00        0 (extern)
+dcf_ext_lp       1E9'     489
+dcf_name_lp      1DB'     475
+dh_bad_type_msg  5AD'     1453
+dh_header        284'     644
+dh_len_msg       5C3'     1475
+dh_psn_msg       5BC'     1468
+dh_rx_msg        567'     1383
+dh_start_msg     57D'     1405
+dh_tx_msg        570'     1392
+dh_type_dn       29D'     669
+dh_types_msg     587'     1415
+dir_msg          4DA'     1242
+disp_cmd_fn      1C4'     452
+disp_rx_header   26E'     622
+disp_tx_header   279'     633
+enum_counter   =06        6
+exit             1BC'     444
+exit_msg         48A'     1162
+fbfcb           00        0 (extern)
+fcbr             413"     1043
+fclose          00        0 (extern)
+fdel            00        0 (extern)
+fdfcb           00        0 (extern)
+fdnam           00        0 (extern)
+fdsrem          00        0 (extern)
+fdswem          00        0 (extern)
+finit           00        0 (extern)
+flush           00        0 (extern)
+fmake           00        0 (extern)
+fopen           00        0 (extern)
+frdblk          00        0 (extern)
+frdby           00        0 (extern)
+frdrec          00        0 (extern)
+fwrblk          00        0 (extern)
+fwrby           00        0 (extern)
+fwrrec          00        0 (extern)
+jptbl_addr     =7E        126
+madbbu          00        0 (extern)
+madd32          00        0 (extern)
+madlbu          00        0 (extern)
+madwbu          00        0 (extern)
+main_loop       6A'       106
+mamlbu          00        0 (extern)
+mamwwu          00        0 (extern)
+mclr32          00        0 (extern)
+mcop32          00        0 (extern)
+mcp32           00        0 (extern)
+minc32          00        0 (extern)
+msub32          00        0 (extern)
+mtwdli          00        0 (extern)
+nonrec_error     1B6'     438
+of_bad_drive     314'     788
+of_bad_name      31D'     797
+of_clear_loop    2CB'     715
+of_exit          311'     785
+of_ext_loop      2FE'     766
+of_fn_drdn       2E1'     737
+of_fn_loop       2E5'     741
+one_port_msg     363'     867
+op_check_term   1A'       26
+op_err_msg       34A'     842
+op_error        21'       33
+operands_ok     2A'       42
+panic           00        0 (extern)
+ports_done      5C'       92
+ports_one       51'       81
+psn              4B9"     1209
+psn_err_msg      4F2'     1266
+rddulo          00        0 (extern)
+rdduwd          00        0 (extern)
+rdhxwd          00        0 (extern)
+rx_msg           4BC'     1212
+rx_packet_buf    20C"     524
+rxdch           00        0 (extern)
+rxpkt           00        0 (extern)
+send_ack         20C'     524
+send_nak         232'     562
+sfmake           2C2'     706
+signon_msg       326'     806
+skpspc          00        0 (extern)
+spoflg          03"       3 (public)
+str_offset     =A6        166
+toloca          00        0 (extern)
+toupca          00        0 (extern)
+tran_abort_msg   532'     1330
+tran_compl_msg   51E'     1310
+two_port_msg     39D'     925
+tx_abort         11C'     284
+tx_byte_loop     14C'     332
+tx_bytes_done    15D'     349
+tx_data          12E'     302
+tx_end           108'     264
+tx_loop         DF'       223
+tx_msg           49D'     1181
+tx_packet_buf   05"       5
+tx_psn_ok        13F'     319
+txdch           00        0 (extern)
+txpkt           00        0 (extern)
+unexp_pkt_msg    471'     1137
+waiting_msg      440'     1088
+z80det          00        0 (extern)
+zrcdet          00        0 (extern)
+zrcflg          02"       2 (public)

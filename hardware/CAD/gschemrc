@@ -1,0 +1,8 @@
+; Set default title block
+(define default-titleblock "title-A2.sym")
+; Make nets a lighter colour for better contrast against a black background
+(display-color-map '((net "#00cccc")))
+; Set default paper size to A4
+(paper-size 11.69 8.27) ; A4
+; Controls if the log message window is mapped when gschem is started up
+(log-window "later")

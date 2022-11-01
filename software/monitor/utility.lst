@@ -1,0 +1,1655 @@
+   1:				; *******************************************************
+   2:				; * Utility Routines for ZARC Z80 Computer              *
+   3:				; * Written by: Merlin Skinner                          *
+   4:				; * Date Started: 26/5/2020                             *
+   5:				; *******************************************************
+   6:				;
+   7:				; Simple support routines for use with the monitor program or other
+   8:				; programmes.
+   9:				;
+  10:				; Routines preserve all registers not required as operands or return
+  11:				; values except AF unless otherwise stated below.
+  12:				;
+  13:				;
+  14:     -	0001'         	monitor         equ 1                   ; Flag part of monitor build
+  15:     -	0001'         	utility         equ 1                   ; Flag module for includes
+  16:				;
+  17:				;
+  18:				;
+  19:				; ************
+  20:				; * Includes *
+  21:				; ************
+  22:				;
+  23:				                include "macros.i"
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//macros.i ****
+   1:				; ***********************************
+   2:				; * ZARC Macro Definitions          *
+   3:				; * Written by: Merlin Skinner      *
+   4:				; * Date Started: 30/7/2020         *
+   5:				; ***********************************
+   6:				;
+   7:				;
+   8:				;
+   9:				; **********
+  10:				; * Macros *
+  11:				; **********
+  12:				;
+  13:				;
+  14:				; Initialise enumeration.
+  15:				; The absolute segment is used so the offsets are not marked as relocatable. This
+  16:				; avoids "Not relocatable" errors.
+  17:				ENUM_START      macro
+  18:				                .aseg
+  19:				enum_counter    set 0
+  20:				                endm
+  21:				;
+  22:				; Invoke for each item.
+  23:				ENUM            macro x
+  24:				x               equ enum_counter
+  25:				enum_counter    set enum_counter + 1
+  26:				                endm
+  27:				;
+  28:				ENUM_END        macro x
+  29:				x               set enum_counter    ; Set label to count of items
+  30:				                .cseg
+  31:				                endm
+  32:				;
+  33:				;
+  34:				; Initialise a structure. This is used to generate offsets for data structures.
+  35:				; The absolute segment is used so the offsets are not marked as relocatable. This
+  36:				; avoids "Not relocatable" errors.
+  37:				STRUCT          macro
+  38:				                .aseg
+  39:				str_offset      set 0
+  40:				                endm
+  41:				;
+  42:				; Add a byte entry.
+  43:				STR_BYTE        macro x
+  44:				x               equ str_offset
+  45:				str_offset      set str_offset + 1
+  46:				                endm
+  47:				;
+  48:				; Add a word (16-bit) entry.
+  49:				STR_WORD        macro x
+  50:				x               equ str_offset
+  51:				str_offset      set str_offset + 2
+  52:				                endm
+  53:				;
+  54:				; Add a 3 byte (24-bit) entry.
+  55:				STR_24BIT       macro x
+  56:				x               equ str_offset
+  57:				str_offset      set str_offset + 3
+  58:				                endm
+  59:				;
+  60:				; Add a long (32-bit) entry.
+  61:				STR_LONG        macro x
+  62:				x               equ str_offset
+  63:				str_offset      set str_offset + 4
+  64:				                endm
+  65:				;
+  66:				; Add an arbitrary length entry.
+  67:				STR_BLOCK       macro x, size   ; <name>, <size>
+  68:				x               equ str_offset
+  69:				str_offset      set str_offset + size
+  70:				                endm
+  71:				;
+  72:				; End of structure (used to set size)
+  73:				STR_END         macro x
+  74:				x               equ str_offset
+  75:				                .cseg
+  76:				                endm
+  77:				;
+  78:				;
+  79:				; Calculate offsets into jump tables.
+  80:				; The absolute segment is used so the offsets are not marked as relocatable. This
+  81:				; avoids "Not relocatable" errors.
+  82:				JPTBL_START     macro x
+  83:				                .aseg
+  84:				jptbl_addr      set x               ; Set start address
+  85:				                endm
+  86:				;
+  87:				; Invoke for each item.
+  88:				JPTBL_ENTRY     macro x
+  89:				x               equ jptbl_addr
+  90:				jptbl_addr      set jptbl_addr + 3
+  91:				                endm
+  92:				;
+  93:				; Invoke for a data block in the jump table
+  94:				JPTBL_BLOCK     macro x, size   ; <name>, <size>
+  95:				x               equ jptbl_addr
+  96:				jptbl_addr      set jptbl_addr + size
+  97:				                endm
+  98:				;
+  99:				JPTBL_END       macro x
+ 100:				x               set jptbl_addr      ; Set label to next address
+ 101:				                .cseg
+ 102:				                endm
+ 103:				;
+ 104:				;
+ 105:				; Define bits and masks. This is inspired by the Commodore Amiga BITDEF mechanism.
+ 106:				; Given:
+ 107:				; BITDEF I2C_CSR_STOP, 2
+ 108:				; Yields:
+ 109:				; I2C_CSR_STOP_BIT  EQU 2       ; Bit number
+ 110:				; I2C_CSR_STOP_MASK EQU 1<<2    ; Bit mask
+ 111:				BITDEF          macro n, b      ; <Name>, <bit>
+ 112:				n`_BIT          equ b
+ 113:				n`_MASK         equ 1 << b
+ 114:				                endm
+ 115:				
+**** utility.z80 ****
+  24:				                include "z80.i"
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//z80.i ****
+   1:				; ***********************************
+   2:				; * ZARC Z80 Definitions            *
+   3:				; * Written by: Merlin Skinner      *
+   4:				; * Date Started: 28/5/2020         *
+   5:				; ***********************************
+   6:				;
+   7:				; Definitions related to the Z80 itself.
+   8:				;
+   9:				; Z80 Vectors
+  10:     -	0000'         	Z80_RST00_VEC   equ 0x0000      ; RST instruction vectors
+  11:     -	0008'         	Z80_RST08_VEC   equ 0x0008
+  12:     -	0010'         	Z80_RST10_VEC   equ 0x0010
+  13:     -	0018'         	Z80_RST18_VEC   equ 0x0018
+  14:     -	0020'         	Z80_RST20_VEC   equ 0x0020
+  15:     -	0028'         	Z80_RST28_VEC   equ 0x0028
+  16:     -	0030'         	Z80_RST30_VEC   equ 0x0030
+  17:     -	0038'         	Z80_RST38_VEC   equ 0x0038
+  18:     -	0066'         	Z80_NMI_VEC     equ 0x0066      ; NMI vectors
+  19:				
+**** utility.z80 ****
+  25:				                include "monitor.i"
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//monitor.i ****
+   1:				; *******************************************************
+   2:				; * ZARC Monitor Definitions                            *
+   3:				; * Written by: Merlin Skinner                          *
+   4:				; * Date Started: 26/5/2020                             *
+   5:				; *******************************************************
+   6:				;
+   7:				; Definitions related to the monitor programme.
+   8:				;
+   9:				; Note that ld80 only considers the first six characters of labels significant.
+  10:				;
+  11:				;
+  12:				; The following conditionals are intended to allow the same include file to be
+  13:				; used in the defining module and elsewhere as required. Some includes are used
+  14:				; for other applications than the monitor, such as the CP/M BIOS. In these cases,
+  15:				; the extern and public statements are not desirable.
+  16:				;
+  17:     -	0001'         	            ifdef monitor           ; Meaningful for monitor build only
+  18:     -	0001'         	                ifndef main         ; Inhibit for this module
+  19:				; Constants
+  20:				;
+  21:				; Variables 
+  22:				                extern tikcnt       ; Tick counter
+  23:				;
+  24:				; Functions
+  25:				                extern panic        ; System error exception
+  26:				                extern rusby        ; Read byte from user space
+  27:				                extern ruswd        ; Read 16-bit word from user space
+  28:				                extern wusby        ; Write byte to user space
+  29:				                extern wuswd        ; Write 16-bit word to user space
+  30:				;
+  31:				                endif
+  32:				            endif
+  33:				;
+  34:				;
+  35:				;
+  36:				; *****************
+  37:				; * Monitor Calls *
+  38:				; *****************
+  39:				;
+  40:				;
+  41:				; Calculate offsets into jump tables. Entries here must match the jump table in
+  42:				; monitor.z80.
+  43:     -	        	    JPTBL_START %(Z80_NMI_VEC + 3)   ; Start after NMI vector
+  44:				;
+  45:				; From monitor.z80
+  46:     -	        	    JPTBL_ENTRY MCALL_MON_ENTRY     ; Normal monitor entry
+  47:     -	        	    JPTBL_ENTRY MCALL_PANIC         ; System error monitor entry
+  48:				; From io.z80
+  49:     -	        	    JPTBL_ENTRY MCALL_CONWCH        ; Write character to the console port
+  50:     -	        	    JPTBL_ENTRY MCALL_CONRCH        ; Read character from the console port
+  51:     -	        	    JPTBL_ENTRY MCALL_CONSTA        ; Fetch console port status
+  52:     -	        	    JPTBL_ENTRY MCALL_S1WCH         ; Write character to serial port 1
+  53:     -	        	    JPTBL_ENTRY MCALL_S1RCH         ; Read character from serial port 1
+  54:     -	        	    JPTBL_ENTRY MCALL_S1STA         ; Fetch serial port 1 status
+  55:     -	        	    JPTBL_ENTRY MCALL_S2WCH         ; Write character to serial port 2
+  56:     -	        	    JPTBL_ENTRY MCALL_S2RCH         ; Read character from serial port 2
+  57:     -	        	    JPTBL_ENTRY MCALL_S2STA         ; Fetch serial port 2 status
+  58:				; From utility.z80
+  59:     -	        	    JPTBL_ENTRY MCALL_CWNWLN        ; Write new line characters to console
+  60:     -	        	    JPTBL_ENTRY MCALL_CONWMS        ; Print null-terminated string to the console
+  61:     -	        	    JPTBL_ENTRY MCALL_CONWMN        ; Print message <n> in a list
+  62:     -	        	    JPTBL_ENTRY MCALL_SKPSPC        ; Step hl past spaces
+  63:     -	        	    JPTBL_ENTRY MCALL_TOUPCA        ; Convert character in A to upper case
+  64:     -	        	    JPTBL_ENTRY MCALL_TOLOCA        ; Convert character in A to lower case
+  65:     -	        	    JPTBL_ENTRY MCALL_CWVICH        ; Print only visible 7-bit characters
+  66:     -	        	    JPTBL_ENTRY MCALL_CWPSPC        ; Print a space
+  67:     -	        	    JPTBL_ENTRY MCALL_MTWDLI        ; Match word in a string against list of options
+  68:     -	        	    JPTBL_ENTRY MCALL_CWPHNB        ; Print least-significant nibble in A in hexadecimal
+  69:     -	        	    JPTBL_ENTRY MCALL_CWPHBY        ; Print A in hexadecimal
+  70:     -	        	    JPTBL_ENTRY MCALL_CWPHWD        ; Print HL in hexadecimal
+  71:     -	        	    JPTBL_ENTRY MCALL_CWPDBY        ; Print A in decimal. Leading zeros are suppressed.
+  72:     -	        	    JPTBL_ENTRY MCALL_CWPDWD        ; Print HL in decimal. Leading zeros are suppressed.
+  73:     -	        	    JPTBL_ENTRY MCALL_CWPDLO        ; Print DEHL in decimal. Leading zeros are suppressed
+  74:     -	        	    JPTBL_ENTRY MCALL_RDHXWD        ; Read a 16-bit hexadecimal number from a string
+  75:     -	        	    JPTBL_ENTRY MCALL_RDDUWD        ; Read a 16-bit unsigned decimal number from a string
+  76:     -	        	    JPTBL_ENTRY MCALL_RDDULO        ; Read a 32-bit unsigned decimal number from a string
+  77:				; From maths.z80
+  78:     -	        	    JPTBL_ENTRY MCALL_MADLBU        ; 32-bit / 8-bit unsigned divide
+  79:     -	        	    JPTBL_ENTRY MCALL_MADWBU        ; 16-bit / 8-bit unsigned divide
+  80:     -	        	    JPTBL_ENTRY MCALL_MADBBU        ; 8-bit / 8-bit unsigned divide
+  81:     -	        	    JPTBL_ENTRY MCALL_MAMWWU        ; 16-bit * 16-bit unsigned multiply
+  82:     -	        	    JPTBL_ENTRY MCALL_MAMLBU        ; 32-bit * 8-bit unsigned multiply
+  83:     -	        	    JPTBL_ENTRY MCALL_CRC16X        ; CRC-16 (XMODEM)
+  84:				; From time.z80
+  85:     -	        	    JPTBL_ENTRY MCALL_TIRD          ; Read current time and date
+  86:     -	        	    JPTBL_ENTRY MCALL_TIWR          ; Set time and date
+  87:     -	        	    JPTBL_ENTRY MCALL_TIITOS        ; Convert integer time to structure
+  88:     -	        	    JPTBL_ENTRY MCALL_TISTOI        ; Convert structure time to integer
+  89:     -	        	    JPTBL_ENTRY MCALL_CWPTM         ; Print time structure to console
+  90:				; From mmc.z80
+  91:     -	        	    JPTBL_ENTRY MCALL_MCPRER        ; Print memory card error text
+  92:				; From cache.z80
+  93:     -	        	    JPTBL_ENTRY MCALL_CACRS         ; CP/M read sector
+  94:     -	        	    JPTBL_ENTRY MCALL_CACWS         ; CP/M write sector
+  95:     -	        	    JPTBL_ENTRY MCALL_CAFLUS        ; Flush cache (write dirty buffers)
+  96:				; From memory.z80
+  97:     -	        	    JPTBL_ENTRY MCALL_MPALL         ; Allocate new page
+  98:     -	        	    JPTBL_ENTRY MCALL_MPFREE        ; Free allocated page
+  99:     -	        	    JPTBL_ENTRY MCALL_MPSTAT        ; Allocation status
+ 100:				;
+ 101:     -	        	    JPTBL_END MCALL_JPTBL_NEXT
+ 102:				;
+ 103:				;
+ 104:				;
+ 105:				; **************
+ 106:				; * Structures *
+ 107:				; **************
+ 108:				;
+ 109:				;
+ 110:				; Machine state structure.
+ 111:     -	        	                STRUCT
+ 112:     -	        	                STR_BYTE MST_IEN        ; Non-zero if interrupts enabled
+ 113:     -	        	                STR_BYTE MST_MMAP_EN    ; Non-zero if memory mapping enabled
+ 114:     -	        	                STR_BYTE MST_MMAP0      ; Memory mapping registers
+ 115:     -	        	                STR_BYTE MST_MMAP1
+ 116:     -	        	                STR_BYTE MST_MMAP2
+ 117:     -	        	                STR_BYTE MST_MMAP3
+ 118:     -	        	                STR_WORD MST_SP
+ 119:     -	        	                STR_WORD MST_PC
+ 120:				; The sequence of the following entries must match those in the state save and
+ 121:				; load routines.
+ 122:     -	        	                STR_WORD MST_IY
+ 123:     -	        	                STR_WORD MST_IX
+ 124:     -	        	                STR_WORD MST_HL_P
+ 125:     -	        	                STR_WORD MST_DE_P
+ 126:     -	        	                STR_WORD MST_BC_P
+ 127:     -	        	                STR_WORD MST_AF_P       ; Alternate ("prime") registers
+ 128:     -	        	                STR_WORD MST_HL
+ 129:     -	        	                STR_WORD MST_DE
+ 130:     -	        	                STR_WORD MST_BC
+ 131:     -	        	                STR_WORD MST_AF
+ 132:				; End of sequence critical entries.
+ 133:     -	        	                STR_BYTE MST_I
+ 134:     -	        	                STR_BYTE MST_R
+ 135:     -	        	                STR_END MST_SIZE
+ 136:				;
+ 137:				;
+ 138:				;
+ 139:				; *************
+ 140:				; * Constants *
+ 141:				; *************
+ 142:				;
+ 143:				;
+ 144:				; Trace mode states for trace_mode.
+ 145:     -	        	                ENUM_START
+ 146:     -	        	                ENUM TRM_NONE
+ 147:     -	        	                ENUM TRM_SINGLE
+ 148:     -	        	                ENUM TRM_TO_ADDR        ; Trace to address
+ 149:     -	        	                ENUM TRM_XPT            ; Exception - start running normally
+ 150:     -	        	                ENUM_END TRM_STATES     ; Number of states
+ 151:				
+**** utility.z80 ****
+  26:				                include "zarc.i"        ; Hardware definitions
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//zarc.i ****
+   1:				; ***********************************
+   2:				; * ZARC Definitions                *
+   3:				; * Written by: Merlin Skinner      *
+   4:				; * Date Started: 26/5/2020         *
+   5:				; ***********************************
+   6:				;
+   7:				; Definitions related to the ZARC system.
+   8:				;
+   9:				;
+  10:				; ************
+  11:				; * Hardware *
+  12:				; ************
+  13:				;
+  14:				; Interrupt vector numbers in INT_VEC_TABLE.
+  15:				; Address is INT_VEC_TABLE + 2 * vector number).
+  16:     -	0000'         	INT_SER1_TX_VEC     equ INT_SER1_TX_BIT ; Serial port 1 transmitter buffer is half full or less
+  17:     -	0001'         	INT_SER1_RX_VEC     equ INT_SER1_RX_BIT ; Serial port 1 receiver has data
+  18:     -	0002'         	INT_SER2_TX_VEC     equ INT_SER2_TX_BIT ; Serial port 2 transmitter buffer is half full or less
+  19:     -	0003'         	INT_SER2_RX_VEC     equ INT_SER2_RX_BIT ; Serial port 2 receiver has data
+  20:     -	0004'         	INT_TICK_VEC        equ INT_TICK_BIT    ; Regular timekeeping
+  21:				;
+  22:     -	0064'         	MS_PER_TICK         equ 100             ; ms per tick
+  23:     -	000A'         	TICK_FREQ           equ 10              ; Tick rate in Hz
+  24:				;
+  25:				
+**** utility.z80 ****
+  27:				                include "io_map.i"      ; I/O addresses mapping
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//io_map.i ****
+   1:				; ***********************************
+   2:				; * ZARC I/O Definitions            *
+   3:				; * Written by: Merlin Skinner      *
+   4:				; * Date Started: 3/9/2019          *
+   5:				; ***********************************
+   6:				
+   7:				; *** I/O register address mapping ***
+   8:				
+   9:				; This should be kept in sync with the Definitions.vhd package file.
+  10:     -	0000'         	IOA_FPGA_MAJREV equ 0x00        ; FPGA major revision
+  11:     -	0001'         	IOA_FPGA_MINREV equ 0x01        ; FPGA minor revision
+  12:     -	0002'         	IOA_CONTROL     equ 0x02        ; System control register
+  13:     -	0003'         	IOA_FP_SW       equ 0x03        ; Front panel data switches
+  14:				
+  15:				; Paging
+  16:     -	0004'         	IOA_MMAP_0      equ 0x04        ; Page, supervisor and protection for bank 0 (0x0000 to 0x3fff)
+  17:     -	0005'         	IOA_MMAP_1      equ 0x05        ; Page, supervisor and protection for bank 1 (0x4000 to 0x7fff)
+  18:     -	0006'         	IOA_MMAP_2      equ 0x06        ; Page, supervisor and protection for bank 2 (0x8000 to 0xbfff)
+  19:     -	0007'         	IOA_MMAP_3      equ 0x07        ; Page, supervisor and protection for bank 3 (0xc000 to 0xffff)
+  20:				
+  21:				; Interrupts
+  22:				; Note: Up to eight interrupts are supported. IM 2 is anticipated, and the
+  23:				; fixed vector associated with each interrupt is supplied when the interrupt
+  24:				; is serviced. Routine address is “I*256+databus”. Vector supplied is
+  25:				; 0xe0 + 2 * interrupt number (0 to 7).
+  26:				; Note: addresses 0x09 and 0x0b reserved for use if more than eight interrupt
+  27:				; sources are required.
+  28:     -	0008'         	IOA_INT_EN      equ 0x08        ; Enables
+  29:     -	000A'         	IOA_INT_PEND    equ 0x0a        ; Pending interrupts
+  30:				;
+  31:				;NMI
+  32:     -	000C'         	IOA_NMI_REASONS equ 0x0c        ; NMI reasons flags
+  33:				;
+  34:				; Serial.
+  35:     -	0010'         	IOA_SER1_CSR    equ 0x10        ; Port 1 control / status
+  36:     -	0011'         	IOA_SER1_DATA   equ 0x11        ; Port 1 data
+  37:     -	0012'         	IOA_SER2_CSR    equ 0x12        ; Port 2 serial control / status
+  38:     -	0013'         	IOA_SER2_DATA   equ 0x13        ; Port 2 serial data
+  39:				
+  40:				; RTC (DS1672)
+  41:				; I2C, implemented using a byte interface to the CPU. Writing to the data port
+  42:				; shifts out a byte. Input puts are shifted into the “other end” of the same
+  43:				; register.
+  44:     -	0018'         	IOA_I2C_CSR     equ 0x18        ; Control
+  45:     -	0019'         	IOA_I2C_DATA    equ 0x19        ; Data
+  46:				;
+  47:				; SD Card
+  48:				; Uses SPI mode, with a generally similar interface to that of the I2C.
+  49:     -	0020'         	IOA_SPI_CSR     equ 0x20        ; Control
+  50:     -	0021'         	IOA_SPI_DATA    equ 0x21        ; Data
+  51:				
+  52:				; CRC16 / XMODEM and MultiMediaCard CRC16
+  53:				; Write to the CRC register to set the initial value. Writing to the input
+  54:				; data register updates the CRC.
+  55:     -	0024'         	IOA_CRC_0       equ 0x24        ; CRC register (low)
+  56:     -	0025'         	IOA_CRC_1       equ 0x25        ; CRC register (high)
+  57:     -	0026'         	IOA_CRC_DATA    equ 0x26        ; Input data
+  58:				
+  59:				; *** Proposed features ***
+  60:				; Video
+  61:				;IOA_VID_CTRL    equ 0x30;       ; Control (cursor on/off ...)
+  62:				;IOA_VID_DATA    equ 0x31;       ; Data
+  63:				;IOA_VID_CUR_X   equ 0x32;       ; Cursor X (0 to 127)
+  64:				;IOA_VID_CUR_Y   equ 0x33;       ; Cursor Y (0 to 63)
+  65:				;IOA_VID_START_L equ 0x34        ; Display start address (low byte)
+  66:				;IOA_VID_START_H equ 0x35        ; Display start address (high byte)
+  67:				
+  68:				; Video palette
+  69:				; Each entry consists of 6 bits of colour data. Foreground and background
+  70:				; colour pairs are selected from the above palette using eight of the 22
+  71:				; control codes in the display character set. This leaves codes for
+  72:				; double-height, double-width etc.
+  73:				;IOA_VID_PALBG0  equ 0x40        ; Background colour 0
+  74:				;IOA_VID_PALFG0  equ 0x41        ; Foreground colour 0
+  75:				;IOA_VID_PALBG1  equ 0x42        ; Background colour 1
+  76:				;IOA_VID_PALFG1  equ 0x43        ; Foreground colour 1
+  77:				;IOA_VID_PALBG2  equ 0x44        ; Background colour 2
+  78:				;IOA_VID_PALFG2  equ 0x45        ; Foreground colour 2
+  79:				;IOA_VID_PALBG3  equ 0x46        ; Background colour 3
+  80:				;IOA_VID_PALFG3  equ 0x47        ; Foreground colour 3
+  81:				;IOA_VID_PALBG4  equ 0x48        ; Background colour 4
+  82:				;IOA_VID_PALFG4  equ 0x49        ; Foreground colour 4
+  83:				;IOA_VID_PALBG5  equ 0x4a        ; Background colour 5
+  84:				;IOA_VID_PALFG5  equ 0x4b        ; Foreground colour 5
+  85:				;IOA_VID_PALBG6  equ 0x4c        ; Background colour 6
+  86:				;IOA_VID_PALFG6  equ 0x4d        ; Foreground colour 6
+  87:				;IOA_VID_PALBG7  equ 0x4e        ; Background colour 7
+  88:				;IOA_VID_PALFG7  equ 0x4f        ; Foreground colour 7
+  89:				
+  90:				; Arithmetic
+  91:				; Multiply, divide … based on 68000 DIV, DIVU, MUL, MULU.
+  92:				; Multiply does A[16] * B[16] => C[32].
+  93:				; Divide does A[32] / B[16] => C[32] (16-bit remainder [high bits] and
+  94:				; 16-bit quotient [low bits]).
+  95:				; Status bits include “complete” and “overflow”.
+  96:				;IOA_ARITH_A_L   equ 0x50        ; A register (low)
+  97:				;IOA_ARITH_A_H   equ 0x51        ; A register (high)
+  98:				;IOA_ARITH_B_L   equ 0x54        ; B register (low)
+  99:				;IOA_ARITH_B_H   equ 0x57        ; B register (high)
+ 100:				;IOA_ARITH_C_0   equ 0x58        ; C register (low)
+ 101:				;IOA_ARITH_C_1   equ 0x59 
+ 102:				;IOA_ARITH_C_2   equ 0x5a
+ 103:				;IOA_ARITH_C_3   equ 0x5b        ; C register (high)
+ 104:				;IOA_ARITH_CSR   equ 0x5c        ; Command / status
+ 105:				
+ 106:				
+ 107:				; *** Register bits allocation ***
+ 108:				
+ 109:				; IOA_CONTROL register
+ 110:     -	        	BITDEF SYSCTRL_TRARM, 0         ; 1 arms the trace interrupt
+ 111:     -	        	BITDEF SYSCTRL_MMAP, 1          ; 1 enables memory mapping
+ 112:     -	        	BITDEF SYSCTRL_NMCLR, 2         ; NMI mapping clear
+ 113:     -	        	BITDEF SYSCTRL_MAPARM, 3        ; NMI out arm
+ 114:     -	        	BITDEF SYSCTRL_MMAPN, 4         ; State of MMAP when an NMI occurred
+ 115:     -	        	BITDEF SYSCTRL_TRPRE0, 5        ; Number of prefixes for trace
+ 116:     -	        	BITDEF SYSCTRL_TRPRE1, 6
+ 117:     -	        	BITDEF SYSCTRL_RESERVED, 7      ; Unused bit
+ 118:				;
+ 119:				; MMAP page registers
+ 120:     -	        	BITDEF MMAP_PROT, 7             ; Write protection
+ 121:     -	        	BITDEF MMAP_SUPER, 6            ; I/O enable
+ 122:     -	003F'         	MMAP_PAGE_MASK  equ 0x3f        ; RAM page number bits
+ 123:				;
+ 124:				; IOA_INT_EN and IOA_INT_PEND registers.
+ 125:     -	0008'         	INTS_NUM        equ 8           ; Number of possible interrupt sources
+ 126:     -	        	BITDEF INT_SER1_TX, 0           ; Serial port 1 transmitter buffer is half full or less
+ 127:     -	        	BITDEF INT_SER1_RX, 1           ; Serial port 1 receiver has data
+ 128:     -	        	BITDEF INT_SER2_TX, 2           ; Serial port 2 transmitter buffer is half full or less
+ 129:     -	        	BITDEF INT_SER2_RX, 3           ; Serial port 2 receiver has data
+ 130:     -	        	BITDEF INT_TICK, 4              ; Regular timekeeping
+ 131:				;
+ 132:				; IOA_NMI_REASONS register.
+ 133:     -	0004'         	NMI_REASONS_NUM equ 4           ; Number of reasons for an NMI
+ 134:     -	        	BITDEF NMI_SWITCH, 0;           ; Front panel switch
+ 135:     -	        	BITDEF NMI_PROT_VIOL, 1;        ; Write protection violation
+ 136:     -	        	BITDEF NMI_SUPER_VIOL, 2;       ; Supervisor violation
+ 137:     -	        	BITDEF NMI_TRACE, 3;            ; Debugger trace (single step)
+ 138:     -	000F'         	NMI_REASONS_ALL equ NMI_SWITCH_MASK + NMI_PROT_VIOL_MASK + NMI_SUPER_VIOL_MASK + NMI_TRACE_MASK
+ 139:				;
+ 140:				; Serial CSRs (IOA_SER1_CSR and IOA_SER2_CSR).
+ 141:     -	        	BITDEF SER_CSR_RX_EMPTY, 0      ; Receiver buffer is empty
+ 142:     -	        	BITDEF SER_CSR_RX_ALHALF, 1     ; Receiver buffer is at least half full
+ 143:     -	        	BITDEF SER_CSR_RX_FULL, 2       ; Receiver buffer is full
+ 144:     -	        	BITDEF SER_CSR_FRAME_ERR, 3     ; Framing error in last character
+ 145:     -	        	BITDEF SER_CSR_TX_EMPTY, 4      ; Transmitter buffer is empty
+ 146:     -	        	BITDEF SER_CSR_TX_ALHALF, 5     ; Transmitter buffer is at least half full
+ 147:     -	        	BITDEF SER_CSR_TX_FULL, 6       ; Transmitter buffer is full
+ 148:				; Bit 7 is not used.
+ 149:				;
+ 150:				; I2C (Inter-Integrated Circuit) master interface. Used for RTC (DS1672).
+ 151:				; Bits in IOA_I2C_CSR
+ 152:     -	        	BITDEF I2C_CSR_ACKN, 0          ; (Read / write) acknowledge from receiving device
+ 153:     -	        	BITDEF I2C_CSR_START, 1         ; (Write only) trigger start sequence
+ 154:     -	        	BITDEF I2C_CSR_STOP, 2          ; (Write only) trigger stop sequence
+ 155:     -	        	BITDEF I2C_CSR_BUSY, 7          ; (Read only) transceiver busy
+ 156:				;
+ 157:				; SPI (Serial Peripheral Interface) master interface. Used for memory card.
+ 158:				; Bits in IOA_SPI_CSR
+ 159:     -	        	BITDEF SPI_CSR_FAST, 0          ; (Read / write) SPI speed select
+ 160:     -	        	BITDEF SPI_CSR_MC_SS, 1         ; (Read / write) memory card slave select
+ 161:     -	        	BITDEF SPI_CSR_BUSY, 7          ; (Read only) transceiver busy
+ 162:				
+**** utility.z80 ****
+  28:				                include "terminal.i"    ; Terminal constants
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//terminal.i ****
+   1:				; ***********************************
+   2:				; * ZARC Terminal Definitions       *
+   3:				; * Written by: Merlin Skinner      *
+   4:				; * Date Started: 16/5/2020         *
+   5:				; ***********************************
+   6:				;
+   7:				; Definitions associated with terminals connected to an RS-232 port.
+   8:				;
+   9:     -	0005'         	ASCII_ENQ           equ 0x05        ; Enquiry
+  10:     -	0008'         	ASCII_BS            equ 0x08        ; Backspace
+  11:     -	0009'         	ASCII_HT            equ 0x09
+  12:     -	000A'         	ASCII_LF            equ 0x0a        ; Line feed
+  13:     -	000B'         	ASCII_VT            equ 0x0b        ; Upline (ADM-3A)
+  14:     -	000C'         	ASCII_FF            equ 0x0c        ; Forward space (ADM-3A)
+  15:     -	000D'         	ASCII_CR            equ 0x0d        ; Carriage return
+  16:     -	0016'         	ASCII_SYN           equ 0x16        ; Synchronous idle
+  17:     -	001A'         	ASCII_SUB           equ 0x1a        ; Clear screen (ADM-3A)
+  18:     -	001B'         	ASCII_ESC           equ 0x1b        ; Escape
+  19:     -	001E'         	ASCII_RS            equ 0x1e        ; Home cursor (ADM-3A)
+  20:     -	007F'         	ASCII_DEL           equ 0x7f        ; Delete
+  21:				;
+  22:				; ZARC CP/M terminal input key codes. Some are copied from Amstrad PCW and
+  23:				; Spectrum +3, others are unique to ZARC. Delete seems very common.
+  24:     -	001F'         	ZKEY_CSR_UP         equ 0x1f        ; Cursor up
+  25:     -	001E'         	ZKEY_CSR_DOWN       equ 0x1e        ; Cursor down
+  26:     -	0006'         	ZKEY_CSR_RIGHT      equ 0x06        ; Cursor right
+  27:     -	0001'         	ZKEY_CSR_LEFT       equ 0x01        ; Cursor left
+  28:     -	0002'         	ZKEY_HOME           equ 0x02
+  29:     -	0016'         	ZKEY_INSERT         equ 0x16
+  30:     -	007F'         	ZKEY_DELETE         equ 0x7f
+  31:     -	0004'         	ZKEY_END            equ 0x04
+  32:     -	001D'         	ZKEY_PAGE_UP        equ 0x1d
+  33:     -	001C'         	ZKEY_PAGE_DOWN      equ 0x1c
+  34:				
+**** utility.z80 ****
+  29:				                include "io.i"          ; I/O routines
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//io.i ****
+   1:				; ***********************************
+   2:				; * ZARC Basic I/O Extern Symbols   *
+   3:				; * Written by: Merlin Skinner      *
+   4:				; * Date Started: 16/5/2020         *
+   5:				; ***********************************
+   6:				;
+   7:				; Note that ld80 only considers the first six characters of labels significant.
+   8:				
+   9:				; The following conditionals are intended to allow the same include file to be
+  10:				; used in the defining module and elsewhere as required. Some includes are used
+  11:				; for other applications than the monitor, such as the CP/M BIOS. In these cases,
+  12:				; the extern and extern statements are not desirable.
+  13:				;
+  14:     -	0001'         	            ifdef monitor           ; Meaningful for monitor build only
+  15:     -	0001'         	                ifndef io           ; Inhibit for this module
+  16:				;
+  17:				                ; Variables
+  18:				                extern coport   ; Current console port (PRT_xxx)
+  19:				                extern trport   ; Current data transfer port (PRT_xxx)
+  20:				;
+  21:				                ; Routines
+  22:				                extern conwch   ; Write character to the console
+  23:				                extern conrch   ; Read character from the console
+  24:				                extern consta   ; Fetch console port status
+  25:				                extern trawch   ; Write character to the data transfer port
+  26:				                extern trarch   ; Read character from the data transfer port
+  27:				                extern s1wch    ; Write character to serial port 1
+  28:				                extern s1rch    ; Read character from serial port 1
+  29:				                extern s1sta    ; Fetch serial port 1 status
+  30:				                extern s2wch    ; Write character to serial port 2
+  31:				                extern s2rch    ; Read character from serial port 2
+  32:				                extern s2sta    ; Fetch serial port 2 status
+  33:				                extern i2cwr    ; Write to I2C device
+  34:				                extern i2crd    ; Read from I2C device
+  35:				                extern spiini   ; Initialise SPI interface and set speed
+  36:				                extern spiss    ; Set SPI slave select(s)
+  37:				                extern spitr    ; Transfer byte to / from SPI device
+  38:				;
+  39:				                endif
+  40:				            endif
+  41:				;
+  42:				;
+  43:				; Port enumeration. Used for console and transfer port selection. Definitions must
+  44:				; match names in prt_name_list (monitor.z80).
+  45:     -	        	                ENUM_START
+  46:     -	        	                ENUM PORT_SER1          ; Serial port 1
+  47:     -	        	                ENUM PORT_SER2          ; Serial port 2
+  48:     -	        	                ENUM_END PORT_STATES    ; Number of states
+  49:				;
+  50:				
+**** utility.z80 ****
+  30:				                include "maths.i"       ; Mathematical functions
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//maths.i ****
+   1:				; *******************************************************
+   2:				; * Mathematical Routines for ZARC Z80 Computer         *
+   3:				; * Written by: Merlin Skinner                          *
+   4:				; * Date Started: 29/5/2020                             *
+   5:				; *******************************************************
+   6:				;
+   7:				; Note that ld80 only considers the first six characters of labels significant.
+   8:				;
+   9:				; The following conditionals are intended to allow the same include file to be
+  10:				; used in the defining module and elsewhere as required. Some includes are used
+  11:				; for other applications than the monitor, such as the CP/M BIOS. In these cases,
+  12:				; the extern and public statements are not desirable.
+  13:				;
+  14:     -	0001'         	            ifdef monitor           ; Meaningful for monitor build only
+  15:     -	0001'         	                ifndef maths        ; Inhibit for this module
+  16:				;
+  17:				                extern madlbu       ; 32-bit / 8-bit unsigned divide
+  18:				                extern madwbu       ; 16-bit / 8-bit unsigned divide
+  19:				                extern madbbu       ; 8-bit / 8-bit unsigned divide
+  20:				                extern mamwwu       ; 16-bit * 16-bit unsigned multiply
+  21:				                extern mamlbu       ; 32-bit * 8-bit unsigned multiply
+  22:				                extern crc16x       ; Software CRC-16 (XMODEM)
+  23:				;
+  24:				                endif
+  25:				            endif
+  26:				
+**** utility.z80 ****
+  31:				                include "utility.i"     ; Utility functions
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//utility.i ****
+   1:				; ***********************************
+   2:				; * ZARC Monitor Utility Routines   *
+   3:				; * Written by: Merlin Skinner      *
+   4:				; * Date Started: 16/5/2020         *
+   5:				; ***********************************
+   6:				;
+   7:				; Note that ld80 only considers the first six characters of labels significant
+   8:				;
+   9:				; The following conditionals are intended to allow the same include file to be
+  10:				; used in the defining module and elsewhere as required. Some includes are used
+  11:				; for other applications than the monitor, such as the CP/M BIOS. In these cases,
+  12:				; the extern and public statements are not desirable.
+  13:				;
+  14:     -	0001'         	            ifdef monitor           ; Meaningful for monitor build only
+  15:     -	0000'         	                ifndef utility      ; Inhibit for this module
+  36:				                endif
+  37:				            endif
+  38:				;
+  39:				;
+  40:				; mtwdli (match word in a string against list of options) option bits. Each bit
+  41:				; has the described effect if set.
+  42:     -	        	BITDEF MTWDLI_ABBREV, 0                 ; Enable "." abbreviation
+  43:     -	        	BITDEF MTWDLI_ICASE, 1                  ; Ignore case when matching
+  44:     -	        	BITDEF MTWDLI_TERM, 7                   ; Terminator found (internal use only)
+  45:				
+**** utility.z80 ****
+  32:				;
+  33:				;
+  34:				; *************
+  35:				; * Externals *
+  36:				; *************
+  37:				;
+  38:				                public cwnwln   ; Write new line characters to console
+  39:				                public conwms   ; Print null-terminated string to the console
+  40:				                public conwmn   ; Print message <n> in a list
+  41:				                public skpspc   ; Step hl past spaces
+  42:				                public toupca   ; Convert character in A to upper case
+  43:				                public toloca   ; Convert character in A to lower case
+  44:				                public cwvich   ; Print only visible 7-bit characters
+  45:				                public cwpspc   ; Print a space
+  46:				                public mtwdli   ; Match word in a string against list of options
+  47:				                public cwphnb   ; Print least-significant nibble in A in hexadecimal
+  48:				                public cwphby   ; Print A in hexadecimal
+  49:				                public cwphwd   ; Print HL in hexadecimal
+  50:				                public cwpdby   ; Print A in decimal. Leading zeros are suppressed
+  51:				                public cwpdwd   ; Print HL in decimal. Leading zeros are suppressed
+  52:				                public cwpdlo   ; Print DEHL in decimal. Leading zeros are suppressed
+  53:				                public rdhxwd   ; Read a 16-bit hexadecimal number from a string
+  54:				                public rdduwd   ; Read a 16-bit unsigned decimal number from a string
+  55:				                public rddulo   ; Read a 32-bit unsigned decimal number from a string
+  56:				;
+  57:				;
+  58:				;
+  59:				; *************
+  60:				; * Constants *
+  61:				; *************
+  62:				;
+  63:				; None
+  64:				;
+  65:				;
+  66:				;
+  67:				; *************
+  68:				; * Main Code *
+  69:				; *************
+  70:				;
+  71:				                cseg                ; Code segment
+  72:				;
+  73:				; Write new line characters to console.
+  74:    0+7	0000' 3E0D    	cwnwln          ld a, ascii_cr
+  75:    7+17	0002' CD0000  	                call conwch
+  76:   24+7	0005' 3E0A    	                ld a, ascii_lf
+  77:   31+10	0007' C30000  	                jp conwch
+  78:				;
+  79:				;
+  80:				; Print null-terminated string to the console.
+  81:				; Call with:
+  82:				; HL - pointer to start of message
+  83:				; Returns with:
+  84:				; HL - points to the terminator.
+  85:   41+7	000A' 7E      	conwms          ld a, (hl)
+  86:   48+4	000B' A7      	                and a
+  87:   52+5+6	000C' C8      	                ret z                   ; Return if terminator found
+  88:   57+17	000D' CD0000  	                call conwch             ; Write character to console
+  89:   74+6	0010' 23      	                inc hl                  ; Increment character pointer
+  90:   80+12	0011' 18F7    	                jr conwms               ; Transmit next character
+  91:				;
+  92:				;
+  93:				; Print message <n> in a null terminated list. Nothing is printed if the
+  94:				; terminator is encountered before message <n> is found.
+  95:				; Call with:
+  96:				; A - number of message to print (first is zero)
+  97:				; C - message separator
+  98:				; HL - pointer to start of message
+  99:				; Returns with:
+ 100:				; HL - points to the separator at the end of the message printed, or the
+ 101:				; terminator (zero).
+ 102:				; Carry flag is set if the message was not found (terminator encountered).
+ 103:   92+11	0013' C5      	conwmn          push bc
+ 104:  103+4	0014' 47      	                ld b, a                 ; Message number
+ 105:  107+4	0015' 78      	pmn_msg_lp      ld a, b
+ 106:  111+4	0016' A7      	                and a
+ 107:  115+7+5	0017' 280B    	                jr z, pmn_found         ; Jump if this is the one
+ 108:				; Skip to next message.
+ 109:  122+7	0019' 7E      	pmn_sk_lp       ld a, (hl)
+ 110:  129+4	001A' A7      	                and a
+ 111:  133+7+5	001B' 2817    	                jr z, pmn_error         ; Error if terminator
+ 112:  140+6	001D' 23      	                inc hl
+ 113:  146+4	001E' B9      	                cp c
+ 114:  150+7+5	001F' 20F8    	                jr nz, pmn_sk_lp        ; Keep going if not separator or terminator
+ 115:				; Separator found
+ 116:  157+4	0021' 05      	                dec b
+ 117:  161+12	0022' 18F1    	                jr pmn_msg_lp
+ 118:				; HL now points to the requied message. Print it until the separator or
+ 119:				; terminator is encountered.
+ 120:  173+7	0024' 7E      	pmn_found       ld a, (hl)
+ 121:  180+4	0025' A7      	                and a
+ 122:  184+7+5	0026' 2809    	                jr z, pmn_done          ; Exit if terminator found
+ 123:  191+4	0028' B9      	                cp c
+ 124:  195+7+5	0029' 2806    	                jr z, pmn_done          ; Exit if separator found
+ 125:  202+17	002B' CD0000  	                call conwch             ; Write character to console
+ 126:  219+6	002E' 23      	                inc hl                  ; Increment character pointer
+ 127:  225+12	002F' 18F3    	                jr pmn_found            ; Transmit next character
+ 128:				; Successful completion.
+ 129:  237+10	0031' C1      	pmn_done        pop bc
+ 130:  247+4	0032' A7      	                and a
+ 131:  251+10	0033' C9      	                ret                     ; Return with carry reset (no error)
+ 132:				; Terminator encountered before the message was found
+ 133:  261+10	0034' C1      	pmn_error       pop bc                  ; Restore registers
+ 134:  271+4	0035' 37      	                scf
+ 135:  275+10	0036' C9      	                ret                     ; Return with carry set (error)
+ 136:				;
+ 137:				;
+ 138:				; Step HL past any spaces.
+ 139:				; Returns with:
+ 140:				; HL - points to the first non-space character
+ 141:  285+7	0037' 3E20    	skpspc          ld a, ' '
+ 142:  292+7	0039' BE      	sks_loop        cp (hl)
+ 143:  299+5+6	003A' C0      	                ret nz                  ; Return if non-space found
+ 144:  304+6	003B' 23      	                inc hl
+ 145:  310+12	003C' 18FB    	                jr sks_loop
+ 146:				;
+ 147:				;
+ 148:				; Convert character in A to upper case.
+ 149:  322+7	003E' FE61    	toupca          cp 'a'
+ 150:  329+5+6	0040' D8      	                ret c                   ; Nothing to do if < 'a'
+ 151:  334+7	0041' FE7B    	                cp 'z' + 1
+ 152:  341+5+6	0043' D0      	                ret nc                  ; Nothing to do if > 'z'
+ 153:  346+7	0044' D620    	                sub 'a' - 'A'
+ 154:  353+10	0046' C9      	                ret
+ 155:				;
+ 156:				;
+ 157:				; Convert character in A to lower case.
+ 158:  363+7	0047' FE41    	toloca          cp 'A'
+ 159:  370+5+6	0049' D8      	                ret c                   ; Nothing to do if < 'A'
+ 160:  375+7	004A' FE5B    	                cp 'Z' + 1
+ 161:  382+5+6	004C' D0      	                ret nc                  ; Nothing to do if > 'Z'
+ 162:  387+7	004D' C620    	                add 'a' - 'A'
+ 163:  394+10	004F' C9      	                ret
+ 164:				;
+ 165:				;
+ 166:				; Print a space.
+ 167:  404+7	0050' 3E20    	cwpspc          ld a, ' '
+ 168:  411+10	0052' C30000  	                jp conwch
+ 169:				;
+ 170:				;
+ 171:				; Print only visible 7-bit characters. Non-visible ones are substituted by
+ 172:				; the character in C.
+ 173:  421+7	0055' FE20    	cwvich          cp ' '
+ 174:  428+7+5	0057' 3807    	                jr c, prv_do_subs       ; < ' ' is a control character
+ 175:  435+7	0059' FE7F    	                cp ascii_del
+ 176:  442+7+5	005B' 3003    	                jr nc, prv_do_subs      ; >= DEL isn't visible either
+ 177:  449+10	005D' C30000  	                jp conwch               ; Print visible character
+ 178:				; Use substitution character
+ 179:  459+4	0060' 79      	prv_do_subs     ld a, c
+ 180:  463+10	0061' C30000  	                jp conwch
+ 181:				;
+ 182:				;
+ 183:				; Print least-significant nibble in A in hexadecimal.
+ 184:  473+7	0064' E60F    	cwphnb          and 0x0f
+ 185:  480+7	0066' C630    	                add '0'
+ 186:  487+7	0068' FE3A    	                cp '9' + 1
+ 187:  494+7+5	006A' 3802    	                jr c, pn_numeric        ; Jump if <= '9'
+ 188:  501+7	006C' C607    	                add ('A' - '9') - 1     ; Convert to alpha
+ 189:  508+10	006E' C30000  	pn_numeric      jp conwch
+ 190:				;
+ 191:				;
+ 192:				; Print A in hexadecimal.
+ 193:  518+11	0071' F5      	cwphby          push af
+ 194:  529+4	0072' 0F      	                rrca
+ 195:  533+4	0073' 0F      	                rrca
+ 196:  537+4	0074' 0F      	                rrca
+ 197:  541+4	0075' 0F      	                rrca
+ 198:  545+17	0076' CD6400  	                call cwphnb             ; Print MSN
+ 199:  562+10	0079' F1      	                pop af
+ 200:  572+10	007A' C36400  	                jp cwphnb               ; Print LSN
+ 201:				;
+ 202:				;
+ 203:				; Print HL in hexadecimal. Leading zeros are suppressed.
+ 204:  582+4	007D' 7C      	cwphwd          ld a,h
+ 205:  586+17	007E' CD7100  	                call cwphby             ; Print MSB
+ 206:  603+4	0081' 7D      	                ld a,l
+ 207:  607+10	0082' C37100  	                jp cwphby               ; Print LSB
+ 208:				;
+ 209:				;
+ 210:				; Print A as a decimal unsigned number. Leading zeros are suppressed.
+ 211:  617+11	0085' C5      	cwpdby          push bc
+ 212:  628+11	0086' D5      	                push de
+ 213:  639+11	0087' E5      	                push hl
+ 214:  650+7	0088' 1E00    	                ld e, 0                 ; Leading zeros flag
+ 215:  657+7	008A' 2600    	                ld h, 0                 ; Move A to HL
+ 216:  664+4	008C' 6F      	                ld l, a
+ 217:  668+12	008D' 1811    	                jr pdw_byte             ; Use word code, skipping MS digits
+ 218:				;
+ 219:				;
+ 220:				; Print HL as a decimal unsigned number. Leading zeros are suppressed.
+ 221:				; Derived from code at http://map.grauw.nl/sources/external/z80bits.html
+ 222:				; HL is saved because this allows common exit code with cwpdby.
+ 223:  680+11	008F' C5      	cwpdwd          push bc
+ 224:  691+11	0090' D5      	                push de
+ 225:  702+11	0091' E5      	                push hl
+ 226:  713+7	0092' 1E00    	                ld e, 0                 ; Leading zeros flag
+ 227:				; Entry point from cwpdlo (32-bit version).
+ 228:  720+10	0094' 01F0D8  	                ld bc, -10000           ; 10^4
+ 229:  730+17	0097' CDB500  	                call pdw_digit
+ 230:  747+10	009A' 0118FC  	pdl_entry       ld bc, -1000            ; 10^3
+ 231:  757+17	009D' CDB500  	                call pdw_digit
+ 232:				; cwpdby enters here to display a single byte.
+ 233:  774+10	00A0' 019CFF  	pdw_byte        ld bc, -100             ; 10^2
+ 234:  784+17	00A3' CDB500  	                call pdw_digit
+ 235:  801+7	00A6' 0EF6    	                ld c, -10               ; 10^1
+ 236:  808+17	00A8' CDB500  	                call pdw_digit
+ 237:  825+7	00AB' 1EFF    	                ld e, 0xff              ; Always print the units digit
+ 238:  832+4	00AD' 48      	                ld c, b
+ 239:  836+17	00AE' CDB500  	                call pdw_digit
+ 240:  853+10	00B1' E1      	                pop hl
+ 241:  863+10	00B2' D1      	                pop de
+ 242:  873+10	00B3' C1      	                pop bc
+ 243:  883+10	00B4' C9      	                ret
+ 244:				;
+ 245:  893+7	00B5' 3E2F    	pdw_digit       ld a, '0' - 1
+ 246:  900+4	00B7' 3C      	pdw_digloop     inc a
+ 247:  904+11	00B8' 09      	                add hl, bc
+ 248:  915+7+5	00B9' 38FC    	                jr c, pdw_digloop
+ 249:  922+15	00BB' ED42    	                sbc hl, bc
+ 250:				; A - ASCII digit
+ 251:  937+7	00BD' FE30    	                cp '0'
+ 252:  944+7+5	00BF' 2005    	                jr nz, pdw_prdig        ; Non-zero digit, so print it
+ 253:  951+4	00C1' 1C      	                inc e
+ 254:  955+7+5	00C2' 2802    	                jr z, pdw_prdig         ; Print anyway if e was 0xff
+ 255:  962+4	00C4' 1D      	                dec e                   ; Restore flag
+ 256:  966+10	00C5' C9      	                ret
+ 257:  976+7	00C6' 1EFF    	pdw_prdig       ld e, 0xff              ; Flag non-zero found
+ 258:  983+17	00C8' CD0000  	                call conwch
+ 259: 1000+10	00CB' C9      	                ret
+ 260:				;
+ 261:				;
+ 262:				; Print DEHL as a decimal unsigned number. Leading zeros are suppressed.
+ 263: 1010+11	00CC' C5      	cwpdlo          push bc
+ 264: 1021+4	00CD' 44      	                ld b, h
+ 265: 1025+4	00CE' 4D      	                ld c, l
+ 266:				; DEBC - value to display. Store this.
+ 267: 1029+10	00CF' 210400  	                ld hl, pdl_reg
+ 268: 1039+7	00D2' 71      	                ld (hl), c
+ 269: 1046+6	00D3' 23      	                inc hl
+ 270: 1052+7	00D4' 70      	                ld (hl), b
+ 271: 1059+6	00D5' 23      	                inc hl
+ 272: 1065+7	00D6' 73      	                ld (hl), e
+ 273: 1072+6	00D7' 23      	                inc hl
+ 274: 1078+7	00D8' 72      	                ld (hl), d
+ 275:				; Reset leading zeros flag
+ 276: 1085+7	00D9' 3E00    	                ld a, 0
+ 277: 1092+13	00DB' 320800  	                ld (pdl_lz_flag), a
+ 278:				; Digits
+ 279: 1105+10	00DE' 1100CA  	                ld de, 0xca00           ; 10^9
+ 280: 1115+10	00E1' 019A3B  	                ld bc, 0x3b9a
+ 281: 1125+17	00E4' CD2401  	                call pdl_digit
+ 282: 1142+10	00E7' 1100E1  	                ld de, 0xe100           ; 10^8
+ 283: 1152+10	00EA' 01F505  	                ld bc, 0x05f5
+ 284: 1162+17	00ED' CD2401  	                call pdl_digit
+ 285: 1179+10	00F0' 118096  	                ld de, 0x9680           ; 10^7
+ 286: 1189+10	00F3' 019800  	                ld bc, 0x0098
+ 287: 1199+17	00F6' CD2401  	                call pdl_digit
+ 288: 1216+10	00F9' 114042  	                ld de, 0x4240           ; 10^6
+ 289: 1226+10	00FC' 010F00  	                ld bc, 0x000f
+ 290: 1236+17	00FF' CD2401  	                call pdl_digit
+ 291: 1253+10	0102' 11A086  	                ld de, 0x86a0           ; 10^5
+ 292: 1263+10	0105' 010100  	                ld bc, 0x0001
+ 293: 1273+17	0108' CD2401  	                call pdl_digit
+ 294: 1290+10	010B' 111027  	                ld de, 0x2710           ; 10^4
+ 295: 1300+10	010E' 010000  	                ld bc, 0x0000
+ 296: 1310+17	0111' CD2401  	                call pdl_digit
+ 297:				; Use 16-bit version to print the remainder of the digits.
+ 298: 1327+11	0114' D5      	                push de
+ 299: 1338+11	0115' E5      	                push hl
+ 300:				; Fetch value.
+ 301: 1349+10	0116' 210400  	                ld hl, pdl_reg
+ 302: 1359+7	0119' 5E      	                ld e, (hl)
+ 303: 1366+6	011A' 23      	                inc hl
+ 304: 1372+7	011B' 56      	                ld d, (hl)
+ 305: 1379+4	011C' EB      	                ex de, hl
+ 306: 1383+13	011D' 3A0800  	                ld a, (pdl_lz_flag)
+ 307: 1396+4	0120' 5F      	                ld e, a                 ; Set leading zeros flag
+ 308:				; E - leading zeros flag
+ 309:				; HL - value to print
+ 310: 1400+10	0121' C39A00  	                jp pdl_entry
+ 311:				;
+ 312:				; BCDE - significance of digit.
+ 313: 1410+10	0124' 210900  	pdl_digit       ld hl, pdl_ascii
+ 314: 1420+10	0127' 362F    	                ld (hl), '0' - 1
+ 315: 1430+11	0129' 34      	pdl_digloop     inc (hl)                ; Update ASCII digit
+ 316:				; Trial subtraction.
+ 317: 1441+11	012A' E5      	                push hl                 ; Save pointer to pdl_ascii
+ 318: 1452+10	012B' 210400  	                ld hl, pdl_reg
+ 319: 1462+7	012E' 7E      	                ld a, (hl)
+ 320: 1469+4	012F' 93      	                sub e
+ 321: 1473+7	0130' 77      	                ld (hl), a
+ 322: 1480+6	0131' 23      	                inc hl
+ 323: 1486+7	0132' 7E      	                ld a, (hl)
+ 324: 1493+4	0133' 9A      	                sbc d
+ 325: 1497+7	0134' 77      	                ld (hl), a
+ 326: 1504+6	0135' 23      	                inc hl
+ 327: 1510+7	0136' 7E      	                ld a, (hl)
+ 328: 1517+4	0137' 99      	                sbc c
+ 329: 1521+7	0138' 77      	                ld (hl), a
+ 330: 1528+6	0139' 23      	                inc hl
+ 331: 1534+7	013A' 7E      	                ld a, (hl)
+ 332: 1541+4	013B' 98      	                sbc b
+ 333: 1545+7	013C' 77      	                ld (hl), a
+ 334: 1552+10	013D' E1      	                pop hl                  ; Restore pointer to pdl_ascii
+ 335: 1562+7+5	013E' 30E9    	                jr nc, pdl_digloop      ; Keep subtracting until carry
+ 336:				; Reverse the last subtraction to restore the value before carry.
+ 337: 1569+10	0140' 210400  	                ld hl, pdl_reg
+ 338: 1579+7	0143' 7E      	                ld a, (hl)
+ 339: 1586+4	0144' 83      	                add e
+ 340: 1590+7	0145' 77      	                ld (hl), a
+ 341: 1597+6	0146' 23      	                inc hl
+ 342: 1603+7	0147' 7E      	                ld a, (hl)
+ 343: 1610+4	0148' 8A      	                adc d
+ 344: 1614+7	0149' 77      	                ld (hl), a
+ 345: 1621+6	014A' 23      	                inc hl
+ 346: 1627+7	014B' 7E      	                ld a, (hl)
+ 347: 1634+4	014C' 89      	                adc c
+ 348: 1638+7	014D' 77      	                ld (hl), a
+ 349: 1645+6	014E' 23      	                inc hl
+ 350: 1651+7	014F' 7E      	                ld a, (hl)
+ 351: 1658+4	0150' 88      	                adc b
+ 352: 1662+7	0151' 77      	                ld (hl), a
+ 353:				;
+ 354: 1669+10	0152' 210800  	                ld hl, pdl_lz_flag      ; Point to leading zeros flag
+ 355: 1679+13	0155' 3A0900  	                ld a, (pdl_ascii)       ; Fetch ASCII digit
+ 356: 1692+4	0158' 4F      	                ld c, a
+ 357: 1696+7	0159' FE30    	                cp '0'
+ 358: 1703+7+5	015B' 2005    	                jr nz, pdl_prdig        ; Non-zero digit, so print it
+ 359: 1710+7	015D' 7E      	                ld a, (hl)
+ 360: 1717+4	015E' A7      	                and a
+ 361: 1721+7+5	015F' 2001    	                jr nz, pdl_prdig        ; Print anyway if flag was set
+ 362:				; Skip leading zeros.
+ 363: 1728+10	0161' C9      	                ret
+ 364:				;
+ 365: 1738+10	0162' 36FF    	pdl_prdig       ld (hl), 0xff           ; Flag non-zero found
+ 366: 1748+4	0164' 79      	                ld a, c
+ 367: 1752+17	0165' CD0000  	                call conwch
+ 368: 1769+10	0168' C9      	                ret
+ 369:				;
+ 370:				;
+ 371:				; Match word in a string against list of options. This is intended for matching
+ 372:				; a command string against a list of available commands, but it may have other
+ 373:				; uses. Strings to match may optionally be abbreviated by a ".", in which case
+ 374:				; the first option that matches up to this is returned. This is similar to the
+ 375:				; BBC Microcomputer method of abbreviating commands.
+ 376:				; Call with:
+ 377:				; A - Options (MTWDLI_xxx, e.g. MTWDLI_ABBREV). See utility.i
+ 378:				; HL - points to start of string. Matching stops at a space or end of string.
+ 379:				; DE - points to null terminated command list. Options are separated by spaces.
+ 380:				; Returns with:
+ 381:				; A - index number of word in list that matched, or zero if no match.
+ 382:				; HL - points to space or terminator in string.
+ 383: 1779+11	0169' C5      	mtwdli          push bc                 ; Preserve BC
+ 384: 1790+11	016A' E5      	                push hl                 ; Save start of word in string
+ 385: 1801+4	016B' 4F      	                ld c, a                 ; Save options
+ 386: 1805+7	016C' 0601    	                ld b, 1                 ; Word count
+ 387: 1812+8	016E' CBB9    	mw_char_loop    res MTWDLI_TERM_BIT, c  ; Flag no terminator found (yet)
+ 388:				; End of word or end of string?
+ 389:				; C - options
+ 390: 1820+7	0170' 7E      	                ld a, (hl)              ; Fetch character from string
+ 391: 1827+7	0171' FE20    	                cp ' '
+ 392: 1834+7+5	0173' 280D    	                jr z, mw_sword_end
+ 393: 1841+4	0175' A7      	                and a
+ 394: 1845+7+5	0176' 280A    	                jr z, mw_sword_end
+ 395:				; Check for abbreviation character if enabled.
+ 396: 1852+8	0178' CB41    	                bit MTWDLI_ABBREV_BIT, c    ; Abbreviations enabled?
+ 397: 1860+7+5	017A' 2808    	                jr z, mw_str_tm_dn
+ 398: 1867+7	017C' FE2E    	                cp '.'
+ 399: 1874+7+5	017E' 2840    	                jr z, mw_dot            ; Stop matching if "." found.
+ 400: 1881+12	0180' 1802    	                jr mw_str_tm_dn
+ 401:				; Flag end of word or end of string found
+ 402: 1893+8	0182' CBF9    	mw_sword_end    set MTWDLI_TERM_BIT, c  ; Flag this for later
+ 403:				; Repeat test for word list.
+ 404: 1901+7	0184' 1A      	mw_str_tm_dn    ld a, (de)              ; Fetch character from list
+ 405: 1908+7	0185' FE20    	                cp ' '
+ 406: 1915+7+5	0187' 2827    	                jr z, mw_end_lwd        ; End of word in list
+ 407: 1922+4	0189' A7      	                and a
+ 408: 1926+7+5	018A' 2824    	                jr z, mw_end_lwd        ; End of word in list
+ 409: 1933+8	018C' CB49    	                bit MTWDLI_ICASE_BIT, c ; Force lower case?
+ 410: 1941+10+7	018E' C44700  	                call nz, toloca         ; Optionally convert to lower case
+ 411:				; There is at least one more character to match in the string and the current word
+ 412:				; in the list.
+ 413: 1951+11	0191' C5      	                push bc                 ; Save counter
+ 414: 1962+4	0192' 47      	                ld b, a
+ 415: 1966+7	0193' 7E      	                ld a, (hl)
+ 416: 1973+8	0194' CB49    	                bit MTWDLI_ICASE_BIT, c ; Force lower case?
+ 417: 1981+10+7	0196' C44700  	                call nz, toloca         ; Optionally convert to lower case
+ 418: 1991+4	0199' B8      	                cp b
+ 419: 1995+10	019A' C1      	                pop bc
+ 420: 2005+7+5	019B' 2004    	                jr nz, mw_char_mis
+ 421:				; Characters matched!
+ 422: 2012+6	019D' 23      	                inc hl
+ 423: 2018+6	019E' 13      	                inc de
+ 424: 2024+12	019F' 18CD    	                jr mw_char_loop
+ 425:				; Mismatch. Try the next word in the list, if there is one.
+ 426: 2036+10	01A1' E1      	mw_char_mis     pop hl                  ; Reset string pointer
+ 427: 2046+11	01A2' E5      	                push hl
+ 428: 2057+4	01A3' 04      	                inc b                   ; Keep track of word count
+ 429:				; Skip forward until the next item in the list, or the end of the list
+ 430: 2061+6	01A4' 13      	mw_next_lwd     inc de
+ 431: 2067+7	01A5' 1A      	                ld a, (de)
+ 432: 2074+4	01A6' A7      	                and a
+ 433: 2078+7+5	01A7' 280E    	                jr z, mw_no_match       ; Exit if end of word list encountered
+ 434: 2085+7	01A9' FE20    	                cp ' '
+ 435: 2092+7+5	01AB' 20F7    	                jr nz, mw_next_lwd
+ 436: 2099+6	01AD' 13      	                inc de                  ; Point to first character of next word
+ 437: 2105+12	01AE' 18BE    	                jr mw_char_loop         ; Try this one
+ 438:				;
+ 439:				; End of word found in list.
+ 440: 2117+8	01B0' CB79    	mw_end_lwd      bit MTWDLI_TERM_BIT, c  ; Terminator found?
+ 441: 2125+7+5	01B2' 2007    	                jr nz, mw_end_both
+ 442:				; End of word found in list, but not in the string.
+ 443: 2132+6	01B4' 1B      	                dec de                  ; Allow for increment later
+ 444: 2138+12	01B5' 18EA    	                jr mw_char_mis          ; Try next word in list
+ 445:				;
+ 446:				; End of the word list reached and no match.
+ 447: 2150+10	01B7' E1      	mw_no_match     pop hl                  ; Fix stack
+ 448: 2160+4	01B8' AF      	                xor a                   ; Flag no match
+ 449: 2164+10	01B9' C1      	                pop bc                  ; Restore BC
+ 450: 2174+10	01BA' C9      	                ret
+ 451:				;
+ 452:				; End of words in string and list found simultanously. We have a match!                
+ 453: 2184+6	01BB' 33      	mw_end_both     inc sp                  ; Fix stack
+ 454: 2190+6	01BC' 33      	                inc sp
+ 455: 2196+4	01BD' 78      	                ld a, b                 ; Fetch word index number
+ 456: 2200+10	01BE' C1      	                pop bc                  ; Restore BC
+ 457: 2210+10	01BF' C9      	                ret
+ 458:				;
+ 459:				; "." found in string, so accept the current word as the match. We need to skip the
+ 460:				; remainder of the string.
+ 461: 2220+6	01C0' 23      	mw_dot          inc hl                  ; Step past dot
+ 462: 2226+12	01C1' 18F8    	                jr mw_end_both
+ 463:				;
+ 464:				;
+ 465:				; Read a 16-bit hexadecimal number from a string. Case is ignored for alphabetic
+ 466:				; characters.
+ 467:				; Call with:
+ 468:				; HL - points to the first character of the number.
+ 469:				; Returns with:
+ 470:				; HL - points to first character after number.
+ 471:				; DE - required number
+ 472:				; C flag - set on error (too many or zero valid digits)
+ 473: 2238+11	01C3' C5      	rdhxwd          push bc
+ 474: 2249+10	01C4' 110000  	                ld de, 0                ; Initial result
+ 475: 2259+7	01C7' 0E00    	                ld c, 0                 ; Count characters read
+ 476: 2266+7	01C9' 7E      	ghn_char_lp     ld a, (hl)
+ 477: 2273+17	01CA' CD3E00  	                call toupca             ; Convert to upper case.
+ 478: 2290+7	01CD' FE41    	                cp 'A'
+ 479: 2297+7+5	01CF' 3808    	                jr c, ghn_not_alpha
+ 480: 2304+7	01D1' FE47    	                cp 'F' + 1
+ 481: 2311+7+5	01D3' 3004    	                jr nc, ghn_not_alpha
+ 482:				; Character is alphabetic.
+ 483: 2318+7	01D5' D637    	                sub 'A' - 10
+ 484: 2325+12	01D7' 1808    	                jr ghn_got_dig
+ 485:				; Character is not alphabetic.
+ 486: 2337+7	01D9' D630    	ghn_not_alpha   sub '0'
+ 487: 2344+7+5	01DB' 381E    	                jr c, ghn_done          ; End of number if < '0'
+ 488: 2351+7	01DD' FE0A    	                cp 10
+ 489: 2358+7+5	01DF' 301A    	                jr nc, ghn_done         ; End of number if not a digit
+ 490:				; Value of digit is in LSN of A. Make space for it in the result.
+ 491: 2365+4	01E1' EB      	ghn_got_dig     ex de, hl
+ 492: 2369+11	01E2' 29      	                add hl, hl              ; Shift left
+ 493: 2380+7+5	01E3' 3812    	                jr c, ghn_error_ex      ; No bits should fall off the end
+ 494: 2387+11	01E5' 29      	                add hl, hl
+ 495: 2398+7+5	01E6' 380F    	                jr c, ghn_error_ex      ; No bits should fall off the end
+ 496: 2405+11	01E8' 29      	                add hl, hl
+ 497: 2416+7+5	01E9' 380C    	                jr c, ghn_error_ex      ; No bits should fall off the end
+ 498: 2423+11	01EB' 29      	                add hl, hl
+ 499: 2434+7+5	01EC' 3809    	                jr c, ghn_error_ex      ; No bits should fall off the end
+ 500: 2441+4	01EE' EB      	                ex de, hl
+ 501:				; Insert new digit
+ 502: 2445+4	01EF' B3      	                or e
+ 503: 2449+4	01F0' 5F      	                ld e, a
+ 504:				; Count digits and check limit.
+ 505: 2453+6	01F1' 23      	                inc hl                  ; Point to next character
+ 506: 2459+4	01F2' 0C      	                inc c                   ; One more digit
+ 507: 2463+7+5	01F3' 20D4    	                jr nz, ghn_char_lp      ; Keep going unless over limit
+ 508: 2470+12	01F5' 1801    	                jr ghn_error
+ 509:				; Too many or zero digits or overflow.
+ 510: 2482+4	01F7' EB      	ghn_error_ex    ex de, hl
+ 511: 2486+10	01F8' C1      	ghn_error       pop bc
+ 512: 2496+4	01F9' 37      	                scf
+ 513: 2500+10	01FA' C9      	                ret                     ; Return with carry flag set (error)
+ 514:				; Non-hex character found.
+ 515: 2510+4	01FB' 79      	ghn_done        ld a, c
+ 516: 2514+4	01FC' A7      	                and a
+ 517: 2518+7+5	01FD' 28F9    	                jr z, ghn_error         ; Error if no digits read
+ 518:				; Normal completion.
+ 519: 2525+10	01FF' C1      	                pop bc
+ 520: 2535+10	0200' C9      	                ret                     ; Return with carry flag reset (OK)
+ 521:				;
+ 522:				;
+ 523:				; Read a 16-bit unsigned decimal number from a string.
+ 524:				; Call with:
+ 525:				; HL - points to the first character of the number.
+ 526:				; Returns with:
+ 527:				; HL - points to first character after number.
+ 528:				; DE - required number
+ 529:				; C flag - set on error (too many or zero valid digits)
+ 530: 2545+11	0201' C5      	rdduwd          push bc
+ 531: 2556+10	0202' 110000  	                ld de, 0                ; Initial result
+ 532: 2566+7	0205' 0E00    	                ld c, 0                 ; Count characters read
+ 533: 2573+7	0207' 7E      	gdn_char_lp     ld a, (hl)
+ 534: 2580+7	0208' D630    	                sub '0'
+ 535: 2587+7+5	020A' 3827    	                jr c, gdn_done          ; End of number if < '0'
+ 536: 2594+7	020C' FE0A    	                cp 10
+ 537: 2601+7+5	020E' 3023    	                jr nc, gdn_done         ; End of number if not a digit
+ 538:				; Value of digit is in LSN of A. Make space for it in the result.
+ 539: 2608+11	0210' C5      	                push bc                 ; Save counter
+ 540: 2619+4	0211' EB      	                ex de, hl
+ 541: 2623+4	0212' 44      	                ld b, h                 ; Save result x 1
+ 542: 2627+4	0213' 4D      	                ld c, l
+ 543: 2631+11	0214' 29      	                add hl, hl              ; Find result x 2
+ 544: 2642+7+5	0215' 3817    	                jr c, gdn_error_pop     ; No bits should fall off the end
+ 545: 2649+11	0217' 29      	                add hl, hl              ; Find result x 4
+ 546: 2660+7+5	0218' 3814    	                jr c, gdn_error_pop
+ 547: 2667+11	021A' 09      	                add hl, bc              ; Find result x 5
+ 548: 2678+7+5	021B' 3811    	                jr c, gdn_error_pop                
+ 549: 2685+11	021D' 29      	                add hl, hl              ; Find result x 10
+ 550: 2696+7+5	021E' 380E    	                jr c, gdn_error_pop
+ 551:				; Insert new digit
+ 552: 2703+7	0220' 0600    	                ld b, 0
+ 553: 2710+4	0222' 4F      	                ld c, a
+ 554: 2714+11	0223' 09      	                add hl, bc              ; Add digit
+ 555: 2725+7+5	0224' 3808    	                jr c, gdn_error_pop
+ 556: 2732+4	0226' EB      	                ex de, hl
+ 557: 2736+10	0227' C1      	                pop bc                  ; Restore counter
+ 558:				; Count digits and check limit.
+ 559: 2746+6	0228' 23      	                inc hl                  ; Point to next character
+ 560: 2752+4	0229' 0C      	                inc c                   ; One more digit
+ 561: 2756+7+5	022A' 20DB    	                jr nz, gdn_char_lp      ; Keep going unless 256 digits (unlikely)
+ 562: 2763+12	022C' 1802    	                jr gdn_error
+ 563:				; Too many or zero digits or overflow.
+ 564: 2775+4	022E' EB      	gdn_error_pop   ex de, hl               ; Move pointer back to HL
+ 565: 2779+10	022F' C1      	                pop bc                  ; Clean up stack
+ 566: 2789+10	0230' C1      	gdn_error       pop bc                  ; Restore original BC
+ 567: 2799+4	0231' 37      	                scf
+ 568: 2803+10	0232' C9      	                ret                     ; Return with carry flag set (error)
+ 569:				; Non-digit character found.
+ 570: 2813+4	0233' 79      	gdn_done        ld a, c
+ 571: 2817+4	0234' A7      	                and a
+ 572: 2821+7+5	0235' 28F9    	                jr z, gdn_error         ; Error if no digits read
+ 573:				; Normal completion.
+ 574: 2828+10	0237' C1      	                pop bc
+ 575: 2838+10	0238' C9      	                ret                     ; Return with carry flag reset (OK)
+ 576:				;
+ 577:				;
+ 578:				; Read a 32-bit unsigned decimal number from a string.
+ 579:				; Call with:
+ 580:				; HL - points to the first character of the number.
+ 581:				; Returns with:
+ 582:				; HL - points to first character after number.
+ 583:				; BCDE - required number
+ 584:				; C flag - set on error (too many or zero valid digits)
+ 585: 2848+10	0239' 010000  	rddulo          ld bc, 0                ; Initial result
+ 586: 2858+4	023C' 50      	                ld d, b
+ 587: 2862+4	023D' 59      	                ld e, c
+ 588: 2866+7	023E' 3E00    	                ld a, 0                 ; Count characters read
+ 589: 2873+11	0240' F5      	gldn_char_lp    push af                 ; Save counter
+ 590: 2884+7	0241' 7E      	                ld a, (hl)
+ 591: 2891+7	0242' D630    	                sub '0'
+ 592: 2898+7+5	0244' 385E    	                jr c, gldn_done         ; End of number if < '0'
+ 593: 2905+7	0246' FE0A    	                cp 10
+ 594: 2912+7+5	0248' 305A    	                jr nc, gldn_done        ; End of number if not a digit
+ 595:				; Value of digit is in LSN of A. Make space for it in the result.
+ 596: 2919+11	024A' E5      	                push hl                 ; Save pointer
+ 597: 2930+11	024B' F5      	                push af                 ; Save digit
+ 598:				; Save result x 1 
+ 599: 2941+10	024C' 210000  	                ld hl, gldn_x1
+ 600: 2951+7	024F' 73      	                ld (hl), e
+ 601: 2958+6	0250' 23      	                inc hl
+ 602: 2964+7	0251' 72      	                ld (hl), d
+ 603: 2971+6	0252' 23      	                inc hl
+ 604: 2977+7	0253' 71      	                ld (hl), c
+ 605: 2984+6	0254' 23      	                inc hl
+ 606: 2990+7	0255' 70      	                ld (hl), b
+ 607:				; Find result x 2
+ 608: 2997+8	0256' CB23    	                sla e
+ 609: 3005+8	0258' CB12    	                rl d
+ 610: 3013+8	025A' CB11    	                rl c
+ 611: 3021+8	025C' CB10    	                rl b
+ 612: 3029+7+5	025E' 3840    	                jr c, gldn_error_pop    ; No bits should fall off the end
+ 613:				; Find result x 4
+ 614: 3036+8	0260' CB23    	                sla e
+ 615: 3044+8	0262' CB12    	                rl d
+ 616: 3052+8	0264' CB11    	                rl c
+ 617: 3060+8	0266' CB10    	                rl b
+ 618: 3068+7+5	0268' 3836    	                jr c, gldn_error_pop    ; No bits should fall off the end
+ 619:				; Add "x 1" to obtain result x 5
+ 620: 3075+10	026A' 210000  	                ld hl, gldn_x1
+ 621: 3085+4	026D' 7B      	                ld a, e
+ 622: 3089+7	026E' 86      	                add (hl)
+ 623: 3096+4	026F' 5F      	                ld e, a
+ 624: 3100+6	0270' 23      	                inc hl
+ 625: 3106+4	0271' 7A      	                ld a, d
+ 626: 3110+7	0272' 8E      	                adc (hl)
+ 627: 3117+4	0273' 57      	                ld d, a
+ 628: 3121+6	0274' 23      	                inc hl
+ 629: 3127+4	0275' 79      	                ld a, c
+ 630: 3131+7	0276' 8E      	                adc (hl)
+ 631: 3138+4	0277' 4F      	                ld c, a
+ 632: 3142+6	0278' 23      	                inc hl
+ 633: 3148+4	0279' 78      	                ld a, b
+ 634: 3152+7	027A' 8E      	                adc (hl)
+ 635: 3159+4	027B' 47      	                ld b, a
+ 636: 3163+7+5	027C' 3822    	                jr c, gldn_error_pop    ; No bits should fall off the end
+ 637:				; Find result x 10
+ 638: 3170+8	027E' CB23    	                sla e
+ 639: 3178+8	0280' CB12    	                rl d
+ 640: 3186+8	0282' CB11    	                rl c
+ 641: 3194+8	0284' CB10    	                rl b
+ 642: 3202+7+5	0286' 3818    	                jr c, gldn_error_pop    ; No bits should fall off the end
+ 643: 3209+10	0288' F1      	                pop af                  ; Restore digit
+ 644:				; Insert new digit
+ 645: 3219+7	0289' 2E00    	                ld l, 0                 ; Cache zero
+ 646: 3226+4	028B' 83      	                add e
+ 647: 3230+4	028C' 5F      	                ld e, a
+ 648: 3234+4	028D' 7D      	                ld a, l
+ 649: 3238+4	028E' 8A      	                adc d
+ 650: 3242+4	028F' 57      	                ld d, a
+ 651: 3246+4	0290' 7D      	                ld a, l
+ 652: 3250+4	0291' 89      	                adc c
+ 653: 3254+4	0292' 4F      	                ld c, a
+ 654: 3258+4	0293' 7D      	                ld a, l
+ 655: 3262+4	0294' 88      	                adc b
+ 656: 3266+4	0295' 47      	                ld b, a
+ 657: 3270+7+5	0296' 3808    	                jr c, gldn_error_pop    ; No bits should fall off the end
+ 658:				; BCDE - required number
+ 659: 3277+10	0298' E1      	                pop hl                  ; Restore pointer
+ 660:				; Count digits and check limit.
+ 661: 3287+6	0299' 23      	                inc hl                  ; Point to next character
+ 662: 3293+10	029A' F1      	                pop af                  ; Restore counter
+ 663: 3303+4	029B' 3C      	                inc a                   ; One more digit
+ 664: 3307+7+5	029C' 20A2    	                jr nz, gldn_char_lp     ; Keep going unless 256 digits (unlikely)
+ 665: 3314+12	029E' 1802    	                jr gldn_error
+ 666:				; Too many or zero digits or overflow.
+ 667: 3326+10	02A0' E1      	gldn_error_pop  pop hl                  ; Restore pointer
+ 668: 3336+10	02A1' F1      	                pop af                  ; Discard counter
+ 669: 3346+4	02A2' 37      	gldn_error      scf
+ 670: 3350+10	02A3' C9      	                ret                     ; Return with carry flag set (error)
+ 671:				; Non-digit character found.
+ 672: 3360+10	02A4' F1      	gldn_done       pop af                  ; Restore counter
+ 673: 3370+4	02A5' A7      	                and a
+ 674: 3374+7+5	02A6' 28FA    	                jr z, gldn_error        ; Error if no digits read
+ 675:				; Normal completion.
+ 676: 3381+10	02A8' C9      	                ret                     ; Return with carry flag reset (OK)
+ 677:				;
+ 678:				;
+ 679:				;
+ 680:				; *************
+ 681:				; * Constants *
+ 682:				; *************
+ 683:				;
+ 684:				;
+ 685:				; (None)
+ 686:				;
+ 687:				;
+ 688:				;
+ 689:				; *************
+ 690:				; * Variables *
+ 691:				; *************
+ 692:				;
+ 693:				;
+ 694:				; Note: linker "-c" option is used, so no data is initialised here.
+ 695:				                dseg                ; Data segment
+ 696:				;
+ 697:     -	0000"         	gldn_x1         defs 4              ; Read long decimal temporary store
+ 698:				; cwpdlo (32-bit decimal print) variables
+ 699:     -	0004"         	pdl_reg         defs 4              ; Working store
+ 700:     -	0008"         	pdl_lz_flag     defs 1              ; Leading zero flag
+ 701:     -	0009"         	pdl_ascii       defs 1              ; ASCII digit
+ 702:				;
+ 703:     -	000A"         	                end
+
+
+
+Statistics:
+
+     4	passes
+     0	jr promotions
+   309	symbols
+   681	bytes
+
+   117	macro calls
+  1320	macro bytes
+     0	invented symbols
+
+
+
+Symbol Table:
+
+ASCII_BS       =08        8
+ASCII_CR       =0D        13
+ASCII_DEL      =7F        127
+ASCII_ENQ      =05        5
+ASCII_ESC      =1B        27
+ASCII_FF       =0C        12
+ASCII_HT       =09        9
+ASCII_LF       =0A        10
+ASCII_RS       =1E        30
+ASCII_SUB      =1A        26
+ASCII_SYN      =16        22
+ASCII_VT       =0B        11
+I2C_CSR_ACKN_BIT=00        0
+I2C_CSR_ACKN_MASK=01        1
+I2C_CSR_BUSY_BIT=07        7
+I2C_CSR_BUSY_MASK=80        128
+I2C_CSR_START_BIT=01        1
+I2C_CSR_START_MASK=02        2
+I2C_CSR_STOP_BIT=02        2
+I2C_CSR_STOP_MASK=04        4
+INTS_NUM       =08        8
+INT_SER1_RX_BIT=01        1
+INT_SER1_RX_MASK=02        2
+INT_SER1_RX_VEC=01        1
+INT_SER1_TX_BIT=00        0
+INT_SER1_TX_MASK=01        1
+INT_SER1_TX_VEC=00        0
+INT_SER2_RX_BIT=03        3
+INT_SER2_RX_MASK=08        8
+INT_SER2_RX_VEC=03        3
+INT_SER2_TX_BIT=02        2
+INT_SER2_TX_MASK=04        4
+INT_SER2_TX_VEC=02        2
+INT_TICK_BIT   =04        4
+INT_TICK_MASK  =10        16
+INT_TICK_VEC   =04        4
+IOA_CONTROL    =02        2
+IOA_CRC_0      =24        36
+IOA_CRC_1      =25        37
+IOA_CRC_DATA   =26        38
+IOA_FPGA_MAJREV=00        0
+IOA_FPGA_MINREV=01        1
+IOA_FP_SW      =03        3
+IOA_I2C_CSR    =18        24
+IOA_I2C_DATA   =19        25
+IOA_INT_EN     =08        8
+IOA_INT_PEND   =0A        10
+IOA_MMAP_0     =04        4
+IOA_MMAP_1     =05        5
+IOA_MMAP_2     =06        6
+IOA_MMAP_3     =07        7
+IOA_NMI_REASONS=0C        12
+IOA_SER1_CSR   =10        16
+IOA_SER1_DATA  =11        17
+IOA_SER2_CSR   =12        18
+IOA_SER2_DATA  =13        19
+IOA_SPI_CSR    =20        32
+IOA_SPI_DATA   =21        33
+MCALL_CACRS    =E4        228
+MCALL_CACWS    =E7        231
+MCALL_CAFLUS   =EA        234
+MCALL_CONRCH   =72        114
+MCALL_CONSTA   =75        117
+MCALL_CONWCH   =6F        111
+MCALL_CONWMN   =90        144
+MCALL_CONWMS   =8D        141
+MCALL_CRC16X   =CF        207
+MCALL_CWNWLN   =8A        138
+MCALL_CWPDBY   =AE        174
+MCALL_CWPDLO   =B4        180
+MCALL_CWPDWD   =B1        177
+MCALL_CWPHBY   =A8        168
+MCALL_CWPHNB   =A5        165
+MCALL_CWPHWD   =AB        171
+MCALL_CWPSPC   =9F        159
+MCALL_CWPTM    =DE        222
+MCALL_CWVICH   =9C        156
+MCALL_JPTBL_NEXT=F6        246
+MCALL_MADBBU   =C6        198
+MCALL_MADLBU   =C0        192
+MCALL_MADWBU   =C3        195
+MCALL_MAMLBU   =CC        204
+MCALL_MAMWWU   =C9        201
+MCALL_MCPRER   =E1        225
+MCALL_MON_ENTRY=69        105
+MCALL_MPALL    =ED        237
+MCALL_MPFREE   =F0        240
+MCALL_MPSTAT   =F3        243
+MCALL_MTWDLI   =A2        162
+MCALL_PANIC    =6C        108
+MCALL_RDDULO   =BD        189
+MCALL_RDDUWD   =BA        186
+MCALL_RDHXWD   =B7        183
+MCALL_S1RCH    =7B        123
+MCALL_S1STA    =7E        126
+MCALL_S1WCH    =78        120
+MCALL_S2RCH    =84        132
+MCALL_S2STA    =87        135
+MCALL_S2WCH    =81        129
+MCALL_SKPSPC   =93        147
+MCALL_TIITOS   =D8        216
+MCALL_TIRD     =D2        210
+MCALL_TISTOI   =DB        219
+MCALL_TIWR     =D5        213
+MCALL_TOLOCA   =99        153
+MCALL_TOUPCA   =96        150
+MMAP_PAGE_MASK =3F        63
+MMAP_PROT_BIT  =07        7
+MMAP_PROT_MASK =80        128
+MMAP_SUPER_BIT =06        6
+MMAP_SUPER_MASK=40        64
+MST_AF         =1C        28
+MST_AF_P       =14        20
+MST_BC         =1A        26
+MST_BC_P       =12        18
+MST_DE         =18        24
+MST_DE_P       =10        16
+MST_HL         =16        22
+MST_HL_P       =0E        14
+MST_I          =1E        30
+MST_IEN        =00        0
+MST_IX         =0C        12
+MST_IY         =0A        10
+MST_MMAP0      =02        2
+MST_MMAP1      =03        3
+MST_MMAP2      =04        4
+MST_MMAP3      =05        5
+MST_MMAP_EN    =01        1
+MST_PC         =08        8
+MST_R          =1F        31
+MST_SIZE       =20        32
+MST_SP         =06        6
+MS_PER_TICK    =64        100
+MTWDLI_ABBREV_BIT=00        0
+MTWDLI_ABBREV_MASK=01        1
+MTWDLI_ICASE_BIT=01        1
+MTWDLI_ICASE_MASK=02        2
+MTWDLI_TERM_BIT=07        7
+MTWDLI_TERM_MASK=80        128
+NMI_PROT_VIOL_BIT=01        1
+NMI_PROT_VIOL_MASK=02        2
+NMI_REASONS_ALL=0F        15
+NMI_REASONS_NUM=04        4
+NMI_SUPER_VIOL_BIT=02        2
+NMI_SUPER_VIOL_MASK=04        4
+NMI_SWITCH_BIT =00        0
+NMI_SWITCH_MASK=01        1
+NMI_TRACE_BIT  =03        3
+NMI_TRACE_MASK =08        8
+PORT_SER1      =00        0
+PORT_SER2      =01        1
+PORT_STATES    =02        2
+SER_CSR_FRAME_ERR_BIT=03        3
+SER_CSR_FRAME_ERR_MASK=08        8
+SER_CSR_RX_ALHALF_BIT=01        1
+SER_CSR_RX_ALHALF_MASK=02        2
+SER_CSR_RX_EMPTY_BIT=00        0
+SER_CSR_RX_EMPTY_MASK=01        1
+SER_CSR_RX_FULL_BIT=02        2
+SER_CSR_RX_FULL_MASK=04        4
+SER_CSR_TX_ALHALF_BIT=05        5
+SER_CSR_TX_ALHALF_MASK=20        32
+SER_CSR_TX_EMPTY_BIT=04        4
+SER_CSR_TX_EMPTY_MASK=10        16
+SER_CSR_TX_FULL_BIT=06        6
+SER_CSR_TX_FULL_MASK=40        64
+SPI_CSR_BUSY_BIT=07        7
+SPI_CSR_BUSY_MASK=80        128
+SPI_CSR_FAST_BIT=00        0
+SPI_CSR_FAST_MASK=01        1
+SPI_CSR_MC_SS_BIT=01        1
+SPI_CSR_MC_SS_MASK=02        2
+SYSCTRL_MAPARM_BIT=03        3
+SYSCTRL_MAPARM_MASK=08        8
+SYSCTRL_MMAPN_BIT=04        4
+SYSCTRL_MMAPN_MASK=10        16
+SYSCTRL_MMAP_BIT=01        1
+SYSCTRL_MMAP_MASK=02        2
+SYSCTRL_NMCLR_BIT=02        2
+SYSCTRL_NMCLR_MASK=04        4
+SYSCTRL_RESERVED_BIT=07        7
+SYSCTRL_RESERVED_MASK=80        128
+SYSCTRL_TRARM_BIT=00        0
+SYSCTRL_TRARM_MASK=01        1
+SYSCTRL_TRPRE0_BIT=05        5
+SYSCTRL_TRPRE0_MASK=20        32
+SYSCTRL_TRPRE1_BIT=06        6
+SYSCTRL_TRPRE1_MASK=40        64
+TICK_FREQ      =0A        10
+TRM_NONE       =00        0
+TRM_SINGLE     =01        1
+TRM_STATES     =04        4
+TRM_TO_ADDR    =02        2
+TRM_XPT        =03        3
+Z80_NMI_VEC    =66        102
+Z80_RST00_VEC  =00        0
+Z80_RST08_VEC  =08        8
+Z80_RST10_VEC  =10        16
+Z80_RST18_VEC  =18        24
+Z80_RST20_VEC  =20        32
+Z80_RST28_VEC  =28        40
+Z80_RST30_VEC  =30        48
+Z80_RST38_VEC  =38        56
+ZKEY_CSR_DOWN  =1E        30
+ZKEY_CSR_LEFT  =01        1
+ZKEY_CSR_RIGHT =06        6
+ZKEY_CSR_UP    =1F        31
+ZKEY_DELETE    =7F        127
+ZKEY_END       =04        4
+ZKEY_HOME      =02        2
+ZKEY_INSERT    =16        22
+ZKEY_PAGE_DOWN =1C        28
+ZKEY_PAGE_UP   =1D        29
+conrch          00        0 (extern)
+consta          00        0 (extern)
+conwch          00        0 (extern)
+conwmn          13'       19 (public)
+conwms          0A'       10 (public)
+coport          00        0 (extern)
+crc16x          00        0 (extern)
+cwnwln          00'       0 (public)
+cwpdby          85'       133 (public)
+cwpdlo          CC'       204 (public)
+cwpdwd          8F'       143 (public)
+cwphby          71'       113 (public)
+cwphnb          64'       100 (public)
+cwphwd          7D'       125 (public)
+cwpspc          50'       80 (public)
+cwvich          55'       85 (public)
+enum_counter   =02        2
+gdn_char_lp      207'     519
+gdn_done         233'     563
+gdn_error        230'     560
+gdn_error_pop    22E'     558
+ghn_char_lp      1C9'     457
+ghn_done         1FB'     507
+ghn_error        1F8'     504
+ghn_error_ex     1F7'     503
+ghn_got_dig      1E1'     481
+ghn_not_alpha    1D9'     473
+gldn_char_lp     240'     576
+gldn_done        2A4'     676
+gldn_error       2A2'     674
+gldn_error_pop   2A0'     672
+gldn_x1         00"       0
+i2crd           00        0 (extern)
+i2cwr           00        0 (extern)
+jptbl_addr     =F6        246
+madbbu          00        0 (extern)
+madlbu          00        0 (extern)
+madwbu          00        0 (extern)
+mamlbu          00        0 (extern)
+mamwwu          00        0 (extern)
+monitor        =01        1
+mtwdli           169'     361 (public)
+mw_char_loop     16E'     366
+mw_char_mis      1A1'     417
+mw_dot           1C0'     448
+mw_end_both      1BB'     443
+mw_end_lwd       1B0'     432
+mw_next_lwd      1A4'     420
+mw_no_match      1B7'     439
+mw_str_tm_dn     184'     388
+mw_sword_end     182'     386
+panic           00        0 (extern)
+pdl_ascii       09"       9
+pdl_digit        124'     292
+pdl_digloop      129'     297
+pdl_entry       9A'       154
+pdl_lz_flag     08"       8
+pdl_prdig        162'     354
+pdl_reg         04"       4
+pdw_byte        A0'       160
+pdw_digit       B5'       181
+pdw_digloop     B7'       183
+pdw_prdig       C6'       198
+pmn_done        31'       49
+pmn_error       34'       52
+pmn_found       24'       36
+pmn_msg_lp      15'       21
+pmn_sk_lp       19'       25
+pn_numeric      6E'       110
+prv_do_subs     60'       96
+rddulo           239'     569 (public)
+rdduwd           201'     513 (public)
+rdhxwd           1C3'     451 (public)
+rusby           00        0 (extern)
+ruswd           00        0 (extern)
+s1rch           00        0 (extern)
+s1sta           00        0 (extern)
+s1wch           00        0 (extern)
+s2rch           00        0 (extern)
+s2sta           00        0 (extern)
+s2wch           00        0 (extern)
+skpspc          37'       55 (public)
+sks_loop        39'       57
+spiini          00        0 (extern)
+spiss           00        0 (extern)
+spitr           00        0 (extern)
+str_offset     =20        32
+tikcnt          00        0 (extern)
+toloca          47'       71 (public)
+toupca          3E'       62 (public)
+trarch          00        0 (extern)
+trawch          00        0 (extern)
+trport          00        0 (extern)
+utility        =01        1
+wusby           00        0 (extern)
+wuswd           00        0 (extern)

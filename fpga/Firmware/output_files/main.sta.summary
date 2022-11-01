@@ -1,0 +1,69 @@
+------------------------------------------------------------
+TimeQuest Timing Analyzer Summary
+------------------------------------------------------------
+
+Type  : Slow Model Setup 'RClk_virt'
+Slack : 1.130
+TNS   : 0.000
+
+Type  : Slow Model Setup 'RClk'
+Slack : 2.005
+TNS   : 0.000
+
+Type  : Slow Model Hold 'RClk'
+Slack : 0.499
+TNS   : 0.000
+
+Type  : Slow Model Hold 'RClk_virt'
+Slack : 6.329
+TNS   : 0.000
+
+Type  : Slow Model Recovery 'RClk'
+Slack : 14.870
+TNS   : 0.000
+
+Type  : Slow Model Removal 'RClk'
+Slack : 4.288
+TNS   : 0.000
+
+Type  : Slow Model Minimum Pulse Width 'RClk'
+Slack : 6.933
+TNS   : 0.000
+
+Type  : Slow Model Minimum Pulse Width 'CPU_CLK'
+Slack : 122.059
+TNS   : 0.000
+
+Type  : Fast Model Setup 'RClk_virt'
+Slack : 5.972
+TNS   : 0.000
+
+Type  : Fast Model Setup 'RClk'
+Slack : 6.894
+TNS   : 0.000
+
+Type  : Fast Model Hold 'RClk'
+Slack : 0.215
+TNS   : 0.000
+
+Type  : Fast Model Hold 'RClk_virt'
+Slack : 3.153
+TNS   : 0.000
+
+Type  : Fast Model Recovery 'RClk'
+Slack : 17.777
+TNS   : 0.000
+
+Type  : Fast Model Removal 'RClk'
+Slack : 1.810
+TNS   : 0.000
+
+Type  : Fast Model Minimum Pulse Width 'RClk'
+Slack : 7.500
+TNS   : 0.000
+
+Type  : Fast Model Minimum Pulse Width 'CPU_CLK'
+Slack : 122.620
+TNS   : 0.000
+
+------------------------------------------------------------

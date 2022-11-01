@@ -1,0 +1,75 @@
+Addr  Length Typ Name       Module   File
+=====================================================================
+0100   05cd   P  -          STRAN.   stran.rel
+06cd   0246   P  -          IO.Z80   io.rel
+0913   0387   P  -          CPM_UT   ../shared/cpm_utility.rel
+0c9a   04e0   P  -          CPM_FI   ../shared/cpm_files.rel
+117a   0116   P  -          CPM_MA   ../shared/cpm_maths.rel
+1290   04fb   D  -          STRAN.   stran.rel
+178b   0003   D  -          IO.Z80   io.rel
+178e   000a   D  -          CPM_UT   ../shared/cpm_utility.rel
+
+Symbol   Value Module   File
+======================================================================
+BRKFLG   1294  STRAN.   stran.rel
+CBDOS    0913  CPM_UT   ../shared/cpm_utility.rel
+CBIOS    091f  CPM_UT   ../shared/cpm_utility.rel
+CONRCH   0992  CPM_UT   ../shared/cpm_utility.rel
+CONST    09a9  CPM_UT   ../shared/cpm_utility.rel
+CONWCH   0984  CPM_UT   ../shared/cpm_utility.rel
+CONWMN   0b09  CPM_UT   ../shared/cpm_utility.rel
+CONWMS   09b6  CPM_UT   ../shared/cpm_utility.rel
+CRC16X   120a  CPM_MA   ../shared/cpm_maths.rel
+CWNWLN   099f  CPM_UT   ../shared/cpm_utility.rel
+CWPDBY   0a25  CPM_UT   ../shared/cpm_utility.rel
+CWPDLO   0a6c  CPM_UT   ../shared/cpm_utility.rel
+CWPDWD   0a2f  CPM_UT   ../shared/cpm_utility.rel
+CWPHBY   0a11  CPM_UT   ../shared/cpm_utility.rel
+CWPHNB   0a04  CPM_UT   ../shared/cpm_utility.rel
+CWPHWD   0a1d  CPM_UT   ../shared/cpm_utility.rel
+CWPSPC   09df  CPM_UT   ../shared/cpm_utility.rel
+CWVICH   09e4  CPM_UT   ../shared/cpm_utility.rel
+FBFCB    0c9f  CPM_FI   ../shared/cpm_files.rel
+FCLOSE   0e41  CPM_FI   ../shared/cpm_files.rel
+FDEL     0cbb  CPM_FI   ../shared/cpm_files.rel
+FDFCB    0e79  CPM_FI   ../shared/cpm_files.rel
+FDNAM    0f14  CPM_FI   ../shared/cpm_files.rel
+FDSREM   0f69  CPM_FI   ../shared/cpm_files.rel
+FDSWEM   0f62  CPM_FI   ../shared/cpm_files.rel
+FINIT    0c9a  CPM_FI   ../shared/cpm_files.rel
+FLUSH    08b0  IO.Z80   io.rel
+FMAKE    0d10  CPM_FI   ../shared/cpm_files.rel
+FOPEN    0ce1  CPM_FI   ../shared/cpm_files.rel
+FRDBLK   0e2a  CPM_FI   ../shared/cpm_files.rel
+FRDBY    0df0  CPM_FI   ../shared/cpm_files.rel
+FRDREC   0dc2  CPM_FI   ../shared/cpm_files.rel
+FWRBLK   0db1  CPM_FI   ../shared/cpm_files.rel
+FWRBY    0d7f  CPM_FI   ../shared/cpm_files.rel
+FWRREC   0d4d  CPM_FI   ../shared/cpm_files.rel
+MADBBU   11a0  CPM_MA   ../shared/cpm_maths.rel
+MADD32   1265  CPM_MA   ../shared/cpm_maths.rel
+MADLBU   117a  CPM_MA   ../shared/cpm_maths.rel
+MADWBU   118f  CPM_MA   ../shared/cpm_maths.rel
+MAMLBU   11cc  CPM_MA   ../shared/cpm_maths.rel
+MAMWWU   11b0  CPM_MA   ../shared/cpm_maths.rel
+MCLR32   1225  CPM_MA   ../shared/cpm_maths.rel
+MCOP32   122f  CPM_MA   ../shared/cpm_maths.rel
+MCP32    1253  CPM_MA   ../shared/cpm_maths.rel
+MINC32   123e  CPM_MA   ../shared/cpm_maths.rel
+MSUB32   127a  CPM_MA   ../shared/cpm_maths.rel
+MTWDLI   0b2d  CPM_UT   ../shared/cpm_utility.rel
+PANIC    0933  CPM_UT   ../shared/cpm_utility.rel
+RDDULO   0bfd  CPM_UT   ../shared/cpm_utility.rel
+RDDUWD   0bc5  CPM_UT   ../shared/cpm_utility.rel
+RDHXWD   0b87  CPM_UT   ../shared/cpm_utility.rel
+RXDCH    0851  IO.Z80   io.rel
+RXPKT    0765  IO.Z80   io.rel
+SKPSPC   09c6  CPM_UT   ../shared/cpm_utility.rel
+SPOFLG   1293  STRAN.   stran.rel
+TOLOCA   09d6  CPM_UT   ../shared/cpm_utility.rel
+TOUPCA   09cd  CPM_UT   ../shared/cpm_utility.rel
+TXDCH    0757  IO.Z80   io.rel
+TXPKT    06cd  IO.Z80   io.rel
+Z80DET   096a  CPM_UT   ../shared/cpm_utility.rel
+ZRCDET   0946  CPM_UT   ../shared/cpm_utility.rel
+ZRCFLG   1292  STRAN.   stran.rel

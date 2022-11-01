@@ -1,0 +1,49 @@
+#!/bin/bash
+# Download a binary file to ZARC. To download the monitor, use
+# "zarc_dl monitor.bin /dev/ttyUSB0". In this case, the stage 1 bootloader must be
+# running.
+# Merlin Skinner, 18/5/2020
+
+# Define serial port
+tmp=/tmp
+segs=ZARC_dl_seg
+
+if [ $# -ne 2 ]
+    then
+        echo "Binary file download"
+        echo "zarc_dl <file> <port>"
+        echo "Example: zarc_dl monitor.bin /dev/ttyUSB0"
+        exit 1
+fi
+
+# Setup serial
+# Note, confirm settings with "stty -F /dev/ttyUSB<n> -a" if required.
+stty -F $2 9600 cs8 -cstopb -parenb raw crtscts
+
+# Transfers larger than 1 KB long result in data being lost. 512 bytes
+# is a conservative chunk size. First delete any previous chunks.
+rm -f $tmp/$segs*
+split -b 512 $1 $tmp/$segs
+# Copy chunks to the serial port.
+
+for i in $tmp/$segs* ; do
+    [ -f "$i" ] || break
+    echo "Transferring $i"
+    cat $i > $2
+    echo "Waiting"
+    #sleep 1s       # For 1200 Baud
+    sleep 0.05s     # For 9600 Baud
+done
+
+# Clean up
+rm -f $tmp/$segs*
+
+# Even if the above were performed in one chunk, a delay would be required
+# to allow transfer to complete before minicom reconfigures the port.
+# Failure to do this corrupts the end of the transfer. I can't see any simple
+# way of making the script wait until the buffer is empty, which would be a
+# much better solution.
+
+# Start terminal
+#zarc_ser1_term.sh
+# minicom -D $p -b 9600 -8

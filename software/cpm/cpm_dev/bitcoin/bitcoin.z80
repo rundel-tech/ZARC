@@ -1,0 +1,874 @@
+; *******************************************************
+; * Bitcoin Mining for CP/M                             *
+; * Version: V1.0                                       *
+; * Merlin Skinner, 5/9/2022                            *
+; *******************************************************
+;
+; This program is intended to run under CP/M 2.2. It should run under any such
+; system, though timing is only available when run on ZARC.
+;
+                title Bitcoin Mining for CP/M
+;
+;
+;
+; ************
+; * Includes *
+; ************
+;
+;
+                include "macros.i"
+                include "cpm.i"
+                include "terminal.i"    ; Terminal constants
+                include "bitcoin.i"     ; Project include file
+                include "z80.i"
+                include "monitor.i"
+                include "cpm_utility.i" ; CP/M utilities
+                include "cpm_files.i"   ; CP/M file handling
+                include "cpm_maths.i"   ; Integer mathematics
+                include "cpm_files.i"   ; CP/M file handling
+                include "cpm_top.i"     ; CP/M dummy top module
+;
+;
+;
+; *************
+; * Externals *
+; *************
+;
+;
+; Variables
+;                public brkflg   ; Non-zero if break character detected
+;
+; From sha-256.z80
+                extern sh2ini   ; Initialise sha-256 state
+                extern sh2m     ; Process a message in memory
+                extern sh2dh    ; Display hash value
+;
+;
+;
+; *************
+; * Main Code *
+; *************
+;
+;
+; The CP/M transient area start address is set in the linker invocation (see
+; makefile).
+                cseg                    ; Code segment
+;
+; The default stack space is very small (8 deep), which would almost certainly
+; cause issues, particularly with interrupts running. The initial code should
+; not assume a Z80 so we can exit cleanly if this is run on something else.
+                ld (bdos_sp), sp
+                ld sp, app_stack_top    ; Switch to our stack space
+;
+; Determine CPU type.
+                call z80det             ; Detect Z80 (instead of 8080 / 8085)
+                jp nc, on_z80           ; Jump if we have a Z80
+;
+; 8080 / 8085 detected. Print message and exit. We can't use conwms as this
+; assumes a Z80.
+                ld de, no_z80_msg       ; "Z80 CPU required"
+                ld c, BDOS_PRINT_STRING ; Print String
+                call BDOS
+                jp 0                    ; Warm boot
+;
+; Sign on.
+on_z80          ld hl, signon_msg
+                call conwms             ; Print $-terminated string to console
+;
+; Are we running on a ZARC system?
+                call zrcdet
+; Carry set if ZARC BIOS not found.
+                ccf
+                rla
+                and 1
+                ld (zarc_flag), a       ; 0x01 if ZARC, zero otherwise
+                jr nz, init_fcbr
+;
+; Warn about limited facilites.
+                ld hl, no_zarc_msg      ; "ZARC BIOS not detected ..."
+                call conwms             ; Print $-terminated string to console
+;
+; Setup file structure.
+; IX - pointer to FCBR structure (FCB with record buffer). This is defined in
+; cpm_files.i
+init_fcbr       ld ix, fcbr
+                call finit              ; Initialise FCBR structure
+;
+; Examine the command tail, looking for operands. This is stored in the default
+; buffer. "The first byte at 0080H contains the length of the command tall,
+; while the command tail itself begins at 0081H. The command tail is terminated
+; by a byte containing a binary zero value."
+; (http://www.cpm.z80.de/manuals/cpm22-m.pdf appendix H).
+                ld hl, DEF_BUFFER + 1
+; No operands (yet).
+; The terminator should follow.
+op_check_term   call skpspc
+                ld a, (hl)
+                and a
+                ifdef DEBUG
+                    ; Ignore operands so we can run under ddtz27 or similar.
+                    jr operands_ok
+                endif
+                jr z, operands_ok       ; Normal behaviour
+;
+; Go here if we don't like the operands supplied.
+op_error        ld hl, op_err_msg
+                jp msg_exit
+;
+; Operand processing complete.
+operands_ok
+;
+;
+; Perform validation tests. First the null string.
+                ld hl, test_null_msg    ; "Null message test: "
+                call conwms             ; Print $-terminated string to console
+                call sh2ini             ; Initialise sha-256 state
+                ld hl, 0                ; Pointer does not matter
+                ld bc, 0                ; Overall message length in bytes
+                call sh2m               ; Process a message in memory
+; HL - pointer to message digest (h0 to h7)
+                ld de, null_msg_hash
+                call cmp_hashes         ; Compare hashes and report errors
+                call nc, disp_ok        ; Display OK if it was so
+;
+; Test message 1
+                ld hl, test_short_msg   ; "Short message test: "
+                call conwms             ; Print $-terminated string to console
+                call sh2ini             ; Initialise sha-256 state
+                ld hl, test1_msg        ; Point to message
+                ld bc, test1_msg_len    ; Overall message length in bytes
+                call sh2m               ; Process a message in memory
+; HL - pointer to message digest (h0 to h7)
+                ld de, test1_msg_hash
+                call cmp_hashes         ; Compare hashes and report errors
+                call nc, disp_ok        ; Display OK if it was so
+;
+; Test message 2. This will require three chunks, one with message text, another
+; with the rest of the message text (but is just too short to contain the
+; length), and the last with just the length.
+                ld hl, test_long_msg    ; "Long message test: "
+                call conwms             ; Print $-terminated string to console
+                call sh2ini             ; Initialise sha-256 state
+                ld hl, test2_msg        ; Point to message
+                ld bc, test2_msg_len    ; Overall message length in bytes
+                call sh2m               ; Process a message in memory
+; HL - pointer to message digest (h0 to h7)
+                ld de, test2_msg_hash
+                call cmp_hashes         ; Compare hashes and report errors
+                call nc, disp_ok        ; Display OK if it was so
+;
+; Test message 3. This is just one byte shorter than the previous message. It
+; will require two chunks, one with message text, another with the rest of the
+; message text and the length. No chunk will contain pad bytes.
+                ld hl, test_long2_msg   ; "Long message test 2: "
+                call conwms             ; Print $-terminated string to console
+                call sh2ini             ; Initialise sha-256 state
+                ld hl, test2_msg        ; Use test2 message (except last byte)
+                ld bc, test3_msg_len    ; Overall message length in bytes
+                call sh2m               ; Process a message in memory
+; HL - pointer to message digest (h0 to h7)
+                ld de, test3_msg_hash
+                call cmp_hashes         ; Compare hashes and report errors
+                call nc, disp_ok        ; Display OK if it was so
+;
+; Bitcoin genesis block.
+                ld hl, genesis_msg      ; "Bitcoin genesis block: "
+                call conwms             ; Print $-terminated string to console
+                call sh2ini             ; Initialise sha-256 state
+                ld hl, genesis          ; Point to message
+                ld bc, BH_SIZE          ; Header size
+                call sh2m               ; Process a message in memory
+; HL - pointer to message digest (h0 to h7)
+                ld de, bit_hash_buf     ; Hash digest buffer
+                push de
+                call copy_hash          ; Copy hash and endian convert
+; Apply the second SHA-2 step, as Bitcoin uses double SHA-2.
+                call sh2ini             ; Initialise sha-256 state
+                pop hl
+                ld bc, SH2_DIGEST_BYTES ; Overall message length in bytes
+                call sh2m               ; Process a message in memory
+; HL - pointer to message digest (h0 to h7)
+                ld de, genesis_hash
+                call bit_cmp_hashes     ; Compare Bitcoin hashes
+                call nc, disp_ok        ; Display OK if it was so
+;
+                ld hl, bitc_exam_msg    ; "Bitcoin example block: "
+                call conwms             ; Print $-terminated string to console
+                call sh2ini             ; Initialise sha-256 state
+                ld hl, bitc_example     ; Point to message
+                ld bc, BH_SIZE          ; Header size
+                call sh2m               ; Process a message in memory
+; HL - pointer to message digest (h0 to h7)
+                ld de, bit_hash_buf     ; Hash digest buffer
+                push de
+                call copy_hash          ; Copy hash and endian convert
+; Apply the second SHA-2 step, as Bitcoin uses double SHA-2.
+                call sh2ini             ; Initialise sha-256 state
+                pop hl
+                ld bc, SH2_DIGEST_BYTES ; Overall message length in bytes
+                call sh2m               ; Process a message in memory
+; HL - pointer to message digest (h0 to h7)
+                ld de, bitc_exam_hash
+                call bit_cmp_hashes     ; Compare Bitcoin hashes
+                call nc, disp_ok        ; Display OK if it was so
+;
+;
+; Attempt to load saved progress.
+                ld hl, load_state_msg   ; "Loading saved state "
+                call conwms             ; Print $-terminated string to console
+; IX - pointer to FCBR structure (FCB with record buffer) was setup earlier.
+                ld hl, save_fn          ; Filename
+                call fbfcb              ; Build the FCB.
+;
+                call fopen              ; Open file for reading
+; Carry set on error. A generic message will have been written to the console
+; if an error occurred.
+                jp c, load_error
+;
+                ld hl, save_start       ; Start of saved variables
+                ld bc, save_size        ; Size
+                call frdblk             ; Read block from file
+; Carry set on error. A generic message will have been written to the console
+; if an error occurred.
+                jp c, load_error
+; We should have loaded exactly save_size bytes.
+                ld hl, save_size
+                and a
+                sbc hl, bc
+                jr nz, load_error
+;
+                call disp_ok            ; Print "OK"
+                jp load_done
+;
+;
+; Load failed.
+load_error      ld hl, load_err_msg     ; "Error reading file"
+                call conwms             ; Print $-terminated string to console
+;
+; Copy the genesis block to use as the basis of our search.
+                ld hl, genesis          ; Point to message
+                ld de, bit_hdr_buf      ; Bitcoin header buffer
+                ld bc, BH_SIZE          ; Header size
+                ldir
+; Initialise nonce.
+                ld hl, bit_hdr_buf + BH_NONCE
+                call mclr32             ; 32-bit clear (zero)
+; Reset best hash and corresponding best nonce found.
+                ld hl, best_hash
+                ld b, SH2_DIGEST_BYTES
+                ld a, 0xff
+init_clr_hash   ld (hl), a
+                inc hl
+                djnz init_clr_hash
+                ld hl, best_nonce
+                call mclr32             ; 32-bit clear (zero)
+; Reset iteration counter.
+                ld hl, iter_count
+                call mclr32             ;  32-bit clear (zero)
+;
+; Reset iteration counters.
+load_done       call fclose             ; Close file
+                ld hl, 0
+                ld (iter_delta), hl     ; Iterations since last report
+;
+; Initialise timing (ZARC only).
+                ld a, (zarc_flag)       ; 0x01 if ZARC, zero otherwise
+                and a
+                jr z, initt_done
+;
+; ZARC system. Reset the elapsed time.
+                xor a
+                ld b, a
+                ld c, a
+                ld d, a
+                ld e, a
+; BCDE - 32-bit time
+                ld hl, BIOS_SET_TIMER   ; Set timer
+                call cbios              ; Call BIOS
+;
+; Set initial message time.
+                ld hl, msg_time         ; Message timer (ms)
+                ld (hl), low MSG_PERIOD
+                inc hl
+                ld (hl), high MSG_PERIOD
+                inc hl
+                ld (hl), 0
+                inc hl
+                ld (hl), 0
+;
+initt_done      call disp_best          ; Display best nonce and hash
+                ld hl, start_msg        ; "Starting mining. Press ^C to exit."
+                call conwms             ; Print $-terminated string to console
+;
+;
+; Main iteration loop.
+main_loop       call sh2ini             ; Initialise sha-256 state
+                ld hl, bit_hdr_buf      ; Bitcoin block header buffer
+                ld bc, BH_SIZE          ; Header size
+                call sh2m               ; Process a message in memory
+; HL - pointer to message digest (h0 to h7)
+                ld de, bit_hash_buf     ; Hash digest buffer
+                push de
+                call copy_hash          ; Copy hash and endian convert
+; Apply the second SHA-2 step, as Bitcoin uses double SHA-2.
+                call sh2ini             ; Initialise sha-256 state
+                pop hl
+                ld bc, SH2_DIGEST_BYTES ; Overall message length in bytes
+                call sh2m               ; Process a message in memory
+; HL - pointer to message digest (h0 to h7)
+;
+; Assess the resulting hash. Is it smaller than the best yet? The bytes are
+; to be treated as h0 - h7 in reverse order and big endian format to suit
+; Bitcoin conventions.
+                push hl                 ; Save pointer to hash
+; Perform a subtract, starting at the LS byte of h0.
+                inc hl
+                inc hl
+                inc hl
+                ex de, hl
+                ld hl, best_hash + 3
+                ld b, 8                 ; Register counter
+                and a                   ; Reset carry
+hcmp_reg_loop   ld c, 4
+; B - register counter
+; C - byte counter
+; DE - pointer to calculated hash
+; HL - pointer to best hash
+                push de
+                push hl
+hcmp_byte_loop  ld a, (de)
+                sbc (hl)
+                dec hl
+                dec de
+                dec c
+                jr nz, hcmp_byte_loop
+                pop hl
+                pop de
+; Next calculated hash register.
+                inc de
+                inc de
+                inc de
+                inc de
+; Next best hash register.
+                inc hl
+                inc hl
+                inc hl
+                inc hl
+                djnz hcmp_reg_loop
+; Compare complete.
+                pop hl                  ; Recover pointer to h0 - h7
+                jr nc, next_nonce       ; Keep going if not best
+;
+;
+; This is the best hash yet.
+; HL - pointer to message digest (h0 to h7)
+; Save the hash
+                ld de, best_hash
+                ld bc, BH_SIZE
+                ldir
+; Save nonce
+                ld hl, bit_hdr_buf + BH_NONCE
+                ld de, best_nonce
+                call mcop32             ; 32-bit copy from (hl) to (de)
+;
+                call disp_best          ; Display best nonce and hash
+;
+; Increment the nonce.
+next_nonce      ld hl, bit_hdr_buf + BH_NONCE
+                call minc32             ; 32-bit increment
+;
+; Update iteration counter.
+                ld hl, iter_count
+                call minc32             ; 32-bit increment
+                call c, panic           ; Counter can't realistically overflow
+;
+; Update iterations since last report.
+                ld hl, (iter_delta)
+                inc hl
+                ld a, h
+                or l
+                jr z, rep_delinc_dn     ; Jump if no overflow
+                ld (iter_delta), hl
+rep_delinc_dn
+;
+;
+; Report progress every so often.
+                ld a, (zarc_flag)       ; 0x01 if ZARC, zero otherwise
+                and a
+                jr z, rep_not_zarc      ; jump if not a ZARC system
+;
+; ZARC system. Examine time.
+                ld hl, BIOS_GET_TIMER   ; Get timer
+                call cbios              ; Call BIOS
+; BCDE - 32-bit time in ms. Time is limited to approximately 49.7 days.
+; Subtract msg_time from current time. If it doesn't carry, we should report.
+                ld hl, msg_time         ; Message timer (ms)
+                ld a, e
+                sub (hl)
+                inc hl
+                ld a, d
+                sbc (hl)
+                inc hl
+                ld a, c
+                sbc (hl)
+                inc hl
+                ld a, b
+                sbc (hl)
+                jr nc, rep_start        ; Jump if time to report
+                jr rep_done
+;
+; Not a ZARC system. Report every so many iterations.
+rep_not_zarc    ld a, (iter_count)      ; Fetch LS byte of counter
+                and MSG_REP_MASK
+                jr nz, rep_done
+;
+rep_start       ld hl, iter_msg         ; CR, "Iteration: "
+                call conwms             ; Print $-terminated string to console
+                ld hl, iter_count
+                ld c, (hl)
+                inc hl
+                ld b, (hl)
+                inc hl
+                ld e, (hl)
+                inc hl
+                ld d, (hl)
+                ld h, b
+                ld l, c
+                call cwpdlo             ; Print DEHL in decimal
+;
+                ld hl, delta_msg        ; ", delta: "
+                call conwms             ; Print $-terminated string to console
+                ld hl, iter_delta
+                ld e, (hl)
+                inc hl
+                ld d, (hl)
+                ex de, hl
+                call cwpdwd             ; Print HL in decimal
+; Leave the cursor at the end of the line so we can print over it next time.
+;
+; Reset iteration delta counter.
+                ld hl, 0
+                ld (iter_delta), hl     ; Iterations since last report
+;
+; Update the time if we are on ZARC.
+                ld a, (zarc_flag)       ; 0x01 if ZARC, zero otherwise
+                and a
+                jr z, rep_done          ; jump if not a ZARC system
+;
+; Calculate time for next report.
+                ld hl, msg_time         ; Message timer (ms)
+                ld de, msg_per_const
+                call madd32             ; 32-bit add (hl) <- (hl) + (de)
+;
+; Exit unless break detected.
+rep_done        call const              ; Fetch console input status
+                and a
+                jr z, ml_no_break       ; Jump if no character received
+; The BIOS is used for console I/O as the corresponding BDOS function echoes
+; the character to the display.
+                call conrch             ; Read character from the console
+; Exit if ^C pressed.
+                ld hl, break_msg        ; "Exiting due to ^C"
+                cp BREAK_CHAR
+                jr z, break_det         ; Exit on break
+;
+ml_no_break     jp main_loop            ; Do another iteration
+;
+;
+; Break detected. Attempt to save state. The fcbr is reused, so the save
+; filename is the same as that used for loading.
+break_det       ld hl, save_msg         ; "Saving state "
+                call conwms             ; Print $-terminated string to console
+                call fdnam              ; Display CP/M filename
+                call cwnwln             ; Write new line characters to console
+                call fmake              ; Create new file and report errors
+; A - BDOS error code if carry = 1
+; Carry flag is set if BDOS reported an error.
+                jr c, save_error        ; Give up if can't make
+;
+; Save the variables.
+                ld hl, save_start       ; Start of saved variables
+                ld bc, save_size        ; Size
+                call fwrblk             ; Write block to file
+; Carry set on error. A generic message will have been written to the console
+; if an error occurred.
+                jr nc, exit             ; Exit if no error
+;
+save_error      ld hl, save_err_msg     ; "Error saving state"
+;
+;
+; Print message pointed to by HL, then exit.
+msg_exit        call conwms             ; Print $-terminated string to console
+;
+; Return to CP/M.
+exit            call fclose             ; Close file
+                ld hl, exit_msg         ; "Returning to CP/M."
+                call conwms             ; Print $-terminated string to console
+;
+                ld sp, (bdos_sp)
+; For this application a warm boot is required as we may have overwritten the
+; CCP.
+;                ret                     ; Return to BDOS
+                jp 0                    ; Warm boot
+;
+;
+;
+; ***************
+; * Subroutines *
+; ***************
+;
+;
+; Display nonce and hash.
+disp_best       push bc
+                push de
+                push hl
+;
+                ld hl, best_msg         ; "Best nonce / hash found:"
+                call conwms             ; Print $-terminated string to console
+                ld hl, best_nonce
+                ld c, (hl)
+                inc hl
+                ld b, (hl)
+                inc hl
+                ld e, (hl)
+                inc hl
+                ld d, (hl)
+                ld h, b
+                ld l, c
+                call cwpdlo             ; Print DEHL in decimal
+;
+                call cwpspc             ; Print a space
+                ld hl, best_hash
+                call bit_disp_hash      ; Display hash value in Bitcoin format
+                call cwnwln             ; Write new line characters to console
+;
+                pop hl
+                pop de
+                pop bc
+                ret
+;
+;
+; Compare hashes and report any errors. Call with:
+; HL - pointer to hash (message digest [h0 to h7])
+; DE - pointer to expected hash value
+; Returns with:
+; Carry flag - set on mismatch, clear otherwise
+cmp_hashes      push bc
+;
+                push hl
+                push de
+;
+                ld bc, 8 * 4            ; Compare 8 32-bit words
+ch_loop         ld a, (de)
+                inc de
+                cpi                     ; cp (hl), inc hl, dec bc
+                jr nz, ch_miss
+                jp pe, ch_loop
+; Hashes match!
+                pop de                  ; Discard pointers
+                pop hl
+                and a                   ; Flag success
+                jr ch_exit
+;
+ch_miss         call cwnwln             ; Write new line characters to console
+                ld hl, hc_mismatch_msg  ; "Hash mismatch. Expected:"
+                call conwms             ; Print $-terminated string to console
+                pop hl                  ; Recover pointer to expected hash
+                call sh2dh              ; Display hash value
+                call cwnwln             ; Write new line characters to console
+                ld hl, hc_found_msg     ; "found:"
+                call conwms             ; Print $-terminated string to console
+                pop hl                  ; Recover pointer to calculated hash
+                call sh2dh              ; Display hash value
+                call cwnwln             ; Write new line characters to console
+                scf                     ; Flag error
+;
+ch_exit         pop bc
+                ret
+;
+;
+; As cmp_hashes but the hash is reversed as is the convention for Bitcoin.
+; Call with:
+; HL - pointer to hash (message digest [h0 to h7])
+; DE - pointer to expected hash value in Bitcoin format
+; Returns with:
+; Carry flag - set on mismatch, clear otherwise
+bit_cmp_hashes  push bc
+;
+                push hl                 ; Save hash pointers
+                push de
+;
+; Advance hash address to last register (h7)
+                ld bc, 7 * 4
+                add hl, bc
+;
+                ld c, 8                 ; Register counter
+bch_reg_loop    ld b, 4                 ; Byte counter
+bch_byte_loop   ld a, (de)
+                cp (hl)
+                jr nz, bch_miss
+                inc de
+                inc hl
+                djnz bch_byte_loop
+; Register complete. Make HL point to the MS byte of the previous register.
+                push bc
+                ld bc, -8
+                add hl, bc
+                pop bc
+                dec c
+                jr nz, bch_reg_loop
+; Hashes match!
+                pop de                  ; Discard pointers
+                pop hl
+                and a                   ; Flag success
+                jr bch_exit
+;
+bch_miss        call cwnwln             ; Write new line characters to console
+                ld hl, hc_mismatch_msg  ; "Hash mismatch. Expected:"
+                call conwms             ; Print $-terminated string to console
+                pop hl                  ; Recover pointer to expected hash
+; Neither sh2dh or bit_disp_hash will display as expected because the value is
+; reversed as well as being in big-endian order.
+                ld b, 8 * 4
+bch_disp_loop   ld a, (hl)
+                call cwphby             ; Print A in hexadecimal
+                inc hl
+                djnz bch_disp_loop
+                call cwnwln             ; Write new line characters to console
+                ld hl, hc_found_msg     ; "found:"
+                call conwms             ; Print $-terminated string to console
+                pop hl                  ; Recover pointer to calculated hash
+                call bit_disp_hash      ; Display hash value in Bitcoin format
+                call cwnwln             ; Write new line characters to console
+                scf                     ; Flag error
+;
+bch_exit        pop bc
+                ret
+;
+;
+; Copy h0 to h7 (the hash digest) to a buffer, performing an endian swap as
+; we go.
+; DE - pointer to buffer
+; HL - pointer to message digest (h0 to h7)
+copy_hash       push bc
+;
+                ld b, 8                 ; Register counter
+ch_reg_loop     inc de                  ; Advance to last (MS) byte
+                inc de
+                inc de
+                push de
+                ld a, (hl)
+                ld (de), a
+                inc hl
+                dec de
+                ld a, (hl)
+                ld (de), a
+                inc hl
+                dec de
+                ld a, (hl)
+                ld (de), a
+                inc hl
+                dec de
+                ld a, (hl)
+                ld (de), a
+                inc hl
+                pop de
+                inc de                  ; Advance to next longword
+                djnz ch_reg_loop        ; Loop for all registers
+;
+                pop bc
+                ret
+;
+;
+; Display hash value. This works the same way as sh2dh in sha-256.z80, but in
+; this case the bytes are displayed in reverse order to suit Bitcoin
+; conventions.
+; Call with:
+; HL - pointer to hash (message digest [h0 to h7])
+bit_disp_hash   push bc
+;
+; Advance address to last register (h7)
+                ld bc, 7 * 4
+                add hl, bc
+                ld b, 8                 ; Register counter
+bdh_reg_loop    push hl
+                call disp_hex32_be      ; Display big endian value
+                pop hl
+                dec hl                  ; Point to next word
+                dec hl
+                dec hl
+                dec hl
+                djnz bdh_reg_loop
+;
+                pop bc
+                ret
+;
+;
+; Display 32-bit big-endian hexadecimal value in memory. Call with:
+; HL - pointer to value
+disp_hex32_be   push bc
+;
+                ld b, 4                 ; Byte counter
+dhb32_loop      ld a, (hl)
+                call cwphby             ; Print A in hexadecimal
+                inc hl
+                djnz dhb32_loop
+;
+                pop bc
+                ret
+;
+; Display OK message.
+disp_ok         ld hl, ok_msg           ; "OK"
+                jp conwms               ; Print $-terminated string to console
+;
+;
+;
+; *************
+; * Constants *
+; *************
+;
+;
+signon_msg      byte "*** Bitcoin Mining V1.0 ***", 0x0d, 0x0a, "$"
+no_z80_msg      byte "Z80 CPU required", 0x0d, 0x0a, "$"
+no_zarc_msg     byte "ZARC BIOS not detected. Timing not available."
+                byte 0x0d, 0x0a, "$"
+op_err_msg      byte "Unexpected operand(s).$"
+break_msg       byte 0x0d, 0x0a, "Exiting due to ^C", 0x0d, 0x0a, "$"
+exit_msg        byte "Returning to CP/M.", 0x0d, 0x0a, "$"
+start_msg       byte "Starting mining. Press ^C to exit.", 0x0d, 0x0a, "$"
+iter_msg        byte 0x0d, "Iteration: $"
+delta_msg       byte ", delta: $"
+hc_mismatch_msg byte "Hash mismatch. Expected:", 0x0d, 0x0a, "$"
+hc_found_msg    byte "found:", 0x0d, 0x0a, "$"
+ok_msg          byte "OK", 0x0d, 0x0a, "$"
+test_null_msg   byte "Null message test: $"
+test_short_msg  byte "Short message test: $"
+test_long_msg   byte "Long message test: $"
+test_long2_msg  byte "Long message test 2: $"
+genesis_msg     byte "Bitcoin genesis block: $"
+bitc_exam_msg   byte "Bitcoin example block: $"
+load_state_msg  byte "Loading saved state.", 0x0d, 0x0a, "$"
+save_fn         byte "BITCOIN SAV"
+load_err_msg    byte "Error reading saved state. "
+                byte "Using bitcoin genesis block.", 0x0d, 0x0a, "$"
+save_msg        byte 0x0d, 0x0a, "Saving state to file $"
+save_err_msg    byte "Error saving state.", 0x0d, 0x0a, "$"
+best_msg        byte 0x0d, 0x0a, "Best nonce / hash found:", 0x0d, 0x0a, "$"
+;
+;
+; Null message test hash.
+; Should be 0xe3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+null_msg_hash   dword 0xe3b0c442, 0x98fc1c14, 0x9afbf4c8, 0x996fb924
+                dword 0x27ae41e4, 0x649b934c, 0xa495991b, 0x7852b855
+;
+; Short message test hash.
+; Should be 0x60e76ce856c4bd873cc66e424d214ced480d77c34091aad5eb190b2cd9668bd8
+; according to https://www.movable-type.co.uk/scripts/sha256.html
+test1_msg       byte "A test message."
+test1_msg_len   equ $ - test1_msg
+test1_msg_hash  dword 0x60e76ce8, 0x56c4bd87, 0x3cc66e42, 0x4d214ced
+                dword 0x480d77c3, 0x4091aad5, 0xeb190b2c, 0xd9668bd8
+;
+; Multi-chunk message test hash (32 bytes / line).
+; Should be 0x6dcec3724b30827de24fb9a3c2ce966af5ee167d60a6d1f6751131189a4bff46
+; according to https://www.movable-type.co.uk/scripts/sha256.html
+test2_msg       byte "Lorem ipsum dolor sit amet, cons"
+                byte "ectetur adipiscing elit, sed do "
+                byte "eiusmod tempor incididunt ut lab"
+                byte "ore et dolore magna.    "
+test2_msg_len   equ $ - test2_msg
+test2_msg_hash  dword 0x6dcec372, 0x4b30827d, 0xe24fb9a3, 0xc2ce966a
+                dword 0xf5ee167d, 0x60a6d1f6, 0x75113118, 0x9a4bff46
+; Test message as one line:
+; Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna.    
+;
+; test3 uses test2 text, but is just one character shorter.
+; Should be 0x0c6b0d223dd57168016f9b91749df4d83954a5ba6232b5060746e9e6b7e6b527
+; according to https://www.movable-type.co.uk/scripts/sha256.html
+test3_msg_len   equ test2_msg_len - 1
+test3_msg_hash  dword 0x0c6b0d22, 0x3dd57168, 0x016f9b91, 0x749df4d8
+                dword 0x3954a5ba, 0x6232b506, 0x0746e9e6, 0xb7e6b527
+; Test message as one line:
+; Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna.   
+;
+; Time between messages in ms as a 32-bit integer.
+msg_per_const   dword MSG_PERIOD
+;
+; Raw hex version of the Genesis block (header only).
+genesis         byte 0x01, 0x00, 0x00, 0x00         ; Version
+; Previous block hash
+                byte 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+                byte 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+                byte 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+                byte 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+; Merkle root
+                byte 0x3B, 0xA3, 0xED, 0xFD, 0x7A, 0x7B, 0x12, 0xB2
+                byte 0x7A, 0xC7, 0x2C, 0x3E, 0x67, 0x76, 0x8F, 0x61
+                byte 0x7F, 0xC8, 0x1B, 0xC3, 0x88, 0x8A, 0x51, 0x32
+                byte 0x3A, 0x9F, 0xB8, 0xAA, 0x4B, 0x1E, 0x5E, 0x4A
+                byte 0x29, 0xAB, 0x5F, 0x49         ; Timestamp
+                byte 0xFF, 0xFF, 0x00, 0x1D         ; Difficulty
+                byte 0x1D, 0xAC, 0x2B, 0x7C         ; Nonce
+; End of header
+                assert ($ - genesis) = BH_SIZE
+; Corresponding hash (in Bitcoin reversed format).
+genesis_hash    byte 0x00, 0x00, 0x00, 0x00, 0x00, 0x19, 0xd6, 0x68
+                byte 0x9c, 0x08, 0x5a, 0xe1, 0x65, 0x83, 0x1e, 0x93
+                byte 0x4f, 0xf7, 0x63, 0xae, 0x46, 0xa2, 0xa6, 0xc1
+                byte 0x72, 0xb3, 0xf1, 0xb6, 0x0a, 0x8c, 0xe2, 0x6f
+;
+; Bitcoin header example from:
+; http://www.righto.com/2014/02/bitcoin-mining-hard-way-algorithms.html
+; Looking it up here:
+; https://api.blockchair.com/bitcoin/raw/block/286819
+bitc_example    byte 0x02, 0x00, 0x00, 0x00         ; Version
+; Previous block hash (reversed), as in raw hex dump
+                byte 0x17, 0x97, 0x5b, 0x97, 0xc1, 0x8e, 0xd1, 0xf7
+                byte 0xe2, 0x55, 0xad, 0xf2, 0x97, 0x59, 0x9b, 0x55
+                byte 0x33, 0x0e, 0xda, 0xb8, 0x78, 0x03, 0xc8, 0x17
+                byte 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+; Merkle root (reversed), as in raw hex dump
+                byte 0x8a, 0x97, 0x29, 0x5a, 0x27, 0x47, 0xb4, 0xf1
+                byte 0xa0, 0xb3, 0x94, 0x8d, 0xf3, 0x99, 0x03, 0x44
+                byte 0xc0, 0xe1, 0x9f, 0xa6, 0xb2, 0xb9, 0x2b, 0x3a
+                byte 0x19, 0xc8, 0xe6, 0xba, 0xdc, 0x14, 0x17, 0x87
+                byte 0x35, 0x8b, 0x05, 0x53         ; Timestamp
+                byte 0x53, 0x5f, 0x01, 0x19         ; Difficulty
+                byte 0x48, 0x75, 0x08, 0x33         ; Nonce
+; End of header
+                assert ($ - bitc_example) = BH_SIZE
+; Corresponding hash (in Bitcoin reversed format).
+bitc_exam_hash  byte 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+                byte 0xe0, 0x67, 0xa4, 0x78, 0x02, 0x4a, 0xdd, 0xfe
+                byte 0xcd, 0xc9, 0x36, 0x28, 0x97, 0x8a, 0xa5, 0x2d
+                byte 0x91, 0xfa, 0xbd, 0x42, 0x92, 0x98, 0x2a, 0x50
+;
+;
+;
+; *************
+; * Variables *
+; *************
+;
+;
+; Note: linker "-c" option is used, so no data is initialised here.
+                dseg                ; Data segment
+;
+bdos_sp         defs 2              ; BDOS's stack pointer
+zarc_flag       defs 1              ; Non-zero if on a ZARC system
+fcbr            defs FCBR_SIZE      ; FCB and record buffer structure
+msg_time        defs 4              ; Message timer (ms)
+iter_delta      defs 2              ; Iterations since last report
+bit_hash_buf    defs SH2_DIGEST_BYTES   ; Space for hash digest
+;
+save_start                          ; Start of saved variables
+iter_count      defs 4              ; Iteration counter
+bit_hdr_buf     defs BH_SIZE        ; Bitcoin block header buffer
+best_hash       defs SH2_DIGEST_BYTES   ; Smallest hash found
+best_nonce      defs 4              ; Nonce corresponding to above
+save_size       equ $ - save_start
+;
+                defs STACK_SIZE     ; Stack space
+app_stack_top
+;
+                end
+

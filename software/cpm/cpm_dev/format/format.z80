@@ -1,0 +1,478 @@
+; *******************************************************
+; * MMC Drive Format for ZARC Z80 Computer              *
+; * Version: V1.0                                       *
+; * Merlin Skinner, 27/12/2020                          *
+; *******************************************************
+;
+; This programme is intended to run under CP/M 2.2. It formats a "drive" on the
+; MMC card ready for use by the filing system. Unlike formatters for physical
+; disks, the sectors are already prepared so most of the work is done. All that is
+; required it so mark the directory entries as unused.
+;
+; This programme reads the DPB to discover the organisation of the disk, so it
+; should work for any sensible disk size or organisation. It is intended for ZARC
+; systems only, and is unlikely to be useful on a system with physical floppy
+; disk drives as it knows nothing about formatting sectors.
+;
+                title ZARC CP/M Format
+;
+;
+;
+; ************
+; * Includes *
+; ************
+;
+;
+                include "macros.i"
+                include "cpm.i"
+                include "cpm_utility.i" ; CP/M utilities
+;
+;
+;
+; *************
+; * Constants *
+; *************
+;
+;
+STACK_SIZE      equ 64                  ; Stack space allocation
+;
+;
+;
+; *************
+; * Main Code *
+; *************
+;
+;
+; The CP/M transient area start address is set in the linker invokation (see
+; makefile).
+                cseg                    ; Code segment
+;
+; The default stack space is very small (8 deep), which would almost certainly
+; cause issues, particularly with interrupts running. The initial code should
+; not assume a Z80 so we can exit cleanly if this is run on something else.
+start           ld sp, app_stack_top    ; Switch to our stack space
+;
+; Determine CPU type.
+                call z80det             ; Detect Z80 (instead of 8080 / 8085)
+                jp nc, on_z80           ; Jump if we have a Z80
+;
+; 8080 / 8085 detected. Print message and exit. We can't use conwms as this
+; assumes a Z80.
+                ld de, no_z80_msg       ; "Z80 CPU required"
+                ld c, BDOS_PRINT_STRING ; Print String
+                call BDOS
+                jp 0                    ; Warm boot
+;
+; The following code is not 8080 / 8085 safe.
+on_z80          ld hl, signon_msg
+                call conwms             ; Print "$" terminated string to the console
+;
+; Are we running on a ZARC system?
+                call zrcdet
+                jr nc, on_zarc          ; Jump if we are on ZARC
+;
+                ld hl, no_zarc_msg      ; "ZARC BIOS not detected."
+                call conwms             ; Print "$" terminated string to the console
+                jp exit
+;
+; Examine the command tail, looking for operands. This is stored in the default
+; buffer. "The first byte at 0080H contains the length of the command tail, while
+; the command tail itself begins at 0081H. The command tail is terminated by a
+; byte containing a binary zero value." (http://www.cpm.z80.de/manuals/cpm22-m.pdf
+; appendix H).
+on_zarc         ld hl, DEF_BUFFER + 1
+                call skpspc             ; Skip spaces
+                ld a, (hl)              ; This should be a drive letter
+;    ld a, "B"   ; ***TEMP*** - useful when debugging
+                sub "A"                 ; Convert to a number
+; If this carries, the byte is not a letter. It may be the zero terminator, if no
+; operand were supplied.
+                jr c, op_error
+                cp NUM_DISKS_MAX
+                jr nc, op_error
+; We have a valid drive number.
+                ld (drive), a           ; Save it
+;
+; A following colon is optional.
+                inc hl
+                ld a, (hl)
+                cp ":"
+                jr nz, op_check_term
+                inc hl                  ; Step past colon
+;
+; The terminator should follow.
+op_check_term   call skpspc             ; Skip spaces
+                ld a, (hl)
+;    ld a, 0   ; ***TEMP*** - useful when debugging
+                and a
+                jr z, operands_ok
+;
+; Go here if we don't like the operands supplied.
+op_error        ld hl, op_err_msg
+                call conwms             ; Print "$" terminated string to the console
+                jp exit
+;
+; Operand processing complete.
+operands_ok     ld c, BDOS_RESET_DISK_SYS   ; Reset Disk System
+                call cbdos              ; Call BDOS with some registers saved
+; Both the above reset and the reboot at the end of this application should
+; make it safe to format any drive regardless of its logged in status.
+;
+; Note that the BDOS function BDOS_GET_DPB is not useful here as it works only
+; on the current drive.
+;
+; Select the drive to format.
+                ld a, (drive)
+                ld c, a
+                ld de, 0                ; Treat disk as new to the system
+                ld hl, BIOS_SELDSK      ; Select disc drive
+                call cbios
+;HL - pointer to Disc Parameter Header (DPH) or zero on error.
+                ld a, h
+                or l
+                jr nz, drive_sel_ok
+; Can't select drive.
+                ld hl, sel_err_msg
+                call conwms             ; Print "$" terminated string to the console
+                jp exit
+drive_sel_ok
+;
+; Find address of DPB.
+                ld de, DPH_DPB          ; Offset to pointer to DPB
+                add hl, de
+                ld e, (hl)              ; Fetch pointer
+                inc hl
+                ld d, (hl)
+                push de
+                pop ix
+;
+; We know that the directory starts at the beginning of the first track of the
+; data area. There are DRM + 1 directory entries.
+; 
+; IX - pointer to DPB
+; Scan each entry, looking for valid-looking entries.
+                ld bc, 0                ; Directory entry number
+                ld (file_count), bc     ; Reset counts
+                ld (unused_count), bc
+; Set no sector loaded.
+                ld hl, 0xffff
+                ld (loaded_sector), hl
+;
+scan_loop       ld h, b
+                ld l, c
+                call get_entry
+; HL - points to start of entry
+                push hl                 ; Move address to IY
+                pop iy
+;
+; Check the entry.
+                ld a, (iy + DIRE_USER)
+                cp 0xe5
+                jr nz, sl_not_unused
+; This is an unused entry.
+                ld hl, (unused_count)
+                inc hl
+                ld (unused_count), hl
+                jr sl_entry_done        ; Entry done
+;
+; Does the filename look credible?
+sl_not_unused   push iy
+                pop hl
+                inc hl
+; HL - points to start of filename
+                push bc                 ; Save entry number
+                ld b, 8                 ; Number of characters to check
+                ld c, 0                 ; Oddity count
+sl_fn_check     ld a, (hl)
+                cp 0x20
+                jr c, sl_fn_ch_bad
+                cp 0x80
+                jr c, sl_fn_ch_ok
+sl_fn_ch_bad    inc c                   ; Flag oddity
+sl_fn_ch_ok     inc hl
+                djnz sl_fn_check
+;
+; Check the extension, which follows directly.
+                ld b, 3                 ; Number of characters to check
+sl_typ_check    ld a, (hl)
+                and 0x7f                ; Remove top bit (flag)
+                cp 0x20
+                jr nc, sl_typ_ch_ok
+                inc c                   ; Flag oddity
+sl_typ_ch_ok    inc hl
+                djnz sl_typ_check
+;
+; Examine the results
+                ld a, c
+                pop bc                  ; Restore entry number
+                and a
+                jr nz, sl_entry_done    ; Complete if any oddities found
+;
+; Extent counter (low byte) should be 0 to 31.
+                ld a, (iy + DIRE_EX)
+                cp 32
+                jr nc, sl_entry_done
+;
+; S1 should be 0.
+                ld a, (iy + DIRE_S1)
+                and a
+                jr nz, sl_entry_done
+;
+; If we get this far, the entry looks credible. It would be possible to check the
+; allocation list, but there seems little value in doing this given the context.
+                ld hl, (file_count)
+                inc hl
+                ld (file_count), hl
+;
+; Entry scanned.
+sl_entry_done   ld a, c
+                cp (ix + DPB_DRM)       ; Is this the last entry?
+                jr nz, sl_do_next
+                ld a, b
+                cp (ix + DPB_DRM + 1)
+                jr z, scan_done
+sl_do_next      inc bc                  ; Next entry
+                jr scan_loop
+;
+; All directory entries scanned.
+scan_done       ld l, (ix + DPB_DRM)
+                ld h, (ix + DPB_DRM + 1)
+                inc hl
+; HL - number of directory entries
+                ld de, (unused_count)
+                and a
+                sbc hl, de              ; Subtract number of unused entries
+                ld de, (file_count)
+                and a
+                sbc hl, de              ; Subtract number of valid-looking entries
+; HL - number of odd entries (neither valid nor deleted).
+                ld a, h
+                or l
+                jr nz, do_format        ; Format without asking if it looks bad
+;
+; The disk looks as if it has files on it. Ask for confirmation from the user.
+                ld hl, (file_count)
+                call cwpdwd             ; Print HL in decimal
+;
+                ld hl, scan_1_msg       ; " potential files found. Proceed ... ?"
+                call conwms             ; Print "$" terminated string to the console
+;
+; Await a single character response from the user.
+                call conrch             ; Read character from the console
+                cp "Y"
+                jp z, do_format
+                cp "y"
+                jp nz, exit             ; Anything other than "Y" aborts
+;
+; Proceed with the format. To minimise any loss of data, entries are marked
+; "unused" without changing anything else.
+; IX - pointer to DPB
+do_format       call cwnwln             ; Write new line characters to console
+;
+                ld bc, 0                ; Directory entry number
+fmt_loop        push bc
+                ld h, b
+                ld l, c
+                call get_entry
+; HL - points to start of entry
+                push hl                 ; Move address to IY
+                pop iy
+;
+; Mark it unused.
+                ld (iy + DIRE_USER), 0xe5
+;
+; If this was the last entry in a sector, we should write it.
+                ld a, c
+                and 0x03
+                cp 0x03
+                jr nz, fmt_entry_done   ; Skip write if not the last one
+;
+; Write the sector back from whence it came.
+                ld hl, (loaded_sector)
+                ld c, 0
+                ex de, hl
+; CDE - CP/M (128-byte) sector number (offset into data area)
+                call set_sector
+; Write the sector.
+                ld hl, BIOS_WRITE       ; Write a sector
+                ld c, 0                 ; Flag writes may be deferred
+                call cbios
+                and a
+                jp nz, disk_error
+
+fmt_entry_done  pop bc
+                ld a, c
+                cp (ix + DPB_DRM)       ; Is this the last entry?
+                jr nz, fmt_do_next
+                ld a, b
+                cp (ix + DPB_DRM + 1)
+                jr z, fmt_done
+fmt_do_next     inc bc                  ; Next entry
+                jr fmt_loop
+;
+; All directory entries written.
+fmt_done        ld hl, done_msg
+                call conwms             ; Print "$" terminated string to the console
+;
+; Return to CP/M.
+exit            jp 0                    ; Warm boot
+;
+;
+; Go here if a disk error is reported.
+disk_error      ld hl, disk_err_msg
+                call conwms             ; Print "$" terminated string to the console
+                jp exit
+;
+;
+;
+; ***************
+; * Subroutines *
+; ***************
+;
+;
+; Read a directory entry from the disk and return a pointer to it.
+; Call with:
+; HL - required directory entry number
+; IX - pointer to Disk Parameter Block (DPB)
+; Returns with:
+; HL - points to start of entry
+get_entry       push bc
+                push de
+                push hl                 ; Save entry number
+; Divide by four to find the sector number.
+                and a
+                rr h
+                rr l
+                and a
+                rr h
+                rr l
+; HL - CP/M (128-byte) sector number (offset into data area)
+; Is this already in the buffer?
+                ld de, (loaded_sector)
+                ld a, h
+                cp d
+                jr nz, ge_load_reqd
+                ld a, l
+                cp e
+                jr z, ge_have_sec
+;
+; We need to load the sector containing the required entry.
+ge_load_reqd    ld (loaded_sector), hl  ; Save sector number
+                ld c, 0
+                ex de, hl
+; CDE - CP/M (128-byte) sector number (offset into data area)
+                call set_sector
+; Read the sector.
+                ld hl, BIOS_READ        ; Read a sector
+                call cbios
+                and a
+                jp nz, disk_error
+;
+; The required sector is loaded. Find the start address of the directory entry.
+ge_have_sec     pop hl                  ; Restore directory entry number
+                ld a, l
+                and 0x03
+                ld l, a
+                ld h, 0
+; HL - number of entry within sector.
+                add hl, hl              ; Multiply by 32 to find offset
+                add hl, hl
+                add hl, hl
+                add hl, hl
+                add hl, hl
+                ld de, DEF_BUFFER
+                add hl, de              ; Add buffer start address
+;
+                pop de
+                pop bc
+                ret                     ; Return with address in HL
+;
+;
+; Set track and sector numbers for subsequent read and / or write operations. DMA
+; address is set to the default area (0x80).
+; Call with:
+; CDE - CP/M (128-byte) sector number (offset into data area)
+; IX - pointer to Disk Parameter Block (DPB)
+set_sector      push bc
+                push hl
+; Find track number. For this application, the track number is likely to be small
+; (normally zero). Hence this crude algorithm is sufficient.
+                ld l, (ix + DPB_OFF)    ; Start after reserved tracks
+                ld h, (ix + DPB_OFF + 1)
+ss_track_loop   push de                 ; Save LS 16 bits of sector number
+; Perform a trial subtraction to see if we have a complete track worth of sectors.
+                ld a, e
+                sub (ix + DPB_SPT)
+                ld e, a
+                ld a, d
+                sbc (ix + DPB_SPT + 1)
+                ld d, a
+                ld a, c
+                sbc 0
+                ld c, a
+                jr c, ss_track_done
+; No carry, so we can advance to the next track.
+                inc hl
+                inc sp                  ; Discard saved sector number
+                inc sp
+                jr ss_track_loop
+;
+; There was a carry in the last subtract, so this is the track we want.
+; HL - track number
+; (stacked) - sector number
+; Set track.
+ss_track_done   ld b, h                 ; Move track number to BC
+                ld c, l
+                ld hl, BIOS_SETTRK      ; Set track number
+                call cbios
+;
+; Set sector.
+                pop bc                  ; Fetch sector
+                ld hl, BIOS_SETSEC      ; Set sector number
+                call cbios
+;
+; Set DMA address.
+                ld bc, DEF_BUFFER
+                ld hl, BIOS_SETDMA      ; Set DMA address
+                call cbios
+;
+                pop hl
+                pop bc
+                ret
+;
+;
+;
+; *************
+; * Constants *
+; *************
+;
+signon_msg      byte "*** ZARC Disk Formatter V1.0 ***", 0x0d, 0x0a, "$"
+no_z80_msg      byte "Z80 CPU required", 0x0d, 0x0a, "$"
+op_err_msg      byte "Drive letter expected.", 0x0d, 0x0a, "$"
+rst_err_msg     byte "Drive reset error.", 0x0d, 0x0a, "$"
+sel_err_msg     byte "Can't select drive.", 0x0d, 0x0a, "$"
+disk_err_msg    byte "Disk I/O error.", 0x0d, 0x0a, "$"
+scan_1_msg      byte " potential files found. Proceed with format?", 0x0d, 0x0a, "$"
+done_msg        byte "Format complete.", 0x0d, 0x0a, "$"
+no_zarc_msg     byte "ZARC BIOS not detected.", 0x0d, 0x0a, "$"
+;
+;
+;
+; *************
+; * Variables *
+; *************
+;
+; Private monitor variables located in bank 1.
+; Note: linker "-c" option is used, so no data is initialised here.
+                dseg                ; Data segment
+;
+drive           defs 1              ; Drive number.
+loaded_sector   defs 2              ; Currently loaded sector
+file_count      defs 2              ; Valid-looking directory entry count
+unused_count    defs 2              ; Unused entry count
+;
+                defs STACK_SIZE     ; Stack space
+app_stack_top
+;
+                end
+

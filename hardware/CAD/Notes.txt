@@ -1,0 +1,39 @@
+15/1/2019 (Tuesday)
+
+Copied from an earlier project:
+
+Schematics are in gEDA. Use:
+
+gschem Z80_1.sch - schematic editor
+refdes_renum [--force] flash_*.sch - renumber
+gnetlist -g bom2 -o output.bom flash_*.sch - generate parts list
+gattrib flash_*.sch - edit attributes en masse.
+gsymcheck -vv [symbol] - checks a symbol
+
+ps_to_png.sh converts PostScript files to .png, which provides much nicer output than the built-in .png production.
+
+grep "<string>" *.sch - Find something in the design
+
+System libraries are stored at /usr/share/gEDA/sym/
+
+
+17/1/2019 (Thursday)
+
+Use "gattrib" to alter design attributes in bulk (schematics only).
+
+
+22/11/2019 (Friday)
+
+To print schematics, just File / Print. Set sheet size to A4. If "lpr: Error - no default destination available" run "lpstat -p -d" to show printers, and set default with "lpoptions -d  HP_LaserJet_M14-M17", for example.
+
+
+13/4/2020 (Monday)
+
+"Found a cpinlist head with a netname!" error are due to "net=RAM_VCC:<x>" attributes. It seems the error can be safely ignored.
+
+
+8/5/2020 (Friday)
+
+Converting to "Lepton", which is a fork of geda that is currently maintained.
+
+lepton-schematic - schematic editor

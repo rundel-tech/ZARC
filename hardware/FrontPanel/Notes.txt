@@ -1,0 +1,9 @@
+3/11/2018 (Saturday)
+
+Front panel designed in InkScape.
+
+
+5/11/2018 (Monday)
+
+The "ZARC" logo has now been turned into a PNG. This makes the .SVG file independant of the Uroob font, thereby removing the risk of confusion at the printer's shop.
+

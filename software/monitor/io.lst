@@ -1,0 +1,1407 @@
+   1:				; *******************************************************
+   2:				; * Low-level I/O for ZARC Z80 Computer                 *
+   3:				; * Written by: Merlin Skinner                          *
+   4:				; * Date Started: 16/5/2020                             *
+   5:				; *******************************************************
+   6:				;
+   7:				; Simple I/O support routines for use with the monitor program or other
+   8:				; code that may find it useful.
+   9:				;
+  10:				; I2C support is initially for the RTC (DS1672), but could be used with other
+  11:				; devices if required.
+  12:				;
+  13:				;
+  14:     -	0001'         	monitor         equ 1                   ; Flag part of monitor build
+  15:     -	0001'         	io              equ 1                   ; Flag module for includes
+  16:				;
+  17:				;
+  18:				;
+  19:				; ************
+  20:				; * Includes *
+  21:				; ************
+  22:				;
+  23:				                include "macros.i"
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//macros.i ****
+   1:				; ***********************************
+   2:				; * ZARC Macro Definitions          *
+   3:				; * Written by: Merlin Skinner      *
+   4:				; * Date Started: 30/7/2020         *
+   5:				; ***********************************
+   6:				;
+   7:				;
+   8:				;
+   9:				; **********
+  10:				; * Macros *
+  11:				; **********
+  12:				;
+  13:				;
+  14:				; Initialise enumeration.
+  15:				; The absolute segment is used so the offsets are not marked as relocatable. This
+  16:				; avoids "Not relocatable" errors.
+  17:				ENUM_START      macro
+  18:				                .aseg
+  19:				enum_counter    set 0
+  20:				                endm
+  21:				;
+  22:				; Invoke for each item.
+  23:				ENUM            macro x
+  24:				x               equ enum_counter
+  25:				enum_counter    set enum_counter + 1
+  26:				                endm
+  27:				;
+  28:				ENUM_END        macro x
+  29:				x               set enum_counter    ; Set label to count of items
+  30:				                .cseg
+  31:				                endm
+  32:				;
+  33:				;
+  34:				; Initialise a structure. This is used to generate offsets for data structures.
+  35:				; The absolute segment is used so the offsets are not marked as relocatable. This
+  36:				; avoids "Not relocatable" errors.
+  37:				STRUCT          macro
+  38:				                .aseg
+  39:				str_offset      set 0
+  40:				                endm
+  41:				;
+  42:				; Add a byte entry.
+  43:				STR_BYTE        macro x
+  44:				x               equ str_offset
+  45:				str_offset      set str_offset + 1
+  46:				                endm
+  47:				;
+  48:				; Add a word (16-bit) entry.
+  49:				STR_WORD        macro x
+  50:				x               equ str_offset
+  51:				str_offset      set str_offset + 2
+  52:				                endm
+  53:				;
+  54:				; Add a 3 byte (24-bit) entry.
+  55:				STR_24BIT       macro x
+  56:				x               equ str_offset
+  57:				str_offset      set str_offset + 3
+  58:				                endm
+  59:				;
+  60:				; Add a long (32-bit) entry.
+  61:				STR_LONG        macro x
+  62:				x               equ str_offset
+  63:				str_offset      set str_offset + 4
+  64:				                endm
+  65:				;
+  66:				; Add an arbitrary length entry.
+  67:				STR_BLOCK       macro x, size   ; <name>, <size>
+  68:				x               equ str_offset
+  69:				str_offset      set str_offset + size
+  70:				                endm
+  71:				;
+  72:				; End of structure (used to set size)
+  73:				STR_END         macro x
+  74:				x               equ str_offset
+  75:				                .cseg
+  76:				                endm
+  77:				;
+  78:				;
+  79:				; Calculate offsets into jump tables.
+  80:				; The absolute segment is used so the offsets are not marked as relocatable. This
+  81:				; avoids "Not relocatable" errors.
+  82:				JPTBL_START     macro x
+  83:				                .aseg
+  84:				jptbl_addr      set x               ; Set start address
+  85:				                endm
+  86:				;
+  87:				; Invoke for each item.
+  88:				JPTBL_ENTRY     macro x
+  89:				x               equ jptbl_addr
+  90:				jptbl_addr      set jptbl_addr + 3
+  91:				                endm
+  92:				;
+  93:				; Invoke for a data block in the jump table
+  94:				JPTBL_BLOCK     macro x, size   ; <name>, <size>
+  95:				x               equ jptbl_addr
+  96:				jptbl_addr      set jptbl_addr + size
+  97:				                endm
+  98:				;
+  99:				JPTBL_END       macro x
+ 100:				x               set jptbl_addr      ; Set label to next address
+ 101:				                .cseg
+ 102:				                endm
+ 103:				;
+ 104:				;
+ 105:				; Define bits and masks. This is inspired by the Commodore Amiga BITDEF mechanism.
+ 106:				; Given:
+ 107:				; BITDEF I2C_CSR_STOP, 2
+ 108:				; Yields:
+ 109:				; I2C_CSR_STOP_BIT  EQU 2       ; Bit number
+ 110:				; I2C_CSR_STOP_MASK EQU 1<<2    ; Bit mask
+ 111:				BITDEF          macro n, b      ; <Name>, <bit>
+ 112:				n`_BIT          equ b
+ 113:				n`_MASK         equ 1 << b
+ 114:				                endm
+ 115:				
+**** io.z80 ****
+  24:				                include "z80.i"
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//z80.i ****
+   1:				; ***********************************
+   2:				; * ZARC Z80 Definitions            *
+   3:				; * Written by: Merlin Skinner      *
+   4:				; * Date Started: 28/5/2020         *
+   5:				; ***********************************
+   6:				;
+   7:				; Definitions related to the Z80 itself.
+   8:				;
+   9:				; Z80 Vectors
+  10:     -	0000'         	Z80_RST00_VEC   equ 0x0000      ; RST instruction vectors
+  11:     -	0008'         	Z80_RST08_VEC   equ 0x0008
+  12:     -	0010'         	Z80_RST10_VEC   equ 0x0010
+  13:     -	0018'         	Z80_RST18_VEC   equ 0x0018
+  14:     -	0020'         	Z80_RST20_VEC   equ 0x0020
+  15:     -	0028'         	Z80_RST28_VEC   equ 0x0028
+  16:     -	0030'         	Z80_RST30_VEC   equ 0x0030
+  17:     -	0038'         	Z80_RST38_VEC   equ 0x0038
+  18:     -	0066'         	Z80_NMI_VEC     equ 0x0066      ; NMI vectors
+  19:				
+**** io.z80 ****
+  25:				                include "monitor.i"
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//monitor.i ****
+   1:				; *******************************************************
+   2:				; * ZARC Monitor Definitions                            *
+   3:				; * Written by: Merlin Skinner                          *
+   4:				; * Date Started: 26/5/2020                             *
+   5:				; *******************************************************
+   6:				;
+   7:				; Definitions related to the monitor programme.
+   8:				;
+   9:				; Note that ld80 only considers the first six characters of labels significant.
+  10:				;
+  11:				;
+  12:				; The following conditionals are intended to allow the same include file to be
+  13:				; used in the defining module and elsewhere as required. Some includes are used
+  14:				; for other applications than the monitor, such as the CP/M BIOS. In these cases,
+  15:				; the extern and public statements are not desirable.
+  16:				;
+  17:     -	0001'         	            ifdef monitor           ; Meaningful for monitor build only
+  18:     -	0001'         	                ifndef main         ; Inhibit for this module
+  19:				; Constants
+  20:				;
+  21:				; Variables 
+  22:				                extern tikcnt       ; Tick counter
+  23:				;
+  24:				; Functions
+  25:				                extern panic        ; System error exception
+  26:				                extern rusby        ; Read byte from user space
+  27:				                extern ruswd        ; Read 16-bit word from user space
+  28:				                extern wusby        ; Write byte to user space
+  29:				                extern wuswd        ; Write 16-bit word to user space
+  30:				;
+  31:				                endif
+  32:				            endif
+  33:				;
+  34:				;
+  35:				;
+  36:				; *****************
+  37:				; * Monitor Calls *
+  38:				; *****************
+  39:				;
+  40:				;
+  41:				; Calculate offsets into jump tables. Entries here must match the jump table in
+  42:				; monitor.z80.
+  43:     -	        	    JPTBL_START %(Z80_NMI_VEC + 3)   ; Start after NMI vector
+  44:				;
+  45:				; From monitor.z80
+  46:     -	        	    JPTBL_ENTRY MCALL_MON_ENTRY     ; Normal monitor entry
+  47:     -	        	    JPTBL_ENTRY MCALL_PANIC         ; System error monitor entry
+  48:				; From io.z80
+  49:     -	        	    JPTBL_ENTRY MCALL_CONWCH        ; Write character to the console port
+  50:     -	        	    JPTBL_ENTRY MCALL_CONRCH        ; Read character from the console port
+  51:     -	        	    JPTBL_ENTRY MCALL_CONSTA        ; Fetch console port status
+  52:     -	        	    JPTBL_ENTRY MCALL_S1WCH         ; Write character to serial port 1
+  53:     -	        	    JPTBL_ENTRY MCALL_S1RCH         ; Read character from serial port 1
+  54:     -	        	    JPTBL_ENTRY MCALL_S1STA         ; Fetch serial port 1 status
+  55:     -	        	    JPTBL_ENTRY MCALL_S2WCH         ; Write character to serial port 2
+  56:     -	        	    JPTBL_ENTRY MCALL_S2RCH         ; Read character from serial port 2
+  57:     -	        	    JPTBL_ENTRY MCALL_S2STA         ; Fetch serial port 2 status
+  58:				; From utility.z80
+  59:     -	        	    JPTBL_ENTRY MCALL_CWNWLN        ; Write new line characters to console
+  60:     -	        	    JPTBL_ENTRY MCALL_CONWMS        ; Print null-terminated string to the console
+  61:     -	        	    JPTBL_ENTRY MCALL_CONWMN        ; Print message <n> in a list
+  62:     -	        	    JPTBL_ENTRY MCALL_SKPSPC        ; Step hl past spaces
+  63:     -	        	    JPTBL_ENTRY MCALL_TOUPCA        ; Convert character in A to upper case
+  64:     -	        	    JPTBL_ENTRY MCALL_TOLOCA        ; Convert character in A to lower case
+  65:     -	        	    JPTBL_ENTRY MCALL_CWVICH        ; Print only visible 7-bit characters
+  66:     -	        	    JPTBL_ENTRY MCALL_CWPSPC        ; Print a space
+  67:     -	        	    JPTBL_ENTRY MCALL_MTWDLI        ; Match word in a string against list of options
+  68:     -	        	    JPTBL_ENTRY MCALL_CWPHNB        ; Print least-significant nibble in A in hexadecimal
+  69:     -	        	    JPTBL_ENTRY MCALL_CWPHBY        ; Print A in hexadecimal
+  70:     -	        	    JPTBL_ENTRY MCALL_CWPHWD        ; Print HL in hexadecimal
+  71:     -	        	    JPTBL_ENTRY MCALL_CWPDBY        ; Print A in decimal. Leading zeros are suppressed.
+  72:     -	        	    JPTBL_ENTRY MCALL_CWPDWD        ; Print HL in decimal. Leading zeros are suppressed.
+  73:     -	        	    JPTBL_ENTRY MCALL_CWPDLO        ; Print DEHL in decimal. Leading zeros are suppressed
+  74:     -	        	    JPTBL_ENTRY MCALL_RDHXWD        ; Read a 16-bit hexadecimal number from a string
+  75:     -	        	    JPTBL_ENTRY MCALL_RDDUWD        ; Read a 16-bit unsigned decimal number from a string
+  76:     -	        	    JPTBL_ENTRY MCALL_RDDULO        ; Read a 32-bit unsigned decimal number from a string
+  77:				; From maths.z80
+  78:     -	        	    JPTBL_ENTRY MCALL_MADLBU        ; 32-bit / 8-bit unsigned divide
+  79:     -	        	    JPTBL_ENTRY MCALL_MADWBU        ; 16-bit / 8-bit unsigned divide
+  80:     -	        	    JPTBL_ENTRY MCALL_MADBBU        ; 8-bit / 8-bit unsigned divide
+  81:     -	        	    JPTBL_ENTRY MCALL_MAMWWU        ; 16-bit * 16-bit unsigned multiply
+  82:     -	        	    JPTBL_ENTRY MCALL_MAMLBU        ; 32-bit * 8-bit unsigned multiply
+  83:     -	        	    JPTBL_ENTRY MCALL_CRC16X        ; CRC-16 (XMODEM)
+  84:				; From time.z80
+  85:     -	        	    JPTBL_ENTRY MCALL_TIRD          ; Read current time and date
+  86:     -	        	    JPTBL_ENTRY MCALL_TIWR          ; Set time and date
+  87:     -	        	    JPTBL_ENTRY MCALL_TIITOS        ; Convert integer time to structure
+  88:     -	        	    JPTBL_ENTRY MCALL_TISTOI        ; Convert structure time to integer
+  89:     -	        	    JPTBL_ENTRY MCALL_CWPTM         ; Print time structure to console
+  90:				; From mmc.z80
+  91:     -	        	    JPTBL_ENTRY MCALL_MCPRER        ; Print memory card error text
+  92:				; From cache.z80
+  93:     -	        	    JPTBL_ENTRY MCALL_CACRS         ; CP/M read sector
+  94:     -	        	    JPTBL_ENTRY MCALL_CACWS         ; CP/M write sector
+  95:     -	        	    JPTBL_ENTRY MCALL_CAFLUS        ; Flush cache (write dirty buffers)
+  96:				; From memory.z80
+  97:     -	        	    JPTBL_ENTRY MCALL_MPALL         ; Allocate new page
+  98:     -	        	    JPTBL_ENTRY MCALL_MPFREE        ; Free allocated page
+  99:     -	        	    JPTBL_ENTRY MCALL_MPSTAT        ; Allocation status
+ 100:				;
+ 101:     -	        	    JPTBL_END MCALL_JPTBL_NEXT
+ 102:				;
+ 103:				;
+ 104:				;
+ 105:				; **************
+ 106:				; * Structures *
+ 107:				; **************
+ 108:				;
+ 109:				;
+ 110:				; Machine state structure.
+ 111:     -	        	                STRUCT
+ 112:     -	        	                STR_BYTE MST_IEN        ; Non-zero if interrupts enabled
+ 113:     -	        	                STR_BYTE MST_MMAP_EN    ; Non-zero if memory mapping enabled
+ 114:     -	        	                STR_BYTE MST_MMAP0      ; Memory mapping registers
+ 115:     -	        	                STR_BYTE MST_MMAP1
+ 116:     -	        	                STR_BYTE MST_MMAP2
+ 117:     -	        	                STR_BYTE MST_MMAP3
+ 118:     -	        	                STR_WORD MST_SP
+ 119:     -	        	                STR_WORD MST_PC
+ 120:				; The sequence of the following entries must match those in the state save and
+ 121:				; load routines.
+ 122:     -	        	                STR_WORD MST_IY
+ 123:     -	        	                STR_WORD MST_IX
+ 124:     -	        	                STR_WORD MST_HL_P
+ 125:     -	        	                STR_WORD MST_DE_P
+ 126:     -	        	                STR_WORD MST_BC_P
+ 127:     -	        	                STR_WORD MST_AF_P       ; Alternate ("prime") registers
+ 128:     -	        	                STR_WORD MST_HL
+ 129:     -	        	                STR_WORD MST_DE
+ 130:     -	        	                STR_WORD MST_BC
+ 131:     -	        	                STR_WORD MST_AF
+ 132:				; End of sequence critical entries.
+ 133:     -	        	                STR_BYTE MST_I
+ 134:     -	        	                STR_BYTE MST_R
+ 135:     -	        	                STR_END MST_SIZE
+ 136:				;
+ 137:				;
+ 138:				;
+ 139:				; *************
+ 140:				; * Constants *
+ 141:				; *************
+ 142:				;
+ 143:				;
+ 144:				; Trace mode states for trace_mode.
+ 145:     -	        	                ENUM_START
+ 146:     -	        	                ENUM TRM_NONE
+ 147:     -	        	                ENUM TRM_SINGLE
+ 148:     -	        	                ENUM TRM_TO_ADDR        ; Trace to address
+ 149:     -	        	                ENUM TRM_XPT            ; Exception - start running normally
+ 150:     -	        	                ENUM_END TRM_STATES     ; Number of states
+ 151:				
+**** io.z80 ****
+  26:				                include "zarc.i"        ; Hardware definitions
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//zarc.i ****
+   1:				; ***********************************
+   2:				; * ZARC Definitions                *
+   3:				; * Written by: Merlin Skinner      *
+   4:				; * Date Started: 26/5/2020         *
+   5:				; ***********************************
+   6:				;
+   7:				; Definitions related to the ZARC system.
+   8:				;
+   9:				;
+  10:				; ************
+  11:				; * Hardware *
+  12:				; ************
+  13:				;
+  14:				; Interrupt vector numbers in INT_VEC_TABLE.
+  15:				; Address is INT_VEC_TABLE + 2 * vector number).
+  16:     -	0000'         	INT_SER1_TX_VEC     equ INT_SER1_TX_BIT ; Serial port 1 transmitter buffer is half full or less
+  17:     -	0001'         	INT_SER1_RX_VEC     equ INT_SER1_RX_BIT ; Serial port 1 receiver has data
+  18:     -	0002'         	INT_SER2_TX_VEC     equ INT_SER2_TX_BIT ; Serial port 2 transmitter buffer is half full or less
+  19:     -	0003'         	INT_SER2_RX_VEC     equ INT_SER2_RX_BIT ; Serial port 2 receiver has data
+  20:     -	0004'         	INT_TICK_VEC        equ INT_TICK_BIT    ; Regular timekeeping
+  21:				;
+  22:     -	0064'         	MS_PER_TICK         equ 100             ; ms per tick
+  23:     -	000A'         	TICK_FREQ           equ 10              ; Tick rate in Hz
+  24:				;
+  25:				
+**** io.z80 ****
+  27:				                include "io_map.i"      ; I/O addresses mapping
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//io_map.i ****
+   1:				; ***********************************
+   2:				; * ZARC I/O Definitions            *
+   3:				; * Written by: Merlin Skinner      *
+   4:				; * Date Started: 3/9/2019          *
+   5:				; ***********************************
+   6:				
+   7:				; *** I/O register address mapping ***
+   8:				
+   9:				; This should be kept in sync with the Definitions.vhd package file.
+  10:     -	0000'         	IOA_FPGA_MAJREV equ 0x00        ; FPGA major revision
+  11:     -	0001'         	IOA_FPGA_MINREV equ 0x01        ; FPGA minor revision
+  12:     -	0002'         	IOA_CONTROL     equ 0x02        ; System control register
+  13:     -	0003'         	IOA_FP_SW       equ 0x03        ; Front panel data switches
+  14:				
+  15:				; Paging
+  16:     -	0004'         	IOA_MMAP_0      equ 0x04        ; Page, supervisor and protection for bank 0 (0x0000 to 0x3fff)
+  17:     -	0005'         	IOA_MMAP_1      equ 0x05        ; Page, supervisor and protection for bank 1 (0x4000 to 0x7fff)
+  18:     -	0006'         	IOA_MMAP_2      equ 0x06        ; Page, supervisor and protection for bank 2 (0x8000 to 0xbfff)
+  19:     -	0007'         	IOA_MMAP_3      equ 0x07        ; Page, supervisor and protection for bank 3 (0xc000 to 0xffff)
+  20:				
+  21:				; Interrupts
+  22:				; Note: Up to eight interrupts are supported. IM 2 is anticipated, and the
+  23:				; fixed vector associated with each interrupt is supplied when the interrupt
+  24:				; is serviced. Routine address is “I*256+databus”. Vector supplied is
+  25:				; 0xe0 + 2 * interrupt number (0 to 7).
+  26:				; Note: addresses 0x09 and 0x0b reserved for use if more than eight interrupt
+  27:				; sources are required.
+  28:     -	0008'         	IOA_INT_EN      equ 0x08        ; Enables
+  29:     -	000A'         	IOA_INT_PEND    equ 0x0a        ; Pending interrupts
+  30:				;
+  31:				;NMI
+  32:     -	000C'         	IOA_NMI_REASONS equ 0x0c        ; NMI reasons flags
+  33:				;
+  34:				; Serial.
+  35:     -	0010'         	IOA_SER1_CSR    equ 0x10        ; Port 1 control / status
+  36:     -	0011'         	IOA_SER1_DATA   equ 0x11        ; Port 1 data
+  37:     -	0012'         	IOA_SER2_CSR    equ 0x12        ; Port 2 serial control / status
+  38:     -	0013'         	IOA_SER2_DATA   equ 0x13        ; Port 2 serial data
+  39:				
+  40:				; RTC (DS1672)
+  41:				; I2C, implemented using a byte interface to the CPU. Writing to the data port
+  42:				; shifts out a byte. Input puts are shifted into the “other end” of the same
+  43:				; register.
+  44:     -	0018'         	IOA_I2C_CSR     equ 0x18        ; Control
+  45:     -	0019'         	IOA_I2C_DATA    equ 0x19        ; Data
+  46:				;
+  47:				; SD Card
+  48:				; Uses SPI mode, with a generally similar interface to that of the I2C.
+  49:     -	0020'         	IOA_SPI_CSR     equ 0x20        ; Control
+  50:     -	0021'         	IOA_SPI_DATA    equ 0x21        ; Data
+  51:				
+  52:				; CRC16 / XMODEM and MultiMediaCard CRC16
+  53:				; Write to the CRC register to set the initial value. Writing to the input
+  54:				; data register updates the CRC.
+  55:     -	0024'         	IOA_CRC_0       equ 0x24        ; CRC register (low)
+  56:     -	0025'         	IOA_CRC_1       equ 0x25        ; CRC register (high)
+  57:     -	0026'         	IOA_CRC_DATA    equ 0x26        ; Input data
+  58:				
+  59:				; *** Proposed features ***
+  60:				; Video
+  61:				;IOA_VID_CTRL    equ 0x30;       ; Control (cursor on/off ...)
+  62:				;IOA_VID_DATA    equ 0x31;       ; Data
+  63:				;IOA_VID_CUR_X   equ 0x32;       ; Cursor X (0 to 127)
+  64:				;IOA_VID_CUR_Y   equ 0x33;       ; Cursor Y (0 to 63)
+  65:				;IOA_VID_START_L equ 0x34        ; Display start address (low byte)
+  66:				;IOA_VID_START_H equ 0x35        ; Display start address (high byte)
+  67:				
+  68:				; Video palette
+  69:				; Each entry consists of 6 bits of colour data. Foreground and background
+  70:				; colour pairs are selected from the above palette using eight of the 22
+  71:				; control codes in the display character set. This leaves codes for
+  72:				; double-height, double-width etc.
+  73:				;IOA_VID_PALBG0  equ 0x40        ; Background colour 0
+  74:				;IOA_VID_PALFG0  equ 0x41        ; Foreground colour 0
+  75:				;IOA_VID_PALBG1  equ 0x42        ; Background colour 1
+  76:				;IOA_VID_PALFG1  equ 0x43        ; Foreground colour 1
+  77:				;IOA_VID_PALBG2  equ 0x44        ; Background colour 2
+  78:				;IOA_VID_PALFG2  equ 0x45        ; Foreground colour 2
+  79:				;IOA_VID_PALBG3  equ 0x46        ; Background colour 3
+  80:				;IOA_VID_PALFG3  equ 0x47        ; Foreground colour 3
+  81:				;IOA_VID_PALBG4  equ 0x48        ; Background colour 4
+  82:				;IOA_VID_PALFG4  equ 0x49        ; Foreground colour 4
+  83:				;IOA_VID_PALBG5  equ 0x4a        ; Background colour 5
+  84:				;IOA_VID_PALFG5  equ 0x4b        ; Foreground colour 5
+  85:				;IOA_VID_PALBG6  equ 0x4c        ; Background colour 6
+  86:				;IOA_VID_PALFG6  equ 0x4d        ; Foreground colour 6
+  87:				;IOA_VID_PALBG7  equ 0x4e        ; Background colour 7
+  88:				;IOA_VID_PALFG7  equ 0x4f        ; Foreground colour 7
+  89:				
+  90:				; Arithmetic
+  91:				; Multiply, divide … based on 68000 DIV, DIVU, MUL, MULU.
+  92:				; Multiply does A[16] * B[16] => C[32].
+  93:				; Divide does A[32] / B[16] => C[32] (16-bit remainder [high bits] and
+  94:				; 16-bit quotient [low bits]).
+  95:				; Status bits include “complete” and “overflow”.
+  96:				;IOA_ARITH_A_L   equ 0x50        ; A register (low)
+  97:				;IOA_ARITH_A_H   equ 0x51        ; A register (high)
+  98:				;IOA_ARITH_B_L   equ 0x54        ; B register (low)
+  99:				;IOA_ARITH_B_H   equ 0x57        ; B register (high)
+ 100:				;IOA_ARITH_C_0   equ 0x58        ; C register (low)
+ 101:				;IOA_ARITH_C_1   equ 0x59 
+ 102:				;IOA_ARITH_C_2   equ 0x5a
+ 103:				;IOA_ARITH_C_3   equ 0x5b        ; C register (high)
+ 104:				;IOA_ARITH_CSR   equ 0x5c        ; Command / status
+ 105:				
+ 106:				
+ 107:				; *** Register bits allocation ***
+ 108:				
+ 109:				; IOA_CONTROL register
+ 110:     -	        	BITDEF SYSCTRL_TRARM, 0         ; 1 arms the trace interrupt
+ 111:     -	        	BITDEF SYSCTRL_MMAP, 1          ; 1 enables memory mapping
+ 112:     -	        	BITDEF SYSCTRL_NMCLR, 2         ; NMI mapping clear
+ 113:     -	        	BITDEF SYSCTRL_MAPARM, 3        ; NMI out arm
+ 114:     -	        	BITDEF SYSCTRL_MMAPN, 4         ; State of MMAP when an NMI occurred
+ 115:     -	        	BITDEF SYSCTRL_TRPRE0, 5        ; Number of prefixes for trace
+ 116:     -	        	BITDEF SYSCTRL_TRPRE1, 6
+ 117:     -	        	BITDEF SYSCTRL_RESERVED, 7      ; Unused bit
+ 118:				;
+ 119:				; MMAP page registers
+ 120:     -	        	BITDEF MMAP_PROT, 7             ; Write protection
+ 121:     -	        	BITDEF MMAP_SUPER, 6            ; I/O enable
+ 122:     -	003F'         	MMAP_PAGE_MASK  equ 0x3f        ; RAM page number bits
+ 123:				;
+ 124:				; IOA_INT_EN and IOA_INT_PEND registers.
+ 125:     -	0008'         	INTS_NUM        equ 8           ; Number of possible interrupt sources
+ 126:     -	        	BITDEF INT_SER1_TX, 0           ; Serial port 1 transmitter buffer is half full or less
+ 127:     -	        	BITDEF INT_SER1_RX, 1           ; Serial port 1 receiver has data
+ 128:     -	        	BITDEF INT_SER2_TX, 2           ; Serial port 2 transmitter buffer is half full or less
+ 129:     -	        	BITDEF INT_SER2_RX, 3           ; Serial port 2 receiver has data
+ 130:     -	        	BITDEF INT_TICK, 4              ; Regular timekeeping
+ 131:				;
+ 132:				; IOA_NMI_REASONS register.
+ 133:     -	0004'         	NMI_REASONS_NUM equ 4           ; Number of reasons for an NMI
+ 134:     -	        	BITDEF NMI_SWITCH, 0;           ; Front panel switch
+ 135:     -	        	BITDEF NMI_PROT_VIOL, 1;        ; Write protection violation
+ 136:     -	        	BITDEF NMI_SUPER_VIOL, 2;       ; Supervisor violation
+ 137:     -	        	BITDEF NMI_TRACE, 3;            ; Debugger trace (single step)
+ 138:     -	000F'         	NMI_REASONS_ALL equ NMI_SWITCH_MASK + NMI_PROT_VIOL_MASK + NMI_SUPER_VIOL_MASK + NMI_TRACE_MASK
+ 139:				;
+ 140:				; Serial CSRs (IOA_SER1_CSR and IOA_SER2_CSR).
+ 141:     -	        	BITDEF SER_CSR_RX_EMPTY, 0      ; Receiver buffer is empty
+ 142:     -	        	BITDEF SER_CSR_RX_ALHALF, 1     ; Receiver buffer is at least half full
+ 143:     -	        	BITDEF SER_CSR_RX_FULL, 2       ; Receiver buffer is full
+ 144:     -	        	BITDEF SER_CSR_FRAME_ERR, 3     ; Framing error in last character
+ 145:     -	        	BITDEF SER_CSR_TX_EMPTY, 4      ; Transmitter buffer is empty
+ 146:     -	        	BITDEF SER_CSR_TX_ALHALF, 5     ; Transmitter buffer is at least half full
+ 147:     -	        	BITDEF SER_CSR_TX_FULL, 6       ; Transmitter buffer is full
+ 148:				; Bit 7 is not used.
+ 149:				;
+ 150:				; I2C (Inter-Integrated Circuit) master interface. Used for RTC (DS1672).
+ 151:				; Bits in IOA_I2C_CSR
+ 152:     -	        	BITDEF I2C_CSR_ACKN, 0          ; (Read / write) acknowledge from receiving device
+ 153:     -	        	BITDEF I2C_CSR_START, 1         ; (Write only) trigger start sequence
+ 154:     -	        	BITDEF I2C_CSR_STOP, 2          ; (Write only) trigger stop sequence
+ 155:     -	        	BITDEF I2C_CSR_BUSY, 7          ; (Read only) transceiver busy
+ 156:				;
+ 157:				; SPI (Serial Peripheral Interface) master interface. Used for memory card.
+ 158:				; Bits in IOA_SPI_CSR
+ 159:     -	        	BITDEF SPI_CSR_FAST, 0          ; (Read / write) SPI speed select
+ 160:     -	        	BITDEF SPI_CSR_MC_SS, 1         ; (Read / write) memory card slave select
+ 161:     -	        	BITDEF SPI_CSR_BUSY, 7          ; (Read only) transceiver busy
+ 162:				
+**** io.z80 ****
+  28:				                include "terminal.i"
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//terminal.i ****
+   1:				; ***********************************
+   2:				; * ZARC Terminal Definitions       *
+   3:				; * Written by: Merlin Skinner      *
+   4:				; * Date Started: 16/5/2020         *
+   5:				; ***********************************
+   6:				;
+   7:				; Definitions associated with terminals connected to an RS-232 port.
+   8:				;
+   9:     -	0005'         	ASCII_ENQ           equ 0x05        ; Enquiry
+  10:     -	0008'         	ASCII_BS            equ 0x08        ; Backspace
+  11:     -	0009'         	ASCII_HT            equ 0x09
+  12:     -	000A'         	ASCII_LF            equ 0x0a        ; Line feed
+  13:     -	000B'         	ASCII_VT            equ 0x0b        ; Upline (ADM-3A)
+  14:     -	000C'         	ASCII_FF            equ 0x0c        ; Forward space (ADM-3A)
+  15:     -	000D'         	ASCII_CR            equ 0x0d        ; Carriage return
+  16:     -	0016'         	ASCII_SYN           equ 0x16        ; Synchronous idle
+  17:     -	001A'         	ASCII_SUB           equ 0x1a        ; Clear screen (ADM-3A)
+  18:     -	001B'         	ASCII_ESC           equ 0x1b        ; Escape
+  19:     -	001E'         	ASCII_RS            equ 0x1e        ; Home cursor (ADM-3A)
+  20:     -	007F'         	ASCII_DEL           equ 0x7f        ; Delete
+  21:				;
+  22:				; ZARC CP/M terminal input key codes. Some are copied from Amstrad PCW and
+  23:				; Spectrum +3, others are unique to ZARC. Delete seems very common.
+  24:     -	001F'         	ZKEY_CSR_UP         equ 0x1f        ; Cursor up
+  25:     -	001E'         	ZKEY_CSR_DOWN       equ 0x1e        ; Cursor down
+  26:     -	0006'         	ZKEY_CSR_RIGHT      equ 0x06        ; Cursor right
+  27:     -	0001'         	ZKEY_CSR_LEFT       equ 0x01        ; Cursor left
+  28:     -	0002'         	ZKEY_HOME           equ 0x02
+  29:     -	0016'         	ZKEY_INSERT         equ 0x16
+  30:     -	007F'         	ZKEY_DELETE         equ 0x7f
+  31:     -	0004'         	ZKEY_END            equ 0x04
+  32:     -	001D'         	ZKEY_PAGE_UP        equ 0x1d
+  33:     -	001C'         	ZKEY_PAGE_DOWN      equ 0x1c
+  34:				
+**** io.z80 ****
+  29:				                include "interrupts.i"  ; Interrupts
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//interrupts.i ****
+   1:				; ***********************************
+   2:				; * ZARC Interrupts Routines        *
+   3:				; * Written by: Merlin Skinner      *
+   4:				; * Date Started: 30/5/2020         *
+   5:				; ***********************************
+   6:				;
+   7:				; Note that ld80 only considers the first six characters of labels significant.
+   8:				;
+   9:				; The following conditionals are intended to allow the same include file to be
+  10:				; used in the defining module and elsewhere as required. Some includes are used
+  11:				; for other applications than the monitor, such as the CP/M BIOS. In these cases,
+  12:				; the extern and public statements are not desirable.
+  13:				;
+  14:     -	0001'         	            ifdef monitor           ; Meaningful for monitor build only
+  15:     -	0001'         	                ifndef interrupts   ; Inhibit for this module
+  16:				; Variables 
+  17:				                extern itenfl   ; Int. enable flag (0 = basic, 1 = normal I/O mode)
+  18:				                extern itdsct   ; DI nest count
+  19:				; Functions
+  20:				                extern itinit   ; Initialise interrupt variables and set basic I/O mode
+  21:				                extern itstrt   ; Start monitor interrupts
+  22:				                extern itena    ; Enable interrupts if safe
+  23:				                extern itdis    ; Disable interrupts and keep count
+  24:				                extern itsvec   ; Set interrupt vector to point to a new service routine
+  25:				;
+  26:				                endif
+  27:				            endif
+  28:				
+**** io.z80 ****
+  30:				                include "i2c.i"         ; I2C master interface
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//i2c.i ****
+   1:				; ***********************************
+   2:				; * ZARC I2C Definitions            *
+   3:				; * Written by: Merlin Skinner      *
+   4:				; * Date Started: 23/7/2020         *
+   5:				; ***********************************
+   6:				;
+   7:				; Definitions associated with the I2C (Inter-Integrated Circuit) master interface.
+   8:				; Used for RTC (DS1672) initially, but it may turn out to have other uses.
+   9:				;
+  10:				; I2C error codes.
+  11:     -	0000'         	I2C_ERR_OK      equ 0           ; No error
+  12:     -	0001'         	I2C_ERR_BUSY    equ 1           ; Master interface stuck busy
+  13:     -	0002'         	I2C_ERR_LB      equ 2           ; Loopback error
+  14:     -	0003'         	I2C_ERR_NACK    equ 3           ; No acknowledge from receiving device
+  15:     -	0004'         	I2C_ERR_RTC     equ 4           ; No valid time from RTC
+  16:				;
+  17:     -	0068'         	RTC_I2C_ADDR    equ 1101000b    ; DS1672 7-bit I2C device address
+  18:				;
+  19:				; The register map is defines as a structure.
+  20:     -	        	                STRUCT
+  21:     -	        	                STR_BYTE RTC_COUNT0_REG     ; LS byte of counter
+  22:     -	        	                STR_BYTE RTC_COUNT1_REG
+  23:     -	        	                STR_BYTE RTC_COUNT2_REG
+  24:     -	        	                STR_BYTE RTC_COUNT3_REG     ; MS byte of counter
+  25:     -	        	                STR_BYTE RTC_CTRL_REG       ; Control register
+  26:     -	        	                STR_BYTE RTC_TRICKLE_REG    ; Trickle charger control register
+  27:     -	        	                STR_END RTC_SIZE
+  28:				
+**** io.z80 ****
+  31:				                include "spi.i"         ; SPI master interface
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//spi.i ****
+   1:				; ***********************************
+   2:				; * ZARC SPI Definitions            *
+   3:				; * Written by: Merlin Skinner      *
+   4:				; * Date Started: 7/8/2020          *
+   5:				; ***********************************
+   6:				;
+   7:				; Definitions associated with the SPI (Inter-Integrated Circuit) master interface.
+   8:				; Used for the memory card initially, but it may turn out to have other uses.
+   9:				;
+  10:				;
+  11:				; Memory card command structure
+  12:     -	        	                STRUCT
+  13:     -	        	                STR_BYTE MMC_CMD    ; Command including start bits
+  14:     -	        	                STR_BYTE MMC_ARG1   ; Arguments
+  15:     -	        	                STR_BYTE MMC_ARG2   ; Arguments
+  16:     -	        	                STR_BYTE MMC_ARG3   ; Arguments
+  17:     -	        	                STR_BYTE MMC_ARG4   ; Arguments
+  18:     -	        	                STR_BYTE MMC_CRC    ; CRC and stop bit
+  19:     -	        	                STR_END MMC_SIZE
+  20:				
+  21:				; SPI error codes. This should be maintained in sync with err_msgs in mmc_card.z80.
+  22:     -	        	                ENUM_START
+  23:     -	        	                ENUM SPI_ERR_OK         ; No error
+  24:     -	        	                ENUM SPI_ERR_BUSY       ; Master interface stuck busy
+  25:				; Memory card error codes.
+  26:     -	        	                ENUM SPI_ERR_NORESP     ; No response received from card
+  27:     -	        	                ENUM SPI_ERR_BADINIT    ; Initialisation failed
+  28:     -	        	                ENUM SPI_ERR_BADCRC     ; CRC error
+  29:     -	        	                ENUM SPI_ERR_BADSEC     ; Bad sector size
+  30:     -	        	                ENUM SPI_ERR_RANGE      ; Parameter out of range
+  31:     -	        	                ENUM SPI_ERR_DATAERR    ; Data error token received
+  32:     -	        	                ENUM SPI_ERR_BAD_R1     ; Card reported error in R1 response
+  33:     -	        	                ENUM SPI_ERR_BAD_R2     ; Card reported error in R2 response
+  34:     -	        	                ENUM SPI_ERR_HEAP       ; Out of heap space
+  35:     -	        	                ENUM SPI_ERR_TIMEOUT    ; Busy timeout
+  36:     -	        	                ENUM SPI_ERR_WRITE      ; Write error
+  37:     -	        	                ENUM SPI_ERR_UNKN       ; Unknown error
+  38:     -	        	                ENUM_END SPI_ERR_NUM    ; Number of errors
+**** io.z80 ****
+  32:				                include "io.i"          ; I/O routines
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//io.i ****
+   1:				; ***********************************
+   2:				; * ZARC Basic I/O Extern Symbols   *
+   3:				; * Written by: Merlin Skinner      *
+   4:				; * Date Started: 16/5/2020         *
+   5:				; ***********************************
+   6:				;
+   7:				; Note that ld80 only considers the first six characters of labels significant.
+   8:				
+   9:				; The following conditionals are intended to allow the same include file to be
+  10:				; used in the defining module and elsewhere as required. Some includes are used
+  11:				; for other applications than the monitor, such as the CP/M BIOS. In these cases,
+  12:				; the extern and extern statements are not desirable.
+  13:				;
+  14:     -	0001'         	            ifdef monitor           ; Meaningful for monitor build only
+  15:     -	0000'         	                ifndef io           ; Inhibit for this module
+  39:				                endif
+  40:				            endif
+  41:				;
+  42:				;
+  43:				; Port enumeration. Used for console and transfer port selection. Definitions must
+  44:				; match names in prt_name_list (monitor.z80).
+  45:     -	        	                ENUM_START
+  46:     -	        	                ENUM PORT_SER1          ; Serial port 1
+  47:     -	        	                ENUM PORT_SER2          ; Serial port 2
+  48:     -	        	                ENUM_END PORT_STATES    ; Number of states
+  49:				;
+  50:				
+**** io.z80 ****
+  33:				;
+  34:				;
+  35:				;
+  36:				; *************
+  37:				; * Externals *
+  38:				; *************
+  39:				;
+  40:				; Variables
+  41:				                public coport   ; Current console port (PRT_xxx)
+  42:				                public trport   ; Current data transfer port (PRT_xxx)
+  43:				;
+  44:				; Routines
+  45:				                public conwch   ; Write character to the console
+  46:				                public conrch   ; Read character from the console
+  47:				                public consta   ; Fetch console port status
+  48:				                public trawch   ; Write character to the data transfer port
+  49:				                public trarch   ; Read character from the data transfer port
+  50:				                public s1wch    ; Write character to serial port 1
+  51:				                public s1rch    ; Read character from serial port 1
+  52:				                public s1sta    ; Fetch serial port 1 status
+  53:				                public s2wch    ; Write character to serial port 2
+  54:				                public s2rch    ; Read character from serial port 2
+  55:				                public s2sta    ; Fetch serial port 2 status
+  56:				                public i2cwr    ; Write to I2C device
+  57:				                public i2crd    ; Read from I2C device
+  58:				                public spiini   ; Initialise SPI interface and set speed
+  59:				                public spiss    ; Set SPI slave select(s)
+  60:				                public spitr    ; Transfer byte to / from SPI device
+  61:				;
+  62:				;
+  63:				;
+  64:				; *************
+  65:				; * Constants *
+  66:				; *************
+  67:				;
+  68:				;spi_debug       equ 1           ; Enable reporting of all SPI traffic to console
+  69:				;
+  70:				;
+  71:				                cseg                    ; Code segment
+  72:				;
+  73:				;
+  74:				;
+  75:				; ***************
+  76:				; * Console I/O *
+  77:				; ***************
+  78:				;
+  79:				;
+  80:				; Monitor console I/O is directed to the appropriate port. These routines are
+  81:				; available from outside of the monitor for applications that would benefit from
+  82:				; the console port selection mechanism.
+  83:				;
+  84:    0+11	0000' F5      	conwch          push af
+  85:   11+13	0001' 3A0100  	                ld a, (coport)
+  86:				; The following code is also used by the transfer port redirection code.
+  87:   24+7	0004' FE00    	wch_redirect    cp PORT_SER1            ; Serial port 1
+  88:   31+7+5	0006' 280C    	                jr z, cw_ser1
+  89:   38+7	0008' FE01    	                cp PORT_SER2            ; Serial port 2
+  90:   45+7+5	000A' 280B    	                jr z, cw_ser2
+  91:				; If not valid, set console port to serial port 1 and panic.
+  92:   52+7	000C' 3E00    	con_invalid     ld a, PORT_SER1         ; Serial port 1
+  93:   59+13	000E' 320100  	                ld (coport), a          ; Set default console port
+  94:   72+17	0011' CD0000  	                call panic
+  95:				;
+  96:				; Write to serial port 1.
+  97:   89+10	0014' F1      	cw_ser1         pop af
+  98:   99+12	0015' 182A    	                jr s1wch
+  99:				;
+ 100:				; Write to serial port 2.
+ 101:  111+10	0017' F1      	cw_ser2         pop af
+ 102:  121+12	0018' 1831    	                jr s2wch
+ 103:				;
+ 104:  133+13	001A' 3A0100  	conrch          ld a, (coport)
+ 105:				; The following code is also used by the transfer port redirection code.
+ 106:  146+7	001D' FE00    	rch_redirect    cp PORT_SER1        ; Serial port 1
+ 107:  153+7+5	001F' 2823    	                jr z, s1rch
+ 108:  160+7	0021' FE01    	                cp PORT_SER2        ; Serial port 2
+ 109:  167+10	0023' CA4F00  	                jp z, s2rch
+ 110:  177+12	0026' 18E4    	                jr con_invalid      ; Handle invalid ports
+ 111:				;
+ 112:  189+13	0028' 3A0100  	consta          ld a, (coport)
+ 113:  202+7	002B' FE00    	                cp PORT_SER1        ; Serial port 1
+ 114:  209+7+5	002D' 2819    	                jr z, s1sta
+ 115:  216+7	002F' FE01    	                cp PORT_SER2        ; Serial port 2
+ 116:  223+10	0031' CA5200  	                jp z, s2sta
+ 117:  233+12	0034' 18D6    	                jr con_invalid      ; Handle invalid ports
+ 118:				;
+ 119:				;
+ 120:				;
+ 121:				; *****************
+ 122:				; * Transfer Port *
+ 123:				; *****************
+ 124:				;
+ 125:				;
+ 126:				; Data transfer I/O is directed to the appropriate port. This is likely to be
+ 127:				; useful only within the monitor, so is not made externally available.
+ 128:				;
+ 129:  245+11	0036' F5      	trawch          push af
+ 130:  256+13	0037' 3A0200  	                ld a, (trport)
+ 131:  269+12	003A' 18C8    	                jr wch_redirect     ; Use console redirection code
+ 132:				;
+ 133:  281+13	003C' 3A0200  	trarch          ld a, (trport)
+ 134:  294+12	003F' 18DC    	                jr rch_redirect     ; Use console redirection code
+ 135:				;
+ 136:				;
+ 137:				;
+ 138:				; ********************************
+ 139:				; * Asynchronous Serial (RS-232) *
+ 140:				; ********************************
+ 141:				;
+ 142:				;
+ 143:				; *** Serial port 1 ***
+ 144:				;
+ 145:				; Write character in A to serial port 1. This will wait if the transmitter FIFO
+ 146:				; is full.
+ 147:  306+11	0041' D311    	s1wch           out (IOA_SER1_DATA), a
+ 148:  317+10	0043' C9      	                ret
+ 149:				;
+ 150:				;
+ 151:				; Read character from serial port 1 and return it in A. This will wait if no
+ 152:				; character is available.
+ 153:  327+4	0044' AF      	s1rch           xor a
+ 154:				; A is cleared before the "in" instruction to turn off the LEDs on the panel
+ 155:				; address high byte. As the machine stops in this state when awaiting input,
+ 156:				; it does tidy things up a little.
+ 157:  331+11	0045' DB11    	                in (IOA_SER1_DATA)
+ 158:  342+10	0047' C9      	                ret
+ 159:				;
+ 160:				;
+ 161:				; Fetch serial port 1 status.
+ 162:				; Returns with:
+ 163:				; A - IOA_SER1_CSR (see SER_CSR_xxx in io_map.i)
+ 164:  352+11	0048' DB10    	s1sta           in a, (IOA_SER1_CSR)     ; Read status
+ 165:  363+10	004A' C9      	                ret
+ 166:				;
+ 167:				;
+ 168:				; *** Serial port 2 ***
+ 169:				;
+ 170:				; Write character in A to serial port 2. This will wait if the transmitter FIFO
+ 171:				; is full.
+ 172:  373+4	004B' AF      	s2wch           xor a
+ 173:				; A is cleared before the "in" instruction to turn off the LEDs on the panel
+ 174:				; address high byte. As the machine stops in this state when awaiting input,
+ 175:				; it does tidy things up a little.
+ 176:  377+11	004C' D313    	                out (IOA_SER2_DATA), a
+ 177:  388+10	004E' C9      	                ret
+ 178:				;
+ 179:				;
+ 180:				; Read character from serial port 2 and return it in A. This will wait if no
+ 181:				; character is available.
+ 182:  398+11	004F' DB13    	s2rch           in (IOA_SER2_DATA)
+ 183:  409+10	0051' C9      	                ret
+ 184:				;
+ 185:				;
+ 186:				; Fetch serial port 2 status.
+ 187:				; Returns with:
+ 188:				; A - IOA_SER2_CSR (see SER_CSR_xxx in io_map.i)
+ 189:  419+11	0052' DB12    	s2sta           in a, (IOA_SER2_CSR)     ; Read status
+ 190:  430+10	0054' C9      	                ret
+ 191:				;
+ 192:				;
+ 193:				;
+ 194:				; *******
+ 195:				; * I2C *
+ 196:				; *******
+ 197:				;
+ 198:				;
+ 199:				; Initially for the RTC (DS1672), but could be used with other devices if required.
+ 200:				;
+ 201:				;
+ 202:				; Write to I2C device.
+ 203:				; Call with:
+ 204:				; B - number of data bytes to send (1 to 256).
+ 205:				; D - 7-bit slave address (bit 7 is ignored).
+ 206:				; E - register address.
+ 207:				; HL - points to start of data to send.
+ 208:				; Returns with:
+ 209:				; A - zero (OK) or error code (I2C_ERR_xxx)
+ 210:				; Note - C is reserved for future use if larger block sizes (>256) are required.
+ 211:				; This is a blocking routine. It will not return until the transfer is complete,
+ 212:				; or has terminated due to error.
+ 213:  440+17	0055' CDE300  	i2cwr           call i2c_wtbusy         ; Ensure master interface is not busy
+ 214:  457+4	0058' A7      	                and a
+ 215:  461+5+6	0059' C0      	                ret nz                  ; On error, return with code in A.
+ 216:				; Generate a start sequence
+ 217:  466+7	005A' 3E03    	                ld a, I2C_CSR_START_MASK + I2C_CSR_ACKN_MASK
+ 218:  473+11	005C' D318    	                out IOA_I2C_CSR
+ 219:  484+17	005E' CDE300  	                call i2c_wtbusy
+ 220:  501+4	0061' A7      	                and a
+ 221:  505+5+6	0062' C0      	                ret nz
+ 222:				; Send slave device address.
+ 223:  510+4	0063' 7A      	                ld a, d                 ; Fetch 7-bit address
+ 224:  514+4	0064' 87      	                add a                   ; Make space for R/nW bit
+ 225:  518+17	0065' CDC800  	                call i2c_wr_byte        ; Send it
+ 226:  535+4	0068' A7      	                and a
+ 227:  539+5+6	0069' C0      	                ret nz                  ; On error, return with code in A.
+ 228:				; Send register address.
+ 229:  544+4	006A' 7B      	                ld a, e
+ 230:  548+17	006B' CDC800  	                call i2c_wr_byte        ; Send it
+ 231:  565+4	006E' A7      	                and a
+ 232:  569+5+6	006F' C0      	                ret nz                  ; On error, return with code in A.
+ 233:				; Send data.
+ 234:  574+7	0070' 7E      	i2c_wrloop      ld a, (hl)              ; Fetch data byte
+ 235:  581+17	0071' CDC800  	                call i2c_wr_byte        ; Send it
+ 236:  598+4	0074' A7      	                and a
+ 237:  602+5+6	0075' C0      	                ret nz                  ; On error, return with code in A.
+ 238:  607+6	0076' 23      	                inc hl
+ 239:  613+8+5	0077' 10F7    	                djnz i2c_wrloop
+ 240:				; Data sent. Generate an I2C stop to terminate the transfer. This code is also
+ 241:				; used by i2crd.
+ 242:  621+7	0079' 3E05    	i2cwr_done      ld a, I2C_CSR_STOP_MASK + I2C_CSR_ACKN_MASK
+ 243:  628+11	007B' D318    	                out IOA_I2C_CSR
+ 244:				; Wait for busy to go and return with zero or error code.
+ 245:  639+10	007D' C3E300  	                jp i2c_wtbusy
+ 246:				;
+ 247:				;
+ 248:				; Read from I2C device
+ 249:				; Call with:
+ 250:				; B - number of data bytes to receive (1 to 256).
+ 251:				; D - 7-bit slave address (bit 7 is ignored).
+ 252:				; E - register address.
+ 253:				; HL - points to start of receive buffer.
+ 254:				; Returns with:
+ 255:				; A - zero (OK) or error code (I2C_ERR_xxx)
+ 256:				; Note - C is reserved for future use if larger block sizes (>256) are required.
+ 257:				; This is a blocking routine. It will not return until the transfer is complete,
+ 258:				; or has terminated due to error.
+ 259:  649+17	0080' CDE300  	i2crd           call i2c_wtbusy         ; Ensure master interface is not busy
+ 260:  666+4	0083' A7      	                and a
+ 261:  670+5+6	0084' C0      	                ret nz                  ; On error, return with code in A.
+ 262:				; Generate a start sequence
+ 263:  675+7	0085' 3E03    	                ld a, I2C_CSR_START_MASK + I2C_CSR_ACKN_MASK
+ 264:  682+11	0087' D318    	                out IOA_I2C_CSR
+ 265:  693+17	0089' CDE300  	                call i2c_wtbusy
+ 266:  710+4	008C' A7      	                and a
+ 267:  714+5+6	008D' C0      	                ret nz
+ 268:				; We need to do a write before the read to set the register address in the slave.
+ 269:				; Send slave device address.
+ 270:  719+4	008E' 7A      	                ld a, d                 ; Fetch 7-bit address
+ 271:  723+4	008F' 87      	                add a                   ; Make space for R/nW bit
+ 272:  727+17	0090' CDC800  	                call i2c_wr_byte        ; Send it
+ 273:  744+4	0093' A7      	                and a
+ 274:  748+5+6	0094' C0      	                ret nz                  ; On error, return with code in A.
+ 275:				; Send register address.
+ 276:  753+4	0095' 7B      	                ld a, e
+ 277:  757+17	0096' CDC800  	                call i2c_wr_byte        ; Send it
+ 278:  774+4	0099' A7      	                and a
+ 279:  778+5+6	009A' C0      	                ret nz                  ; On error, return with code in A.
+ 280:				; Send a restart
+ 281:  783+7	009B' 3E03    	                ld a, I2C_CSR_START_MASK + I2C_CSR_ACKN_MASK
+ 282:  790+11	009D' D318    	                out IOA_I2C_CSR
+ 283:  801+17	009F' CDE300  	                call i2c_wtbusy
+ 284:  818+4	00A2' A7      	                and a
+ 285:  822+5+6	00A3' C0      	                ret nz
+ 286:				; Send slave device address.
+ 287:  827+4	00A4' 7A      	                ld a, d                 ; Fetch 7-bit address
+ 288:  831+4	00A5' 37      	                scf
+ 289:  835+4	00A6' 8F      	                adc a                   ; Make space for R/nW bit and set it (signal read)
+ 290:  839+17	00A7' CDC800  	                call i2c_wr_byte        ; Send it
+ 291:  856+4	00AA' A7      	                and a
+ 292:  860+5+6	00AB' C0      	                ret nz                  ; On error, return with code in A.
+ 293:				; Receive data. In this case, we (the master) generate the acknowledges. For the
+ 294:				; last byte, however, no acknowledge is sent.
+ 295:  865+7	00AC' 1600    	i2c_rdloop      ld d, 0                 ; Initially assume acknowledge is required
+ 296:  872+4	00AE' 78      	                ld a, b
+ 297:  876+4	00AF' 3D      	                dec a
+ 298:  880+7+5	00B0' 2002    	                jr nz, i2c_rdsack
+ 299:  887+7	00B2' 1601    	                ld d, I2C_CSR_ACKN_MASK ; Disable acknowledge for last byte
+ 300:  894+4	00B4' 7A      	i2c_rdsack      ld a, d
+ 301:  898+11	00B5' D318    	                out IOA_I2C_CSR         ; Set ACKN state
+ 302:  909+7	00B7' 3EFF    	                ld a, 0xff
+ 303:  916+11	00B9' D319    	                out IOA_I2C_DATA        ; Send all '1's to allow slave to respond
+ 304:  927+17	00BB' CDE300  	                call i2c_wtbusy
+ 305:  944+4	00BE' A7      	                and a
+ 306:  948+5+6	00BF' C0      	                ret nz
+ 307:  953+11	00C0' DB19    	                in IOA_I2C_DATA
+ 308:  964+7	00C2' 77      	                ld (hl), a              ; Save received byte
+ 309:  971+6	00C3' 23      	                inc hl
+ 310:  977+8+5	00C4' 10E6    	                djnz i2c_rdloop
+ 311:  985+12	00C6' 18B1    	                jr i2cwr_done           ; Use write termination code
+ 312:				;
+ 313:				;
+ 314:				; Write a byte to an I2C device.
+ 315:				; Call with:
+ 316:				; A - byte to send
+ 317:				; Returns with:
+ 318:				; A - zero (OK) or error code (I2C_ERR_xxx)
+ 319:  997+11	00C8' C5      	i2c_wr_byte     push bc
+ 320: 1008+4	00C9' 4F      	                ld c, a                 ; Save data for checking later
+ 321: 1012+11	00CA' D319    	                out IOA_I2C_DATA        ; Send byte
+ 322: 1023+17	00CC' CDE300  	                call i2c_wtbusy
+ 323: 1040+4	00CF' A7      	                and a
+ 324: 1044+7+5	00D0' 200F    	                jr nz, i2c_wrexit       ; Exit on error
+ 325:				; Verify received byte (wrap-around). A failure here likely indicates that
+ 326:				; another device is holding SDA low.
+ 327: 1051+11	00D2' DB19    	                in IOA_I2C_DATA         ; Fetch received data
+ 328: 1062+4	00D4' B9      	                cp c
+ 329: 1066+7	00D5' 3E02    	                ld a, I2C_ERR_LB        ; Set loopback error code
+ 330: 1073+7+5	00D7' 2008    	                jr nz, i2c_wrexit
+ 331:				; Verify acknowlege received                
+ 332: 1080+11	00D9' DB18    	                in IOA_I2C_CSR
+ 333: 1091+7	00DB' E601    	                and I2C_CSR_ACKN_MASK
+ 334: 1098+7+5	00DD' 2802    	                jr z, i2c_wrexit        ; Return with OK code if ACK received
+ 335:				; Else set NACK code.
+ 336: 1105+7	00DF' 3E03    	                ld a, I2C_ERR_NACK
+ 337:				; Restore registers and exit with zero or error code in A.
+ 338: 1112+10	00E1' C1      	i2c_wrexit      pop bc
+ 339: 1122+10	00E2' C9      	                ret
+ 340:				;
+ 341:				;
+ 342:				; Wait while the I2C interface is busy. The timeout is crude, but will prevent
+ 343:				; the system completely stalling if there is a problem with the I2C.
+ 344:				; Returns with:
+ 345:				; A - zero (OK) or error code (I2C_ERR_BUSY)
+ 346: 1132+11	00E3' C5      	i2c_wtbusy      push bc
+ 347: 1143+10	00E4' 010000  	                ld bc, 0                ; Set timer
+ 348: 1153+11	00E7' DB18    	i2cwb_loop      in IOA_I2C_CSR
+ 349: 1164+7	00E9' E680    	                and I2C_CSR_BUSY_MASK
+ 350: 1171+7+5	00EB' 2809    	                jr z, i2cwb_done
+ 351: 1178+6	00ED' 0B      	                dec bc
+ 352: 1184+4	00EE' 78      	                ld a, b
+ 353: 1188+4	00EF' B1      	                or c
+ 354: 1192+7+5	00F0' 20F5    	                jr nz, i2cwb_loop
+ 355:				;Timed out
+ 356: 1199+7	00F2' 3E01    	                ld a, I2C_ERR_BUSY
+ 357: 1206+10	00F4' C1      	                pop bc
+ 358: 1216+10	00F5' C9      	                ret
+ 359:				; Not busy
+ 360: 1226+4	00F6' AF      	i2cwb_done      xor a                   ; Flag no error
+ 361: 1230+10	00F7' C1      	                pop bc
+ 362: 1240+10	00F8' C9      	                ret
+ 363:				;
+ 364:				;
+ 365:				;
+ 366:				; *******
+ 367:				; * SPI *
+ 368:				; *******
+ 369:				;
+ 370:				;
+ 371:				; Initialise SPI interface and set speed.
+ 372:				; Call with:
+ 373:				; A - 0 for slow speed and 1 for high
+ 374:     -	0001'         	spiini          assert SPI_CSR_FAST_BIT = 0 ; Error if not in the right bit
+ 375: 1250+11	00F9' F5      	                push af
+ 376: 1261+7	00FA' E6FE    	                and low not (SPI_CSR_FAST_MASK) ; Remove valid bits
+ 377: 1268+10+7	00FC' C40000  	                call nz, panic          ; Panic if result is non-zero
+ 378: 1278+10	00FF' F1      	                pop af
+ 379: 1288+13	0100' 320000  	                ld (spi_mode), a
+ 380: 1301+11	0103' D320    	                out IOA_SPI_CSR         ; Setup interface
+ 381: 1312+10	0105' C9      	                ret
+ 382:				;
+ 383:				;
+ 384:				; Set SPI slave select(s).
+ 385:				; At the moment, there is only the memory card but who knows what the future will
+ 386:				; hold.
+ 387:				; Call with:
+ 388:				; A - zero (to disable) or bit mask for selected slave (e.g. SPI_CSR_MC_SS_MASK)
+ 389: 1322+11	0106' E5      	spiss           push hl
+ 390: 1333+11	0107' F5      	                push af
+ 391: 1344+7	0108' E6FD    	                and low not (SPI_CSR_MC_SS_MASK)    ; Remove valid select bits
+ 392: 1351+10+7	010A' C40000  	                call nz, panic          ; Panic if result is non-zero
+ 393: 1361+10	010D' 210000  	                ld hl, spi_mode
+ 394: 1371+7	0110' 3E01    	                ld a, SPI_CSR_FAST_MASK
+ 395: 1378+7	0112' A6      	                and (hl)                ; Isolate speed select bit
+ 396: 1385+7	0113' 77      	                ld (hl), a
+ 397: 1392+10	0114' F1      	                pop af
+ 398: 1402+7	0115' B6      	                or (hl)                 ; Merge fast bit and new slave selects
+ 399: 1409+7	0116' 77      	                ld (hl), a
+ 400: 1416+11	0117' D320    	                out IOA_SPI_CSR         ; Setup interface
+ 401: 1427+10	0119' E1      	                pop hl
+ 402: 1437+10	011A' C9      	                ret
+ 403:				;
+ 404:				;
+ 405:				; Transfer byte to / from SPI device
+ 406:				; Call with:
+ 407:				; A - byte to send
+ 408:				; Returns with:
+ 409:				; A - zero (OK) or error code (SPI_ERR_xxx)
+ 410:				; C - received byte
+ 411: 1447+11	011B' C5      	spitr           push bc                 ; Save B register
+ 412: 1458+11	011C' D321    	                out IOA_SPI_DATA        ; Send data
+ 413:     -	0000'         	                ifdef spi_debug
+ 419:				                endif
+ 420: 1469+7	011E' 0600    	                ld b, 0                 ; Crude timeout
+ 421: 1476+11	0120' DB20    	spitr_busywait  in IOA_SPI_CSR
+ 422: 1487+7	0122' E680    	                and SPI_CSR_BUSY_MASK
+ 423: 1494+7+5	0124' 2806    	                jr z, spitr_done
+ 424: 1501+8+5	0126' 10F8    	                djnz spitr_busywait
+ 425:				; Timed out waiting for SPI interface.
+ 426: 1509+10	0128' C1      	                pop bc
+ 427: 1519+7	0129' 3E01    	                ld a, SPI_ERR_BUSY
+ 428: 1526+10	012B' C9      	                ret                     ; Return with error code
+ 429:				; Transfer complete
+ 430: 1536+10	012C' C1      	spitr_done      pop bc
+ 431: 1546+11	012D' DB21    	                in IOA_SPI_DATA
+ 432: 1557+4	012F' 4F      	                ld c, a
+ 433:     -	0000'         	                ifdef spi_debug
+ 439:				                endif
+ 440: 1561+4	0130' AF      	                xor a
+ 441: 1565+10	0131' C9      	                ret                     ; Return with data and success code
+ 442:				;
+ 443:				;
+ 444:				;
+ 445:				; *************
+ 446:				; * Variables *
+ 447:				; *************
+ 448:				;
+ 449:				;
+ 450:				; Note: linker "-c" option is used, so no data is initialised here.
+ 451:				                dseg                ; Data segment
+ 452:				;
+ 453:     -	0000"         	spi_mode        defs 1              ; SPI speed and slave selects
+ 454:     -	0001"         	coport          defs 1              ; Current console port (PRT_xxx)
+ 455:     -	0002"         	trport          defs 1              ; Current data transfer port (PRT_xxx)
+ 456:				;
+ 457:     -	0003"         	                end
+
+
+
+Statistics:
+
+     4	passes
+     0	jr promotions
+   295	symbols
+   306	bytes
+
+   146	macro calls
+  1320	macro bytes
+     0	invented symbols
+
+
+
+Symbol Table:
+
+ASCII_BS       =08        8
+ASCII_CR       =0D        13
+ASCII_DEL      =7F        127
+ASCII_ENQ      =05        5
+ASCII_ESC      =1B        27
+ASCII_FF       =0C        12
+ASCII_HT       =09        9
+ASCII_LF       =0A        10
+ASCII_RS       =1E        30
+ASCII_SUB      =1A        26
+ASCII_SYN      =16        22
+ASCII_VT       =0B        11
+I2C_CSR_ACKN_BIT=00        0
+I2C_CSR_ACKN_MASK=01        1
+I2C_CSR_BUSY_BIT=07        7
+I2C_CSR_BUSY_MASK=80        128
+I2C_CSR_START_BIT=01        1
+I2C_CSR_START_MASK=02        2
+I2C_CSR_STOP_BIT=02        2
+I2C_CSR_STOP_MASK=04        4
+I2C_ERR_BUSY   =01        1
+I2C_ERR_LB     =02        2
+I2C_ERR_NACK   =03        3
+I2C_ERR_OK     =00        0
+I2C_ERR_RTC    =04        4
+INTS_NUM       =08        8
+INT_SER1_RX_BIT=01        1
+INT_SER1_RX_MASK=02        2
+INT_SER1_RX_VEC=01        1
+INT_SER1_TX_BIT=00        0
+INT_SER1_TX_MASK=01        1
+INT_SER1_TX_VEC=00        0
+INT_SER2_RX_BIT=03        3
+INT_SER2_RX_MASK=08        8
+INT_SER2_RX_VEC=03        3
+INT_SER2_TX_BIT=02        2
+INT_SER2_TX_MASK=04        4
+INT_SER2_TX_VEC=02        2
+INT_TICK_BIT   =04        4
+INT_TICK_MASK  =10        16
+INT_TICK_VEC   =04        4
+IOA_CONTROL    =02        2
+IOA_CRC_0      =24        36
+IOA_CRC_1      =25        37
+IOA_CRC_DATA   =26        38
+IOA_FPGA_MAJREV=00        0
+IOA_FPGA_MINREV=01        1
+IOA_FP_SW      =03        3
+IOA_I2C_CSR    =18        24
+IOA_I2C_DATA   =19        25
+IOA_INT_EN     =08        8
+IOA_INT_PEND   =0A        10
+IOA_MMAP_0     =04        4
+IOA_MMAP_1     =05        5
+IOA_MMAP_2     =06        6
+IOA_MMAP_3     =07        7
+IOA_NMI_REASONS=0C        12
+IOA_SER1_CSR   =10        16
+IOA_SER1_DATA  =11        17
+IOA_SER2_CSR   =12        18
+IOA_SER2_DATA  =13        19
+IOA_SPI_CSR    =20        32
+IOA_SPI_DATA   =21        33
+MCALL_CACRS    =E4        228
+MCALL_CACWS    =E7        231
+MCALL_CAFLUS   =EA        234
+MCALL_CONRCH   =72        114
+MCALL_CONSTA   =75        117
+MCALL_CONWCH   =6F        111
+MCALL_CONWMN   =90        144
+MCALL_CONWMS   =8D        141
+MCALL_CRC16X   =CF        207
+MCALL_CWNWLN   =8A        138
+MCALL_CWPDBY   =AE        174
+MCALL_CWPDLO   =B4        180
+MCALL_CWPDWD   =B1        177
+MCALL_CWPHBY   =A8        168
+MCALL_CWPHNB   =A5        165
+MCALL_CWPHWD   =AB        171
+MCALL_CWPSPC   =9F        159
+MCALL_CWPTM    =DE        222
+MCALL_CWVICH   =9C        156
+MCALL_JPTBL_NEXT=F6        246
+MCALL_MADBBU   =C6        198
+MCALL_MADLBU   =C0        192
+MCALL_MADWBU   =C3        195
+MCALL_MAMLBU   =CC        204
+MCALL_MAMWWU   =C9        201
+MCALL_MCPRER   =E1        225
+MCALL_MON_ENTRY=69        105
+MCALL_MPALL    =ED        237
+MCALL_MPFREE   =F0        240
+MCALL_MPSTAT   =F3        243
+MCALL_MTWDLI   =A2        162
+MCALL_PANIC    =6C        108
+MCALL_RDDULO   =BD        189
+MCALL_RDDUWD   =BA        186
+MCALL_RDHXWD   =B7        183
+MCALL_S1RCH    =7B        123
+MCALL_S1STA    =7E        126
+MCALL_S1WCH    =78        120
+MCALL_S2RCH    =84        132
+MCALL_S2STA    =87        135
+MCALL_S2WCH    =81        129
+MCALL_SKPSPC   =93        147
+MCALL_TIITOS   =D8        216
+MCALL_TIRD     =D2        210
+MCALL_TISTOI   =DB        219
+MCALL_TIWR     =D5        213
+MCALL_TOLOCA   =99        153
+MCALL_TOUPCA   =96        150
+MMAP_PAGE_MASK =3F        63
+MMAP_PROT_BIT  =07        7
+MMAP_PROT_MASK =80        128
+MMAP_SUPER_BIT =06        6
+MMAP_SUPER_MASK=40        64
+MMC_ARG1       =01        1
+MMC_ARG2       =02        2
+MMC_ARG3       =03        3
+MMC_ARG4       =04        4
+MMC_CMD        =00        0
+MMC_CRC        =05        5
+MMC_SIZE       =06        6
+MST_AF         =1C        28
+MST_AF_P       =14        20
+MST_BC         =1A        26
+MST_BC_P       =12        18
+MST_DE         =18        24
+MST_DE_P       =10        16
+MST_HL         =16        22
+MST_HL_P       =0E        14
+MST_I          =1E        30
+MST_IEN        =00        0
+MST_IX         =0C        12
+MST_IY         =0A        10
+MST_MMAP0      =02        2
+MST_MMAP1      =03        3
+MST_MMAP2      =04        4
+MST_MMAP3      =05        5
+MST_MMAP_EN    =01        1
+MST_PC         =08        8
+MST_R          =1F        31
+MST_SIZE       =20        32
+MST_SP         =06        6
+MS_PER_TICK    =64        100
+NMI_PROT_VIOL_BIT=01        1
+NMI_PROT_VIOL_MASK=02        2
+NMI_REASONS_ALL=0F        15
+NMI_REASONS_NUM=04        4
+NMI_SUPER_VIOL_BIT=02        2
+NMI_SUPER_VIOL_MASK=04        4
+NMI_SWITCH_BIT =00        0
+NMI_SWITCH_MASK=01        1
+NMI_TRACE_BIT  =03        3
+NMI_TRACE_MASK =08        8
+PORT_SER1      =00        0
+PORT_SER2      =01        1
+PORT_STATES    =02        2
+RTC_COUNT0_REG =00        0
+RTC_COUNT1_REG =01        1
+RTC_COUNT2_REG =02        2
+RTC_COUNT3_REG =03        3
+RTC_CTRL_REG   =04        4
+RTC_I2C_ADDR   =68        104
+RTC_SIZE       =06        6
+RTC_TRICKLE_REG=05        5
+SER_CSR_FRAME_ERR_BIT=03        3
+SER_CSR_FRAME_ERR_MASK=08        8
+SER_CSR_RX_ALHALF_BIT=01        1
+SER_CSR_RX_ALHALF_MASK=02        2
+SER_CSR_RX_EMPTY_BIT=00        0
+SER_CSR_RX_EMPTY_MASK=01        1
+SER_CSR_RX_FULL_BIT=02        2
+SER_CSR_RX_FULL_MASK=04        4
+SER_CSR_TX_ALHALF_BIT=05        5
+SER_CSR_TX_ALHALF_MASK=20        32
+SER_CSR_TX_EMPTY_BIT=04        4
+SER_CSR_TX_EMPTY_MASK=10        16
+SER_CSR_TX_FULL_BIT=06        6
+SER_CSR_TX_FULL_MASK=40        64
+SPI_CSR_BUSY_BIT=07        7
+SPI_CSR_BUSY_MASK=80        128
+SPI_CSR_FAST_BIT=00        0
+SPI_CSR_FAST_MASK=01        1
+SPI_CSR_MC_SS_BIT=01        1
+SPI_CSR_MC_SS_MASK=02        2
+SPI_ERR_BADCRC =04        4
+SPI_ERR_BADINIT=03        3
+SPI_ERR_BADSEC =05        5
+SPI_ERR_BAD_R1 =08        8
+SPI_ERR_BAD_R2 =09        9
+SPI_ERR_BUSY   =01        1
+SPI_ERR_DATAERR=07        7
+SPI_ERR_HEAP   =0A        10
+SPI_ERR_NORESP =02        2
+SPI_ERR_NUM    =0E        14
+SPI_ERR_OK     =00        0
+SPI_ERR_RANGE  =06        6
+SPI_ERR_TIMEOUT=0B        11
+SPI_ERR_UNKN   =0D        13
+SPI_ERR_WRITE  =0C        12
+SYSCTRL_MAPARM_BIT=03        3
+SYSCTRL_MAPARM_MASK=08        8
+SYSCTRL_MMAPN_BIT=04        4
+SYSCTRL_MMAPN_MASK=10        16
+SYSCTRL_MMAP_BIT=01        1
+SYSCTRL_MMAP_MASK=02        2
+SYSCTRL_NMCLR_BIT=02        2
+SYSCTRL_NMCLR_MASK=04        4
+SYSCTRL_RESERVED_BIT=07        7
+SYSCTRL_RESERVED_MASK=80        128
+SYSCTRL_TRARM_BIT=00        0
+SYSCTRL_TRARM_MASK=01        1
+SYSCTRL_TRPRE0_BIT=05        5
+SYSCTRL_TRPRE0_MASK=20        32
+SYSCTRL_TRPRE1_BIT=06        6
+SYSCTRL_TRPRE1_MASK=40        64
+TICK_FREQ      =0A        10
+TRM_NONE       =00        0
+TRM_SINGLE     =01        1
+TRM_STATES     =04        4
+TRM_TO_ADDR    =02        2
+TRM_XPT        =03        3
+Z80_NMI_VEC    =66        102
+Z80_RST00_VEC  =00        0
+Z80_RST08_VEC  =08        8
+Z80_RST10_VEC  =10        16
+Z80_RST18_VEC  =18        24
+Z80_RST20_VEC  =20        32
+Z80_RST28_VEC  =28        40
+Z80_RST30_VEC  =30        48
+Z80_RST38_VEC  =38        56
+ZKEY_CSR_DOWN  =1E        30
+ZKEY_CSR_LEFT  =01        1
+ZKEY_CSR_RIGHT =06        6
+ZKEY_CSR_UP    =1F        31
+ZKEY_DELETE    =7F        127
+ZKEY_END       =04        4
+ZKEY_HOME      =02        2
+ZKEY_INSERT    =16        22
+ZKEY_PAGE_DOWN =1C        28
+ZKEY_PAGE_UP   =1D        29
+con_invalid     0C'       12
+conrch          1A'       26 (public)
+consta          28'       40 (public)
+conwch          00'       0 (public)
+coport          01"       1 (public)
+cw_ser1         14'       20
+cw_ser2         17'       23
+enum_counter   =02        2
+i2c_rdloop      AC'       172
+i2c_rdsack      B4'       180
+i2c_wr_byte     C8'       200
+i2c_wrexit      E1'       225
+i2c_wrloop      70'       112
+i2c_wtbusy      E3'       227
+i2crd           80'       128 (public)
+i2cwb_done      F6'       246
+i2cwb_loop      E7'       231
+i2cwr           55'       85 (public)
+i2cwr_done      79'       121
+io             =01        1
+itdis           00        0 (extern)
+itdsct          00        0 (extern)
+itena           00        0 (extern)
+itenfl          00        0 (extern)
+itinit          00        0 (extern)
+itstrt          00        0 (extern)
+itsvec          00        0 (extern)
+jptbl_addr     =F6        246
+monitor        =01        1
+panic           00        0 (extern)
+rch_redirect    1D'       29
+rusby           00        0 (extern)
+ruswd           00        0 (extern)
+s1rch           44'       68 (public)
+s1sta           48'       72 (public)
+s1wch           41'       65 (public)
+s2rch           4F'       79 (public)
+s2sta           52'       82 (public)
+s2wch           4B'       75 (public)
+spi_mode        00"       0
+spiini          F9'       249 (public)
+spiss            106'     262 (public)
+spitr            11B'     283 (public)
+spitr_busywait   120'     288
+spitr_done       12C'     300
+str_offset     =06        6
+tikcnt          00        0 (extern)
+trarch          3C'       60 (public)
+trawch          36'       54 (public)
+trport          02"       2 (public)
+wch_redirect    04'       4
+wusby           00        0 (extern)
+wuswd           00        0 (extern)

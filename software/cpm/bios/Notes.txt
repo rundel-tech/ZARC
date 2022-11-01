@@ -1,0 +1,36 @@
+16/11/2020 (Tuesday)
+
+Started this CP/M BIOS.
+
+Development load method:
+
+    > bindownload ec00
+
+On the PC run:
+
+    $ ./dl_to_zarc.sh bios.cim
+
+Press reset on ZARC then:
+
+    > mmap 3 3 super        ; Enable supervisor mode (I/O access)
+    > go ec00               ; BOOT entry point (loads CP/M)
+
+
+20/4/2021 (Tuesday)
+
+The above instructions were superceded by the monitor "cpm" command some months ago. Additional parameters are passed to the BIOS by this command.
+
+
+3/7/2021 (Saturday)
+
+BIOS update method:
+
+Writing the BIOS (updated 14/6/2021 and again on 5/7/2021):
+
+> map 3 3 super
+> set mmap 1
+> bindownload ec00
+$ zarc_dl bios.cim /dev/ttyUSB0
+[reset]
+> writesec 2059 8 ec00      (Length changed from 4 to 8 on 5/7/2021)
+

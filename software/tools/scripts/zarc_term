@@ -1,0 +1,14 @@
+#!/bin/bash
+# Script to run the terminal emulator with appropriate options.
+# Merlin, 28/5/2020
+
+if [ $# -ne 1 ]
+    then
+        echo "Start terminal emulator session for ZARC."
+        echo "zarc_term <port>"
+        echo "Example: zarc_term /dev/ttyUSB0"
+        exit 1
+fi
+
+
+minicom -D $1 -b 9600 -8

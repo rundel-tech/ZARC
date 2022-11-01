@@ -1,0 +1,9 @@
+15/12/2021 (Wednesday)
+
+stran can be used to download a new version of itself. The script stran.sh does this, but it is wise to copy the current version first.
+
+A> ren stranold.com=stran.com
+A> stranold
+
+The new file is downloaded by stran.sh as STRAN.COM, but of course STRANOLD.COM is there if it all goes horribly wrong.
+

@@ -1,0 +1,283 @@
+; *******************************************************
+; * Basic I/O for ZARC Z80 Computer                     *
+; * Written by: Merlin Skinner                          *
+; * Date Started: 29/5/2020                             *
+; *******************************************************
+;
+; Simple support routines for use with the monitor program or other
+; programmes.
+;
+; Routines preserve all registers not required as operands or return
+; values except AF unless otherwise stated below.
+;
+;
+monitor         equ 1                   ; Flag part of monitor build
+maths           equ 1                   ; Flag module for includes
+;
+;
+;
+; ************
+; * Includes *
+; ************
+;
+                include "macros.i"
+                include "z80.i"
+                include "monitor.i"
+                include "zarc.i"        ; Hardware definitions
+                include "io_map.i"      ; I/O addresses mapping
+                include "terminal.i"    ; Terminal constants
+                include "io.i"          ; I/O routines
+                include "utility.i"     ; Utility functions
+;
+;
+; *************
+; * Externals *
+; *************
+;
+                public madlbu   ; 32-bit / 8-bit unsigned divide
+                public madwbu   ; 16-bit / 8-bit unsigned divide
+                public madbbu   ; 8-bit / 8-bit unsigned divide
+                public mamwwu   ; 16-bit * 16-bit unsigned multiply
+                public mamlbu   ; 32-bit * 8-bit unsigned multiply
+                public crc16x   ; Software CRC-16 (XMODEM)
+;
+;
+; *************
+; * Constants *
+; *************
+;
+; None
+;
+;
+; *************
+; * Main Code *
+; *************
+;
+                cseg                ; Code segment
+;
+; 32-bit / 8-bit unsigned divide. Uses restoring algorithm. Derived from code at
+; https://wikiti.brandonw.net/index.php?title=Z80_Routines:Math:Division
+; Call with:
+; DEHL - dividend
+; C - divisor
+; Returns with:
+; DEHL - quotient
+; A - remainder
+madlbu          push bc
+                ld b, 32            ; Loop counter
+                xor a
+dulb_bitloop    add	hl, hl          ; Shift MS bit of dividend into carry
+                rl e
+                rl d
+                rla                 ; Collect bit in LS of A
+                jr c, dulb_dosub
+                cp c
+                jr c, dulb_nextbit
+dulb_dosub      sub	a, c
+                inc	l
+dulb_nextbit    djnz	dulb_bitloop
+                pop bc
+                ret
+;
+;
+; 16-bit / 8-bit unsigned divide. Uses restoring algorithm. Derived from code at
+; https://wikiti.brandonw.net/index.php?title=Z80_Routines:Math:Division
+; Call with:
+; HL - dividend
+; C - divisor
+; Returns with:
+; HL - quotient
+; A - remainder
+madwbu          push bc
+                ld b, 16            ; Loop counter
+                xor a
+duwb_bitloop    add hl, hl          ; Shift MS bit of dividend into carry
+                rla                 ; Collect bit in LS of A
+                jr c, duwb_dosub
+                cp c
+                jr c, duwb_nextbit
+duwb_dosub      sub	a, c
+                inc	l
+duwb_nextbit    djnz duwb_bitloop
+                pop bc
+                ret
+;
+;
+; 8-bit / 8-bit unsigned divide. Uses restoring algorithm. Derived from code at
+; https://wikiti.brandonw.net/index.php?title=Z80_Routines:Math:Division
+; Call with:
+; L - dividend
+; C - divisor
+; Returns with:
+; L - quotient
+; A - remainder
+madbbu          push bc
+                ld b, 8             ; Loop counter
+                xor a
+dubb_bitloop    sla l               ; Shift MS bit of dividend into carry
+                rla                 ; Collect bit in LS of A
+                cp c
+                jr c, dubb_nextbit
+dubb_dosub      sub c
+                inc l
+dubb_nextbit    djnz dubb_bitloop
+                pop bc
+                ret
+;
+;
+; 16-bit * 16-bit unsigned multiply. Uses restoring algorithm. Derived from code at
+; https://wikiti.brandonw.net/index.php?title=Z80_Routines:Math:Multiplication
+; Call with:
+; BC - multiplicand
+; DE - multiplier
+; Returns with:
+; DEHL - result
+mamwwu          ld hl, 0            ; Zero LSW of result
+; Optimised 1st iteration
+                sla	e               ; Shift multiplier
+                rl d
+                jr nc, muww_sk_ld
+; Set result to multiplicand if the MS bit of the multiplier was set.
+                ld h, b
+                ld l, c
+muww_sk_ld      ld a, 15
+; A - loop counter
+; BC - multiplicand
+; DE - multiplier (MS bits) and result (LS bits).
+; HL - LSW of result
+muww_loop       add hl, hl          ; Shift result (DEHL) left
+                rl e
+                rl d
+                jr nc, muww_nc      ; Jump if multiplier bit is zero
+                add hl, bc          ; Add multiplicand to result
+                jr nc, muww_nc
+                inc de              ; Propagate the carry into DE
+muww_nc         dec a
+                jr nz, muww_loop
+                ret
+;
+;
+; 32-bit * 8-bit unsigned multiply. Uses restoring algorithm. Derived from mamwwu
+; above.
+; Call with:
+; DEHL - multiplicand
+; C - multiplier
+; Returns with:
+; CDEHL - result
+mamlbu          ld a, c
+; Save some registers.
+                push bc
+                exx
+                push bc
+                push hl
+                exx
+; Setup registers for the multiply.
+                push de
+                push hl
+                pop bc              ; LSW of multiplicand
+                and a               ; Reset carry
+                sbc hl, hl          ; Zero LS 32-bits of result
+                exx
+                pop bc              ; MSW of multiplicand
+                sbc hl, hl          ; Zero MS 32-bits of result
+                exx
+                ld e, a             ; Multiplier
+; B'C'BC - multiplicand
+; E - multiplier
+; H'L'HL - result
+; Optimised 1st iteration
+                sla	e		        ; Shift multiplier
+                jr nc, mulb_sk_ld
+; Set result to multiplicand if the MS bit of the multiplier was set.
+                ld l, c
+                ld h, b
+                exx
+                ld l, c
+                ld h, b
+                exx
+mulb_sk_ld      ld a, 7
+; A - loop counter
+; B'C'BC - multiplicand
+; E - multiplier (MS bits) and result (LS bits).
+; H'L'HL - result
+mulb_loop       add hl, hl          ; Shift result (CH'L'HL) left
+                exx
+                adc hl, hl
+                exx
+                rl e
+                jr nc, mulb_nc      ; Jump if multiplier bit is zero
+                add hl, bc          ; Add multiplicand to result
+                exx
+                adc hl, bc
+                exx
+                jr nc, mulb_nc
+                inc e               ; Propagate the carry into result
+mulb_nc         dec a
+                jr nz, mulb_loop
+                ld a, e             ; Top bits of result
+                exx
+                push hl             ; MSW of result
+                exx
+                pop de
+; Restore registers
+                exx
+                pop hl
+                pop bc
+                exx
+                pop bc
+                ld c, a
+; CDEHL - result
+                ret
+;
+;
+; Update CRC according to the CRC16 / XMODEM and MultiMediaCard CRC16 algorithm.
+; Adapted from http://regregex.bbcmicro.net/crc-code.htm#crc-code.16.8080
+; Note: this has now be replaced by the hardware CRC, but the code remains as it
+; may be useful in other applications.
+; Call with:
+; A - byte to be included
+; HL - CRC
+; Returns with:
+; HL - updated CRC;
+crc16x          push bc
+;
+                xor h
+                ld b, a
+                ld c, l
+                rrca
+                rrca
+                rrca
+                rrca
+                ld l, a
+                and 0x0f
+                ld h, a
+                xor b
+                ld b, a
+                xor l
+                and 0xf0
+                ld l, a
+                xor c
+                add hl, hl
+                xor h
+                ld h, a
+                ld a, l
+                xor b
+                ld l, a
+;
+                pop bc
+                ret
+;
+;
+;
+; *************
+; * Variables *
+; *************
+;
+;
+; Note: linker "-c" option is used, so no data is initialised here.
+                dseg                ; Data segment
+;
+; match         defs 1              ; Current command length
+;
+                end
+

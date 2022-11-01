@@ -1,0 +1,2849 @@
+   1:				; *******************************************************
+   2:				; * CP/M File System Checker                            *
+   3:				; * Version: V1.0                                       *
+   4:				; * Merlin Skinner, 16/2/2022                           *
+   5:				; *******************************************************
+   6:				;
+   7:				; CP/M 2.2 file system checker. It is intended for ZARC but avoids using
+   8:				; any special facilities so should run elsewhere. It reads the DPB to discover
+   9:				; the organisation of the disk, so it should work for any sensible disk size or
+  10:				; organisation.
+  11:				;
+  12:				; Each directory entry is scanned in turn, and a list (files_info) is
+  13:				; constructed with one entry per file. This contains a bitmap of physical
+  14:				; extents encountered, so it is possible to discover "holes" (sparse files)
+  15:				; as well as duplicated extents.
+  16:				;
+  17:				; As files are discovered, files_info will grow by FI_SIZE each time. In
+  18:				; addition, it will grow by a single byte each time more extent flags are
+  19:				; required for any file.
+  20:				;
+  21:				; Note that there is a difference between logical and physical extents. A
+  22:				; logical extent always contains 16 KB bytes of data. Each physical extent
+  23:				; (directory entry) can contain one or more logical extents. (EXM + 1) is the
+  24:				; number of logical extents per physical one. For ZARC (at least in its present
+  25:				; form, EXM is zero so both logical and physical extents are 16 KB long. Useful
+  26:				; reference:
+  27:				; Ref. https://dflund.se/~pi/cpm/files/ftp.mayn.de/pub/cpm/archive/cpminfo/cpm-dir1.not.txt
+  28:				;
+  29:				; From this example:
+  30:				; BLS = 2K so BSH = 4 and BLM = 15
+  31:				; It uses 8-bit allocation numbers, so DSM < 256 and EXM = 1
+  32:				;
+  33:				; From: https://www.seasip.info/Cpm/format22.html
+  34:				; (Physical) entry number (PEXTENT) = ((32*S2)+EX) / (EXM+1)
+  35:				; There are two physical extents shown,
+  36:				; S2 = 0 and EX = 1, which gives ((32*0)+1) / (2) = 0
+  37:				; S2 = 0 and EX = 3, which gives ((32*0)+3) / (2) = 1
+  38:				; So the above equation gives the physical extent number of a given directory
+  39:				; entry. This is what we want to construct a bitmap of physical extents.
+  40:				;
+  41:				;
+  42:				                title CP/M File System Checker
+  43:				;
+  44:				;
+  45:				;
+  46:				; ************
+  47:				; * Includes *
+  48:				; ************
+  49:				;
+  50:				;
+  51:				                include "macros.i"
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//macros.i ****
+   1:				; ***********************************
+   2:				; * ZARC Macro Definitions          *
+   3:				; * Written by: Merlin Skinner      *
+   4:				; * Date Started: 30/7/2020         *
+   5:				; ***********************************
+   6:				;
+   7:				;
+   8:				;
+   9:				; **********
+  10:				; * Macros *
+  11:				; **********
+  12:				;
+  13:				;
+  14:				; Initialise enumeration.
+  15:				; The absolute segment is used so the offsets are not marked as relocatable. This
+  16:				; avoids "Not relocatable" errors.
+  17:				ENUM_START      macro
+  18:				                .aseg
+  19:				enum_counter    set 0
+  20:				                endm
+  21:				;
+  22:				; Invoke for each item.
+  23:				ENUM            macro x
+  24:				x               equ enum_counter
+  25:				enum_counter    set enum_counter + 1
+  26:				                endm
+  27:				;
+  28:				ENUM_END        macro x
+  29:				x               set enum_counter    ; Set label to count of items
+  30:				                .cseg
+  31:				                endm
+  32:				;
+  33:				;
+  34:				; Initialise a structure. This is used to generate offsets for data structures.
+  35:				; The absolute segment is used so the offsets are not marked as relocatable. This
+  36:				; avoids "Not relocatable" errors.
+  37:				STRUCT          macro
+  38:				                .aseg
+  39:				str_offset      set 0
+  40:				                endm
+  41:				;
+  42:				; Add a byte entry.
+  43:				STR_BYTE        macro x
+  44:				x               equ str_offset
+  45:				str_offset      set str_offset + 1
+  46:				                endm
+  47:				;
+  48:				; Add a word (16-bit) entry.
+  49:				STR_WORD        macro x
+  50:				x               equ str_offset
+  51:				str_offset      set str_offset + 2
+  52:				                endm
+  53:				;
+  54:				; Add a 3 byte (24-bit) entry.
+  55:				STR_24BIT       macro x
+  56:				x               equ str_offset
+  57:				str_offset      set str_offset + 3
+  58:				                endm
+  59:				;
+  60:				; Add a long (32-bit) entry.
+  61:				STR_LONG        macro x
+  62:				x               equ str_offset
+  63:				str_offset      set str_offset + 4
+  64:				                endm
+  65:				;
+  66:				; Add an arbitrary length entry.
+  67:				STR_BLOCK       macro x, size   ; <name>, <size>
+  68:				x               equ str_offset
+  69:				str_offset      set str_offset + size
+  70:				                endm
+  71:				;
+  72:				; End of structure (used to set size)
+  73:				STR_END         macro x
+  74:				x               equ str_offset
+  75:				                .cseg
+  76:				                endm
+  77:				;
+  78:				;
+  79:				; Calculate offsets into jump tables.
+  80:				; The absolute segment is used so the offsets are not marked as relocatable. This
+  81:				; avoids "Not relocatable" errors.
+  82:				JPTBL_START     macro x
+  83:				                .aseg
+  84:				jptbl_addr      set x               ; Set start address
+  85:				                endm
+  86:				;
+  87:				; Invoke for each item.
+  88:				JPTBL_ENTRY     macro x
+  89:				x               equ jptbl_addr
+  90:				jptbl_addr      set jptbl_addr + 3
+  91:				                endm
+  92:				;
+  93:				; Invoke for a data block in the jump table
+  94:				JPTBL_BLOCK     macro x, size   ; <name>, <size>
+  95:				x               equ jptbl_addr
+  96:				jptbl_addr      set jptbl_addr + size
+  97:				                endm
+  98:				;
+  99:				JPTBL_END       macro x
+ 100:				x               set jptbl_addr      ; Set label to next address
+ 101:				                .cseg
+ 102:				                endm
+ 103:				;
+ 104:				;
+ 105:				; Define bits and masks. This is inspired by the Commodore Amiga BITDEF mechanism.
+ 106:				; Given:
+ 107:				; BITDEF I2C_CSR_STOP, 2
+ 108:				; Yields:
+ 109:				; I2C_CSR_STOP_BIT  EQU 2       ; Bit number
+ 110:				; I2C_CSR_STOP_MASK EQU 1<<2    ; Bit mask
+ 111:				BITDEF          macro n, b      ; <Name>, <bit>
+ 112:				n`_BIT          equ b
+ 113:				n`_MASK         equ 1 << b
+ 114:				                endm
+ 115:				;
+ 116:				;
+ 117:				; Force alignment. This asserts an appropriate number of zero bytes to achieve
+ 118:				; the required alignment. Note that these macros cannot work for relocatable
+ 119:				; files.
+ 120:				; 16-bit
+ 121:				ALIGN_WORD      macro
+ 122:				                if $ and 1
+ 123:				                    byte 0
+ 124:				                endif
+ 125:				                endm
+ 126:				;
+ 127:				; 32-bit
+ 128:				ALIGN_LONG      macro
+ 129:				                ALIGN_WORD
+ 130:				                if $ and 2
+ 131:				                    byte 0, 0
+ 132:				                endif
+ 133:				                endm
+ 134:				
+**** fsck.z80 ****
+  52:				                include "cpm.i"
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//cpm.i ****
+   1:				; *******************************************************
+   2:				; * ZARC Monitor CP/M Definitions                       *
+   3:				; * Written by: Merlin Skinner                          *
+   4:				; * Date Started: 26/5/2020                             *
+   5:				; *******************************************************
+   6:				;
+   7:				; Definitions related CP/M running under the monitor programme.
+   8:				;
+   9:				; Note that ld80 only considers the first six characters of labels significant.
+  10:				;
+  11:				; The following conditionals are intended to allow the same include file to be
+  12:				; used in the defining module and elsewhere as required. Some includes are used
+  13:				; for other applications than the monitor, such as the CP/M BIOS. In these cases,
+  14:				; the extern and public statements are not desirable.
+  15:				;
+  16:     -	0000'         	            ifdef monitor           ; Meaningful for monitor build only
+  28:				            endif
+  29:				;
+  30:				;
+  31:				;
+  32:				; ****************
+  33:				; * Memory Usage *
+  34:				; ****************
+  35:				;
+  36:				;
+  37:				; Note: memory banks are allocated by the monitor's initialisation code.
+  38:     -	0004'         	MMAP_CPM_PAGES      equ 4               ; Number of 16 kB pages
+  39:				;
+  40:				; The MS byte of INT_VEC_TABLE comes from the Z80 I register, and the LS byte
+  41:				; from the FPGA. The 0xe0 offset is chosen to allow the table to reside at the
+  42:				; top of memory (0xffe0 to 0xffff).
+  43:     -	FFE0'         	INT_VEC_TABLE   equ 0xffe0              ; Interrupt mode 2 vector table
+  44:				;
+  45:				; Copied from CP/M manual appendix A.
+  46:				; MSIZE             equ 64              ; CP/M version memory size in kilobytes
+  47:				;
+  48:				; "BIAS" is the address offset from 0x3400 for memory systems other than 16 K.
+  49:				;BIAS               equ (MSIZE-20) * 1024
+  50:     -	A200'         	CPM_BIAS            equ 0xa200          ; For CompuPro64K_CPM
+  51:     -	D600'         	CCP_START           equ 0x3400 + CPM_BIAS   ; Base of CCP
+  52:     -	DE06'         	BDOS_START          equ CCP_START + 0x0806  ; Base of BDOS
+  53:     -	EC00'         	BIOS_START          equ CCP_START + 0x1600  ; Base of BIOS
+  54:     -	002C'         	BIOS_CPM_START_SEC  equ 44              ; First CP/M sector of BIOS
+  55:     -	1000'         	BIOS_MAX_SIZE       equ 4096            ; 2 KB allocation for BIOS stored on MMC (ZARC)
+  56:     -	0100'         	TPA_START           equ 0x0100          ; Transient Programme Area
+  57:				;
+  58:				; Page zero.
+  59:     -	0003'         	IOBYTE              equ 0x0003          ; Intel I/O byte
+  60:     -	0004'         	CDISK               equ 0x0004          ; Current disk (0="A") & user no. (in high nibble)
+  61:     -	005C'         	FCB1                equ 0x005c          ; Default FCB 1
+  62:     -	006C'         	FCB2                equ 0x006c          ; Default FCB 2 (overwritten if FCB 1 is opened)
+  63:				; Default 128-byte disk buffer, also filled with the command line when a transient
+  64:				; is loaded under the CCP.
+  65:     -	0080'         	DEF_BUFFER          equ 0x80
+  66:     -	0080'         	DEF_BUFFER_SIZE     equ 0x80
+  67:				;
+  68:				; IOBYTE bit definitions.
+  69:     -	0003'         	IOB_CON_MASK        equ 0x03
+  70:     -	000C'         	IOB_RDR_MASK        equ 0x0c
+  71:     -	0030'         	IOB_PUN_MASK        equ 0x30
+  72:     -	00C0'         	IOB_LST_MASK        equ 0xc0
+  73:				;
+  74:				; BIOS option bits.
+  75:     -	        	BITDEF BIOS_OPT_DEBUG, 0                ; Enable BIOS debugging messages
+  76:     -	        	BITDEF BIOS_OPT_NOINTS, 1               ; Disables interrupts (use basic I/O mode)
+  77:     -	        	BITDEF BIOS_OPT_RAWCON, 2               ; Disables ADM-3A to VT-100 translation
+  78:				;
+  79:				;
+  80:				;
+  81:				; ***************
+  82:				; * Disk System *
+  83:				; ***************
+  84:				;
+  85:				;
+  86:     -	0080'         	CPM_SECTOR_SIZE     equ 128             ; CP/M disk sector size
+  87:     -	0010'         	NUM_DISKS           equ 16              ; Number of disk drives
+  88:     -	0010'         	NUM_DISKS_MAX       equ 16              ; Maximum number of disk drives
+  89:     -	0000'         	CPM_SYS_SIZE        equ 1024 * 1024     ; System area size (bytes)
+  90:     -	0000'         	CPM_DISK_SIZE       equ 1024 * 1024     ; Disk size (bytes)
+  91:     -	0008'         	FILENAME_SIZE       equ 8               ; Filename size
+  92:     -	0003'         	FILEEXT_SIZE        equ 3               ; File extension size
+  93:     -	001A'         	FILE_EOF            equ 0x1a            ; End of file (^Z)
+  94:     -	000F'         	MAX_USER            equ 15              ; Maximum user number
+  95:				;
+  96:     -	0001'         	BDOS_READ_SEQ_EOF   equ 1               ; Sequential read EOF error code
+  97:				;
+  98:				; Disk Parameter Header (DPH) structure.
+  99:     -	        	                STRUCT
+ 100:     -	        	                STR_WORD DPH_XLT        ; Address of sector translation table
+ 101:     -	        	                STR_WORD DPH_SCRATCH0   ; BDOS scratch area
+ 102:     -	        	                STR_WORD DPH_SCRATCH1
+ 103:     -	        	                STR_WORD DPH_SCRATCH2
+ 104:     -	        	                STR_WORD DPH_DIRBF      ; BDOS directory scratch area
+ 105:     -	        	                STR_WORD DPH_DPB        ; Pointer to DPB
+ 106:     -	        	                STR_WORD DPH_CSV        ; Pointer to the directory checksum vector
+ 107:     -	        	                STR_WORD DPH_ALV        ; Pointer to the allocation vector
+ 108:     -	        	                STR_END DPH_SIZE
+ 109:				;
+ 110:				;
+ 111:				; Disk Parameter Block (DPB) structure.
+ 112:     -	        	                STRUCT
+ 113:     -	        	                STR_WORD DPB_SPT        ; Number of 128-byte records per track
+ 114:     -	        	                STR_BYTE DPB_BSH        ; Block shift. 3 => 1k, 4 => 2k, 5 => 4k....
+ 115:     -	        	                STR_BYTE DPB_BLM        ; Block mask. 7 => 1k, 0Fh => 2k, 1Fh => 4k...
+ 116:     -	        	                STR_BYTE DPB_EXM        ; Extent mask
+ 117:     -	        	                STR_WORD DPB_DSM        ; Maximum block number
+ 118:     -	        	                STR_WORD DPB_DRM        ; Maximum directory entry number
+ 119:     -	        	                STR_BYTE DPB_AL0        ; Directory allocation bitmap
+ 120:     -	        	                STR_BYTE DPB_AL1
+ 121:     -	        	                STR_WORD DPB_CKS        ; Checksum vector size, 0 for a fixed disc
+ 122:     -	        	                STR_WORD DPB_OFF        ; Offset, number of reserved tracks
+ 123:     -	        	                STR_END DPB_SIZE
+ 124:				;
+ 125:				;
+ 126:				; Directory entry structure.
+ 127:     -	        	                STRUCT
+ 128:     -	        	                STR_BYTE DIRE_USER      ; User number. 0xe5 if entry unused
+ 129:     -	        	                STR_BLOCK DIRE_NAME, FILENAME_SIZE  ; Filename
+ 130:     -	        	                STR_BLOCK DIRE_TYP, FILEEXT_SIZE    ; File type
+ 131:     -	        	                STR_BYTE DIRE_EX        ; Extent counter, low byte (0-31)
+ 132:     -	        	                STR_BYTE DIRE_S1        ; Reserved, set to 0
+ 133:     -	        	                STR_BYTE DIRE_S2        ; Extent counter, high byte
+ 134:     -	        	                STR_BYTE DIRE_RC        ; Record count (low byte)
+ 135:     -	        	                STR_BLOCK DIRE_ALLOC, 16 ; Associated block numbers
+ 136:     -	        	                STR_END DIRE_SIZE
+ 137:				;
+ 138:				;
+ 139:				; File Control Block (FCB) structure.
+ 140:     -	        	                STRUCT
+ 141:     -	        	                STR_BYTE FCB_DRIVE      ; Drive. 0 for default, 1-16 for A-P
+ 142:     -	        	                STR_BLOCK FCB_NAME, FILENAME_SIZE   ; Filename in ASCII upper-case
+ 143:     -	        	                STR_BLOCK FCB_TYP, FILEEXT_SIZE     ; File type
+ 144:     -	        	                STR_BYTE FCB_EX         ; Current extent (*)
+ 145:     -	        	                STR_BYTE FCB_S1         ; Reserved (*)
+ 146:     -	        	                STR_BYTE FCB_S2         ; Reserved (*)
+ 147:     -	        	                STR_BYTE FCB_RC         ; Reserved (*)
+ 148:     -	        	                STR_BLOCK FCB_ALLOC, 16 ; Associated block numbers
+ 149:     -	        	                STR_BYTE FCB_CR         ; Current record within extent
+ 150:     -	        	                STR_BLOCK FCB_RECORD, 3 ; Record number (low byte first)
+ 151:     -	        	                STR_END FCB_SIZE
+ 152:				;
+ 153:				; * - Set this to 0 when opening a file and then leave it to CP/M. You can rewind
+ 154:				; a file by setting EX, RC, S2 and CR to 0.
+ 155:				;
+ 156:				;
+ 157:				;
+ 158:				; **************
+ 159:				; * BIOS Calls *
+ 160:				; **************
+ 161:				;
+ 162:				;
+ 163:				; Calculate offsets into jump tables. Entries here must match the jump table in
+ 164:				; the BIOS. The base address of the BIOS must be added to these addresses. A call
+ 165:				; routine might look like:
+ 166:				;
+ 167:				; Call BIOS, allowing for its unknown base address.
+ 168:				; Call with:
+ 169:				; BC - operand (depends on BIOS function called)
+ 170:				; DE - operand (depends on BIOS function called)
+ 171:				; HL - offset for the routine (e.g. BIOS_CONIN)
+ 172:				; call_bios       push de
+ 173:				;                 ex de, hl
+ 174:				;                 ld hl, (1)              ; Find WBOOT (warm boot) address
+ 175:				;                 add hl, de              ; Add offset
+ 176:				;                 pop de
+ 177:				;                 jp (hl)                 ; Jump to BIOS then return to caller
+ 178:				;
+ 179:				; The above method is a bit clumsy, but then application code shouldn't normally
+ 180:				; call the BIOS directly.
+ 181:				;
+ 182:     -	        	    JPTBL_START 0                   ; Generate offsets as BIOS_START isn't always known
+ 183:				;
+ 184:				; From monitor.z80
+ 185:				; Note - cold start routine omitted to align with use of address at (1) to find BIOS.
+ 186:     -	        	    JPTBL_ENTRY BIOS_WBOOT          ; Warm boot - reload command processor
+ 187:     -	        	    JPTBL_ENTRY BIOS_CONST          ; Console status
+ 188:     -	        	    JPTBL_ENTRY BIOS_CONIN          ; Console input
+ 189:     -	        	    JPTBL_ENTRY BIOS_CONOUT         ; Console output
+ 190:     -	        	    JPTBL_ENTRY BIOS_PLIST          ; Printer output
+ 191:     -	        	    JPTBL_ENTRY BIOS_PUNCH          ; Paper tape punch output
+ 192:     -	        	    JPTBL_ENTRY BIOS_READER         ; Paper tape reader input
+ 193:     -	        	    JPTBL_ENTRY BIOS_HOME           ; Move disc head to track 0
+ 194:     -	        	    JPTBL_ENTRY BIOS_SELDSK         ; Select disc drive
+ 195:     -	        	    JPTBL_ENTRY BIOS_SETTRK         ; Set track number
+ 196:     -	        	    JPTBL_ENTRY BIOS_SETSEC         ; Set sector number
+ 197:     -	        	    JPTBL_ENTRY BIOS_SETDMA         ; Set DMA address
+ 198:     -	        	    JPTBL_ENTRY BIOS_READ           ; Read a sector
+ 199:     -	        	    JPTBL_ENTRY BIOS_WRITE          ; Write a sector
+ 200:				; CP/M 2 functions.
+ 201:     -	        	    JPTBL_ENTRY BIOS_LISTST         ; Status of list device
+ 202:     -	        	    JPTBL_ENTRY BIOS_SECTRAN        ; Sector translation for skewing
+ 203:				; CP/M 3 functions (not supported yet). From https://www.seasip.info/Cpm/bios.html
+ 204:     -	        	    JPTBL_ENTRY BIOS_CONOST         ; Status of console output
+ 205:     -	        	    JPTBL_ENTRY BIOS_AUXIST         ; Status of auxiliary input
+ 206:     -	        	    JPTBL_ENTRY BIOS_AUXOST         ; Status of auxiliary output
+ 207:     -	        	    JPTBL_ENTRY BIOS_DEVTBL         ; Address of devices table
+ 208:     -	        	    JPTBL_ENTRY BIOS_DEVINI         ; Initialise a device
+ 209:     -	        	    JPTBL_ENTRY BIOS_DRVTBL         ; Address of discs table
+ 210:     -	        	    JPTBL_ENTRY BIOS_MULTIO         ; Read/write multiple sectors
+ 211:     -	        	    JPTBL_ENTRY BIOS_FLUSH          ; Flush host buffers
+ 212:     -	        	    JPTBL_ENTRY BIOS_MOVE           ; Move a block of memory
+ 213:     -	        	    JPTBL_ENTRY BIOS_TIME           ; Real time clock
+ 214:     -	        	    JPTBL_ENTRY BIOS_SELMEM         ; Select memory bank
+ 215:     -	        	    JPTBL_ENTRY BIOS_SETBNK         ; Select bank for DMA operation
+ 216:     -	        	    JPTBL_ENTRY BIOS_XMOVE          ; Preload banks for MOVE
+ 217:     -	        	    JPTBL_ENTRY BIOS_USERF          ; System-depedent functions
+ 218:     -	        	    JPTBL_ENTRY BIOS_RESERV1        ; Reserved
+ 219:     -	        	    JPTBL_ENTRY BIOS_RESERV2        ; Reserved
+ 220:				; ZARC-specific items.
+ 221:     -	        	    JPTBL_BLOCK BIOS_ID, 3          ; BIOS ID ("ZRC")
+ 222:     -	        	    JPTBL_BLOCK BIOS_VER, 3         ; Version (see below)
+ 223:     -	        	    JPTBL_ENTRY BIOS_STARTUP        ; CP/M startup entry point
+ 224:     -	        	    JPTBL_ENTRY BIOS_MON_CALL       ; Call monitor function
+ 225:     -	        	    JPTBL_ENTRY BIOS_SUPER          ; Set supervisor state
+ 226:     -	        	    JPTBL_ENTRY BIOS_INT_DISABLE    ; Disable interrupts and keep count
+ 227:     -	        	    JPTBL_ENTRY BIOS_INT_ENABLE     ; Enable interrupts if safe
+ 228:     -	        	    JPTBL_ENTRY BIOS_TIRD           ; Read time and date
+ 229:     -	        	    JPTBL_ENTRY BIOS_SET_TIMER      ; Set timer
+ 230:     -	        	    JPTBL_ENTRY BIOS_GET_TIMER      ; Get timer
+ 231:				;
+ 232:     -	        	    JPTBL_END BIOS_JPTBL_NEXT
+ 233:				;
+ 234:				; BIOS_VER is <reserved (zero)>, <major version>, <minor version>. The reserved
+ 235:				; byte may flag capabilities at some point.
+ 236:				;
+ 237:				;
+ 238:				;
+ 239:				; **************
+ 240:				; * BDOS Calls *
+ 241:				; **************
+ 242:				;
+ 243:				;
+ 244:				; From http://www.gaby.de/cpm/manuals/archive/cpm22htm/ch5.htm#Section_5.2
+ 245:				; In general, the function number is passed in register C with the information
+ 246:				; address in the double byte pair DE. Single byte values are returned in register
+ 247:				; A, with double byte values returned in HL. A zero value is returned when the
+ 248:				; function number is out of range. For reasons of compatibility, register A = L
+ 249:				; and register B = H upon return in all cases. Example call:
+ 250:				;   ld c, BDOS_CONIN    ; Read next character
+ 251:				;   call BDOS           ; Return character in A
+ 252:				;
+ 253:     -	0005'         	BDOS        equ 5               ; BDOS entry point
+ 254:				;
+ 255:     -	0000'         	BDOS_SYS_RST        equ 0       ; System Reset
+ 256:     -	0001'         	BDOS_CON_IN         equ 1       ; Console Input
+ 257:     -	0002'         	BDOS_CON_OUT        equ 2       ; Console Output
+ 258:     -	0003'         	BDOS_RDR_IN         equ 3       ; Reader Input
+ 259:     -	0004'         	BDOS_PUN_OUT        equ 4       ; Punch Output
+ 260:     -	0005'         	BDOS_LST_OUT        equ 5       ; List Output
+ 261:     -	0006'         	BDOS_DIRECT_CON_IO  equ 6       ; Direct Console I/O
+ 262:     -	0007'         	BDOS_GET_IO_BYTE    equ 7       ; Get I/O Byte
+ 263:     -	0008'         	BDOS_SET_IO_BYTE    equ 8       ; Set I/O Byte
+ 264:     -	0009'         	BDOS_PRINT_STRING   equ 9       ; Print String
+ 265:     -	000A'         	BDOS_READ_CON_BUFF  equ 10      ; Read Console Buffer
+ 266:     -	000B'         	BDOS_GET_CON_STAT   equ 11      ; Get Console Status
+ 267:     -	000C'         	BDOS_VERSION        equ 12      ; Return Version Number
+ 268:     -	000D'         	BDOS_RESET_DISK_SYS equ 13      ; Reset Disk System
+ 269:     -	000E'         	BDOS_SEL_DISK       equ 14      ; Select Disk
+ 270:     -	000F'         	BDOS_OPEN_FILE      equ 15      ; Open File
+ 271:     -	0010'         	BDOS_CLOSE_FILE     equ 16      ; Close File
+ 272:     -	0011'         	BDOS_SEARCH_FIRST   equ 17      ; Search for First
+ 273:     -	0012'         	BDOS_SEARCH_NEXT    equ 18      ; Search for Next
+ 274:     -	0013'         	BDOS_DELETE_FILE    equ 19      ; Delete File
+ 275:     -	0014'         	BDOS_READ_SEQ       equ 20      ; Read Sequential
+ 276:     -	0015'         	BDOS_WRITE_SEQ      equ 21      ; Write Sequential
+ 277:     -	0016'         	BDOS_MAKE_FILE      equ 22      ; Make File
+ 278:     -	0017'         	BDOS_RENAME_FILE    equ 23      ; Rename File
+ 279:     -	0018'         	BDOS_GET_LOGIN_VEC  equ 24      ; Return Login Vector
+ 280:     -	0019'         	BDOS_GET_CURR_DISK  equ 25      ; Return Current Disk
+ 281:     -	001A'         	BDOS_SET_DMA_ADDR   equ 26      ; Set DMA Address
+ 282:     -	001B'         	BDOS_GET_ALLOC_ADDR equ 27      ; Get Addr (Alloc)
+ 283:     -	001C'         	BDOS_WRITE_PROT     equ 28      ; Write Protect Disk
+ 284:     -	001D'         	BDOS_GET_RO_VEC     equ 29      ; Get R/O Vector
+ 285:     -	001E'         	BDOS_SET_FILE_ATTR  equ 30      ; Set File Attributes
+ 286:     -	001F'         	BDOS_GET_DPB        equ 31      ; Get Addr (Disk Parms)
+ 287:     -	0020'         	BDOS_GET_SET_USER   equ 32      ; Set/Get User Code
+ 288:     -	0021'         	BDOS_READ_RANDOM    equ 33      ; Read Random
+ 289:     -	0022'         	BDOS_WRITE_RANDOM   equ 34      ; Write Random
+ 290:     -	0023'         	BDOS_GET_FILE_SIZE  equ 35      ; Compute File Size
+ 291:     -	0024'         	BDOS_SET_RANDOM_REC equ 36      ; Set Random Record
+ 292:     -	0025'         	BDOS_RESET_DRIVES   equ 37      ; Selectively reset disc drives
+ 293:     -	0028'         	BDOS_WRITE_RAN_ZFILL equ 40     ; Write Random with Zero Fill
+ 294:				
+ 295:				; Functions 28 and 32 should be avoided in application programs to maintain upward
+ 296:				; compatibility with CP/M.
+ 297:				;
+ 298:				
+**** fsck.z80 ****
+  53:				                include "terminal.i"    ; Terminal constants
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//terminal.i ****
+   1:				; ***********************************
+   2:				; * ZARC Terminal Definitions       *
+   3:				; * Written by: Merlin Skinner      *
+   4:				; * Date Started: 16/5/2020         *
+   5:				; ***********************************
+   6:				;
+   7:				; Definitions associated with terminals connected to an RS-232 port.
+   8:				;
+   9:     -	0005'         	ASCII_ENQ           equ 0x05        ; Enquiry
+  10:     -	0008'         	ASCII_BS            equ 0x08        ; Backspace
+  11:     -	0009'         	ASCII_HT            equ 0x09
+  12:     -	000A'         	ASCII_LF            equ 0x0a        ; Line feed
+  13:     -	000B'         	ASCII_VT            equ 0x0b        ; Upline (ADM-3A)
+  14:     -	000C'         	ASCII_FF            equ 0x0c        ; Forward space (ADM-3A)
+  15:     -	000D'         	ASCII_CR            equ 0x0d        ; Carriage return
+  16:     -	0016'         	ASCII_SYN           equ 0x16        ; Synchronous idle
+  17:     -	001A'         	ASCII_SUB           equ 0x1a        ; Clear screen (ADM-3A)
+  18:     -	001B'         	ASCII_ESC           equ 0x1b        ; Escape
+  19:     -	001E'         	ASCII_RS            equ 0x1e        ; Home cursor (ADM-3A)
+  20:     -	007F'         	ASCII_DEL           equ 0x7f        ; Delete
+  21:				;
+  22:				; ZARC CP/M terminal input key codes. Some are copied from Amstrad PCW and
+  23:				; Spectrum +3, others are unique to ZARC. Delete seems very common.
+  24:     -	001F'         	ZKEY_CSR_UP         equ 0x1f        ; Cursor up
+  25:     -	001E'         	ZKEY_CSR_DOWN       equ 0x1e        ; Cursor down
+  26:     -	0006'         	ZKEY_CSR_RIGHT      equ 0x06        ; Cursor right
+  27:     -	0001'         	ZKEY_CSR_LEFT       equ 0x01        ; Cursor left
+  28:     -	0002'         	ZKEY_HOME           equ 0x02
+  29:     -	0016'         	ZKEY_INSERT         equ 0x16
+  30:     -	007F'         	ZKEY_DELETE         equ 0x7f
+  31:     -	0004'         	ZKEY_END            equ 0x04
+  32:     -	001D'         	ZKEY_PAGE_UP        equ 0x1d
+  33:     -	001C'         	ZKEY_PAGE_DOWN      equ 0x1c
+  34:				
+**** fsck.z80 ****
+  54:				                include "fsck.i"        ; Project include file
+**** fsck.i ****
+   1:				; *******************************************************
+   2:				; * CP/M File System Checker                            *
+   3:				; * Include file                                        *
+   4:				; * Written by: Merlin Skinner                          *
+   5:				; * Date Started: 16/2/2022                             *
+   6:				; *******************************************************
+   7:				;
+   8:				;
+   9:				;
+  10:				; *************
+  11:				; * Constants *
+  12:				; *************
+  13:				;
+  14:				;
+  15:				; DEBUG           equ 1                   ; Define to enable debugging mode
+  16:				;
+  17:     -	0040'         	STACK_SIZE      equ 64                  ; Stack space allocation
+  18:     -	0003'         	BREAK_CHAR      equ 'C' - 0x40
+  19:     -	03C0'         	BDIS_CHARS_MAX  equ (VT100_ROWS / 2) * VT100_COLS ; Maximum display area for block usage display
+  20:				;
+  21:				; Allocation counter and flags
+  22:     -	        	BITDEF ALLCF_UNUSED, 7                  ; Set if any allocation is unused
+  23:     -	        	BITDEF ALLCF_SPARSE, 6                  ; Set file contains a hole
+  24:				; LS bits serve as a counter.
+  25:     -	000F'         	ALLCF_COUNT     equ 0x0f                ; Used allocation counter
+  26:				;
+  27:				;
+  28:				;
+  29:				; **************
+  30:				; * Structures *
+  31:				; **************
+  32:				;
+  33:				;
+  34:				; File information structure. User, name and type must match the directory
+  35:				; entry structure (DIRE_xxx).
+  36:     -	        	                STRUCT
+  37:     -	        	                STR_BYTE FI_USER                    ; User number. 0xe5 if entry unused
+  38:     -	        	                STR_BLOCK FI_NAME, FILENAME_SIZE    ; Filename in ASCII upper-case
+  39:     -	        	                STR_BLOCK FI_TYP, FILEEXT_SIZE      ; File type
+  40:     -	        	                STR_WORD FI_LAST_PEXT               ; Highest physical extent number found
+  41:     -	        	                STR_BYTE FI_LAST_RC                 ; RC associated with the extent in FI_LAST_PEXT
+  42:     -	        	                STR_BYTE FI_EX_FL_LEN               ; No. of extent flag bytes
+  43:     -	        	                STR_BLOCK FI_EX_FLAGS, 0            ; Start of extent flags
+  44:     -	        	                STR_END FI_SIZE
+  45:				
+**** fsck.z80 ****
+  55:				                include "cpm_utility.i" ; CP/M utilities
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//cpm_utility.i ****
+   1:				; *******************************************************
+   2:				; * Utility Routines for CP/M Applications              *
+   3:				; * Version: V1.0                                       *
+   4:				; * Merlin Skinner, 16/12/2021                          *
+   5:				; *******************************************************
+   6:				;
+   7:				; Note that ld80 only considers the first six characters of labels significant.
+   8:				;
+   9:     -	0001'         	            ifndef CPMU         ; Inhibit for this module
+  10:				; CP/M specific.
+  11:				                extern cbdos    ; Call BDOS with some registers saved
+  12:				                extern cbios    ; Call BIOS with some registers saved
+  13:				                extern panic    ; Fatal application error
+  14:				                extern zrcdet   ; Detect ZARC
+  15:				                extern z80det   ; Detect Z80 (instead of 8080 / 8085)
+  16:				;
+  17:				; Derived from the monitor's utility.z80.
+  18:				                extern conwch   ; Write character to console
+  19:				                extern conrch   ; Read character from the console
+  20:				                extern const    ; Fetch console input status
+  21:				                extern cwnwln   ; Write new line characters to console
+  22:				                extern conwms   ; Print "$" terminated string to the console
+  23:				                extern conwmn   ; Print message <n> in a list
+  24:				                extern skpspc   ; Step hl past spaces
+  25:				                extern toupca   ; Convert character in A to upper case
+  26:				                extern toloca   ; Convert character in A to lower case
+  27:				                extern cwvich   ; Print only visible 7-bit characters
+  28:				                extern cwpspc   ; Print a space
+  29:				                extern mtwdli   ; Match word in a string against list of options
+  30:				                extern cwphnb   ; Print least-significant nibble in A in hexadecimal
+  31:				                extern cwphby   ; Print A in hexadecimal
+  32:				                extern cwphwd   ; Print HL in hexadecimal
+  33:				                extern cwpdwd   ; Print HL in decimal. Leading zeros are suppressed
+  34:				                extern cwpdby   ; Print A in decimal. Leading zeros are suppressed
+  35:				                extern cwpdwd   ; Print HL in decimal. Leading zeros are suppressed
+  36:				                extern cwpdlo   ; Print DEHL in decimal. Leading zeros are suppressed
+  37:				                extern rdhxwd   ; Read a 16-bit hexadecimal number from a string
+  38:				                extern rdduwd   ; Read a 16-bit unsigned decimal number from a string
+  39:				                extern rddulo   ; Read a 32-bit unsigned decimal number from a string
+  40:				;
+  41:				            endif
+  42:				;
+  43:				;
+  44:				; mtwdli (match word in a string against list of options) option bits. Each bit
+  45:				; has the described effect if set.
+  46:     -	        	BITDEF MTWDLI_ABBREV, 0                 ; Enable "." abbreviation
+  47:     -	        	BITDEF MTWDLI_ICASE, 1                  ; Ignore case when matching
+  48:     -	        	BITDEF MTWDLI_TERM, 7                   ; Terminator found (internal use only)
+  49:				
+**** fsck.z80 ****
+  56:				                include "cpm_terminal.i"; Terminal control
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//cpm_terminal.i ****
+   1:				; *******************************************************
+   2:				; * Terminal Control Routines for CP/M Applications     *
+   3:				; * Version: V1.0                                       *
+   4:				; * Merlin Skinner, 16/12/2021                          *
+   5:				; *******************************************************
+   6:				;
+   7:				; These routines provide more complex control over the terminal than is offered
+   8:				; by the simple generic character read / write used by the monitor and CP/M.
+   9:				;
+  10:				; Note that ld80 only considers the first six characters of labels significant.
+  11:				;
+  12:				; The following conditionals are intended to allow the same include file to be
+  13:				; used in the defining module and elsewhere as required. Some includes are used
+  14:				; for other applications than the monitor, such as the CP/M BIOS. In these cases,
+  15:				; the extern and public statements are not desirable.
+  16:				;
+  17:     -	0001'         	            ifndef cpm_terminal ; Inhibit for this module
+  18:				                extern concap   ; Console capabilities (CONCAP_xxx)
+  19:				                extern ccinit   ; Determine terminal capabilities
+  20:				                extern cldcur   ; Load cursor position
+  21:				                extern conuln   ; Set underline
+  22:				                extern conrev   ; Set reverse video
+  23:				                extern csrvis   ; Show or hide cursor
+  24:				                extern ccls     ; Clear screen
+  25:				                extern cscrup   ; Scroll screen up
+  26:				            endif
+  27:				;
+  28:				;
+  29:     -	0018'         	VT100_ROWS          equ 24
+  30:     -	0050'         	VT100_COLS          equ 80
+  31:				;
+  32:				;
+  33:				; The concap (determine terminal capabilities) routine returns a byte
+  34:				; indicating various capabilities of the attached terminal. The bits are
+  35:				; defined here.
+  36:     -	        	BITDEF CONCAP_ZARC, 0           ; ZARC BIOS present
+  37:     -	        	BITDEF CONCAP_ANSI, 1           ; ANSI control codes, e.g. VT100
+  38:     -	        	BITDEF CONCAP_UNICODE, 2        ; Terminal is capable of Unicode characters
+  39:				;
+  40:				; Note that Minicom by default emulates a VT102, and is capable of Unicode. If
+  41:				; this terminal is detected, both CONCAP_VT100 and CONCAP_UNICODE are set.
+  42:				;
+  43:				;
+  44:				; ANSI graphical rendition (SGR) codes. From https://en.wikipedia.org/wiki/ANSI_escape_code
+  45:     -	0000'         	ANSI_SGR_NORMAL     equ 0           ; All attributes off
+  46:     -	0001'         	ANSI_SGR_BOLD       equ 1           ; Bold or increased intensity
+  47:     -	0002'         	ANSI_SGR_FAINT      equ 2           ; Faint, decreased intensity, or dim
+  48:     -	0004'         	ANSI_SGR_ULINE      equ 4           ; Underline
+  49:     -	0005'         	ANSI_SGR_SBLINK     equ 5           ; Slow blink
+  50:     -	0006'         	ANSI_SGR_RBLINK     equ 6           ; Rapid blink
+  51:     -	0007'         	ANSI_SGR_REV        equ 7           ; Reverse video or invert
+  52:     -	0009'         	ANSI_SGR_STRIKE     equ 9           ; Characters legible but marked as if for deletion
+  53:     -	000A'         	ANSI_SGR_PRI_FONT   equ 10          ; Primary (default) font
+  54:     -	000B'         	ANSI_SGR_FONT_1     equ 11          ; Alternative fonts
+  55:     -	000C'         	ANSI_SGR_FONT_2     equ 12
+  56:     -	000D'         	ANSI_SGR_FONT_3     equ 13
+  57:     -	000E'         	ANSI_SGR_FONT_4     equ 14
+  58:     -	000F'         	ANSI_SGR_FONT_5     equ 15
+  59:     -	0010'         	ANSI_SGR_FONT_6     equ 16
+  60:     -	0011'         	ANSI_SGR_FONT_7     equ 17
+  61:     -	0012'         	ANSI_SGR_FONT_8     equ 18
+  62:     -	0013'         	ANSI_SGR_FONT_9     equ 19
+  63:     -	0014'         	ANSI_SGR_GOTHIC     equ 20          ; Fraktur (Gothic) (not widely supported)
+  64:     -	0015'         	ANSI_SGR_DULINE     equ 21          ; Doubly underlined *or* not bold
+  65:     -	0016'         	ANSI_SGR_NORM_INTEN equ 22          ; Normal intensity
+  66:     -	0017'         	ANSI_SGR_ITAL_OFF   equ 23          ; Neither italic, nor blackletter
+  67:     -	0018'         	ANSI_SGR_ULINE_OFF  equ 24          ; Underline off
+  68:     -	0019'         	ANSI_SGR_BLINK_OFF  equ 25          ; Blinking off
+  69:     -	001B'         	ANSI_SGR_REV_OFF    equ 27          ; Reverse image off
+  70:     -	001C'         	ANSI_SGR_HIDE_OFF   equ 28          ; Reveal (not concealed)
+  71:     -	001D'         	ANSI_SGR_STRIKE_OFF equ 29
+  72:				
+**** fsck.z80 ****
+  57:				                include "cpm_top.i"     ; CP/M dummy top module
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//cpm_top.i ****
+   1:				; *******************************************************
+   2:				; * Dummy Module to find the Last Location in Use.      *
+   3:				; * Version: V1.0                                       *
+   4:				; * Merlin Skinner, 16/12/2021                          *
+   5:				; *******************************************************
+   6:				;
+   7:				; Note that ld80 only considers the first six characters of labels significant.
+   8:				;
+   9:				                extern fstfre       ; First location after end of data segment
+  10:				
+**** fsck.z80 ****
+  58:				;
+  59:				;
+  60:				;
+  61:				; *************
+  62:				; * Externals *
+  63:				; *************
+  64:				;
+  65:				;
+  66:				; Variables
+  67:				;                public brkflg   ; Non-zero if break character detected
+  68:				;
+  69:				;
+  70:				;
+  71:				; *************
+  72:				; * Main Code *
+  73:				; *************
+  74:				;
+  75:				;
+  76:				; The CP/M transient area start address is set in the linker invokation (see makefile).
+  77:				                cseg                    ; Code segment
+  78:				;
+  79:				; The default stack space is very small (8 deep), which would almost certainly
+  80:				; cause issues, particularly with interrupts running. The initial code should
+  81:				; not assume a Z80 so we can exit cleanly if this is run on something else.
+  82:    0+20	0000' ED730000	                ld (bdos_sp), sp
+  83:   20+10	0004' 316E00  	                ld sp, app_stack_top    ; Switch to our stack space
+  84:				;
+  85:				; Determine CPU type.
+  86:   30+17	0007' CD0000  	                call z80det             ; Detect Z80 (instead of 8080 / 8085)
+  87:   47+10	000A' D21800  	                jp nc, on_z80           ; Jump if we have a Z80
+  88:				;
+  89:				; 8080 / 8085 detected. Print message and exit. We can't use conwms as this
+  90:				; assumes a Z80.
+  91:   57+10	000D' 110D07  	                ld de, no_z80_msg       ; "Z80 CPU required"
+  92:   67+7	0010' 0E09    	                ld c, BDOS_PRINT_STRING ; Print String
+  93:   74+17	0012' CD0500  	                call BDOS
+  94:   91+10	0015' C30000  	                jp 0                    ; Warm boot
+  95:				;
+  96:				; Sign on.
+  97:  101+10	0018' 21E306  	on_z80          ld hl, signon_msg
+  98:  111+17	001B' CD0000  	                call conwms             ; Print $-terminated string to console
+  99:				;
+ 100:				; Examine the command tail, looking for operands. This is stored in the default
+ 101:				; buffer. "The first byte at 0080H contains the length of the command tall, while
+ 102:				; the command tail itself begins at 0081H. The command tail is terminated by a
+ 103:				; byte containing a binary zero value." (http://www.cpm.z80.de/manuals/cpm22-m.pdf
+ 104:				; appendix H).
+ 105:  128+10	001E' 218100  	                ld hl, DEF_BUFFER + 1
+ 106:  138+17	0021' CD0000  	                call skpspc             ; Skip spaces
+ 107:  155+7	0024' 7E      	                ld a, (hl)              ; This should be a drive letter
+ 108:     -	0000'         	                ifdef DEBUG
+ 110:				                endif
+ 111:  162+7	0025' D641    	                sub "A"                 ; Convert to a number
+ 112:				; If this carries, the byte is not a letter. It may be the zero terminator, if no
+ 113:				; operand were supplied.
+ 114:  169+7+5	0027' 3815    	                jr c, op_error
+ 115:  176+7	0029' FE10    	                cp NUM_DISKS_MAX
+ 116:  183+7+5	002B' 3011    	                jr nc, op_error
+ 117:				; We have a valid drive number.
+ 118:  190+13	002D' 320200  	                ld (drive), a           ; Save it
+ 119:				;
+ 120:				; A following colon is optional.
+ 121:  203+6	0030' 23      	                inc hl
+ 122:  209+7	0031' 7E      	                ld a, (hl)
+ 123:  216+7	0032' FE3A    	                cp ":"
+ 124:  223+7+5	0034' 2001    	                jr nz, op_check_term
+ 125:  230+6	0036' 23      	                inc hl                  ; Step past colon
+ 126:				;
+ 127:				; The terminator should follow.
+ 128:  236+17	0037' CD0000  	op_check_term   call skpspc             ; Skip spaces
+ 129:  253+7	003A' 7E      	                ld a, (hl)
+ 130:     -	0000'         	                ifdef DEBUG
+ 132:				                endif
+ 133:  260+4	003B' A7      	                and a
+ 134:  264+7+5	003C' 2806    	                jr z, operands_ok
+ 135:				;
+ 136:				; Go here if we don't like the operands supplied.
+ 137:  271+10	003E' 212007  	op_error        ld hl, op_err_msg
+ 138:  281+10	0041' C3A404  	                jp msg_exit
+ 139:				;
+ 140:				; Operand processing complete.
+ 141:  291+7	0044' 0E0D    	operands_ok     ld c, BDOS_RESET_DISK_SYS   ; Reset Disk System
+ 142:  298+17	0046' CD0000  	                call cbdos              ; Call BDOS with some registers saved
+ 143:				; Both the above reset and the reboot at the end of this application should
+ 144:				; make it safe to test any drive regardless of its logged in status.
+ 145:				;
+ 146:				; Select the drive to analyse.
+ 147:  315+13	0049' 3A0200  	                ld a, (drive)
+ 148:  328+4	004C' 4F      	                ld c, a
+ 149:  332+10	004D' 110000  	                ld de, 0                ; Treat disk as new to the system
+ 150:  342+10	0050' 211800  	                ld hl, BIOS_SELDSK      ; Select disc drive
+ 151:  352+17	0053' CD0000  	                call cbios              ; Call BIOS with some registers saved
+ 152:				;HL - pointer to Disc Parameter Header (DPH) or zero on error.
+ 153:  369+4	0056' 7C      	                ld a, h
+ 154:  373+4	0057' B5      	                or l
+ 155:  377+7+5	0058' 2009    	                jr nz, drive_sel_ok
+ 156:				; Can't select drive.
+ 157:  384+10	005A' 216407  	                ld hl, sel_err_msg
+ 158:  394+17	005D' CD0000  	                call conwms             ; Print $-terminated string to console
+ 159:  411+10	0060' C3A704  	                jp exit
+ 160:     -	0063'         	drive_sel_ok
+ 161:				;
+ 162:				; Find address of DPB.
+ 163:  421+10	0063' 110A00  	                ld de, DPH_DPB          ; Offset to pointer to DPB
+ 164:  431+11	0066' 19      	                add hl, de
+ 165:  442+7	0067' 5E      	                ld e, (hl)              ; Fetch pointer
+ 166:  449+6	0068' 23      	                inc hl
+ 167:  455+7	0069' 56      	                ld d, (hl)
+ 168:  462+20	006A' ED531800	                ld (dpb), de            ; Save for later
+ 169:  482+11	006E' D5      	                push de
+ 170:  493+14	006F' DDE1    	                pop ix
+ 171:				; IX - pointer to DPB (DPB_xxx)
+ 172:				;
+ 173:				; Initialise variables.
+ 174:  507+10	0071' 210000  	                ld hl, 0                ; Directory entry number
+ 175:  517+16	0074' 221000  	                ld (file_count), hl     ; Reset counts
+ 176:  533+16	0077' 221200  	                ld (unused_count), hl
+ 177:  549+16	007A' 221400  	                ld (blocks_used), hl
+ 178:  565+16	007D' 220E00  	                ld (error_count), hl
+ 179:				;
+ 180:				; Initialise buffers.
+ 181:				; Set start of flags to first location after this programme and its variables.
+ 182:  581+10	0080' 210000  	                ld hl, fstfre           ; First location after end of data
+ 183:  591+16	0083' 220300  	                ld (blk_flags), hl
+ 184:				;
+ 185:				; Calculate the number of blocks on disk. This will determine blk_flags_size,
+ 186:				; which requires one bit per block.
+ 187:  607+19	0086' DD6E05  	                ld l, (ix + DPB_DSM)    ; Maximum block number
+ 188:  626+19	0089' DD6606  	                ld h, (ix + DPB_DSM + 1)
+ 189:				; Number of bytes required is (DSM/8) + 1
+ 190:  645+7	008C' 0603    	                ld b, 3
+ 191:  652+8	008E' CB3C    	init_blk_div    srl h
+ 192:  660+8	0090' CB1D    	                rr l
+ 193:  668+8+5	0092' 10FA    	                djnz init_blk_div
+ 194:  676+6	0094' 23      	                inc hl
+ 195:				; HL - number of bytes.
+ 196:  682+16	0095' 220500  	                ld (blk_flags_size), hl
+ 197:				;
+ 198:				; Mark all blocks as free.
+ 199:  698+4	0098' 44      	                ld b, h
+ 200:  702+4	0099' 4D      	                ld c, l
+ 201:  706+16	009A' 2A0300  	                ld hl, (blk_flags)
+ 202:  722+4	009D' 78      	bfc_loop        ld a, b
+ 203:  726+4	009E' B1      	                or c
+ 204:  730+7+5	009F' 280C    	                jr z, bfc_done          ; Exit if done
+ 205:  737+17	00A1' CD8E05  	                call chk_mem_lim        ; Check HL is not too high
+ 206:  754+10	00A4' DAA104  	                jp c, out_of_memory
+ 207:  764+10	00A7' 3600    	                ld (hl), 0
+ 208:  774+6	00A9' 23      	                inc hl
+ 209:  780+6	00AA' 0B      	                dec bc
+ 210:  786+12	00AB' 18F0    	                jr bfc_loop
+ 211:				;
+ 212:				; Initialise file information area pointers.
+ 213:				; HL - first location after block flags.
+ 214:  798+17	00AD' CD8E05  	bfc_done        call chk_mem_lim        ; Check HL is not too high
+ 215:  815+10	00B0' DAA104  	                jp c, out_of_memory
+ 216:  825+16	00B3' 220700  	                ld (files_info), hl     ; Set start address of FI structures
+ 217:  841+16	00B6' 220900  	                ld (free_start), hl     ; No files yet
+ 218:				; As files are discovered, files_info will grow by FI_SIZE each time. In
+ 219:				; addition, it will grow by a single byte each time more physical extent flags
+ 220:				; are required for any file.
+ 221:				;
+ 222:				; The directory starts at the beginning of the first track of the
+ 223:				; data area. There are DRM + 1 directory entries.
+ 224:				; Calculate the number of blocks used by the directory. This is given by
+ 225:				; the number of high bits set in DPB.AL0 and DPB.AL1. Reference:
+ 226:				; http://www.gaby.de/cpm/manuals/archive/cpm22htm/ch6.htm#Figure_6-5
+ 227:  857+19	00B9' DD6609  	                ld h, (ix + DPB_AL0)    ; Fetch directory allocation bits
+ 228:  876+19	00BC' DD6E0A  	                ld l, (ix + DPB_AL1)
+ 229:				; Count the "1" bits.
+ 230:  895+7	00BF' 0610    	                ld b, 16                ; Bit counter
+ 231:  902+7	00C1' 0E00    	                ld c, 0
+ 232:  909+8	00C3' CB7C    	id_al_loop      bit 7, h                ; Test MS bit
+ 233:  917+7+5	00C5' 2804    	                jr z, id_al_done        ; Exit if "0" found
+ 234:  924+4	00C7' 0C      	                inc c                   ; Count 1 bits
+ 235:  928+11	00C8' 29      	                add hl, hl              ; Shift left
+ 236:  939+8+5	00C9' 10F8    	                djnz id_al_loop
+ 237:				; We end up here if either all bits are tested or a "0" bit was encountered.
+ 238:  947+4	00CB' 79      	id_al_done      ld a, c
+ 239:  951+13	00CC' 320D00  	                ld (dir_blocks), a
+ 240:  964+4	00CF' A7      	                and a
+ 241:  968+10+7	00D0' CC0000  	                call z, panic           ; Panic if directory has no blocks
+ 242:				;
+ 243:				; Mark the directory blocks as used.
+ 244:				; C - number of directory blocks
+ 245:  978+10	00D3' 210000  	                ld hl, 0                ; Directory starts at block 0
+ 246:  988+4	00D6' 41      	                ld b, c
+ 247:  992+11	00D7' E5      	id_mark_used_lp push hl
+ 248: 1003+17	00D8' CD0D05  	                call flag_block         ; Mark block used
+ 249: 1020+10+7	00DB' DC0000  	                call c, panic           ; Panic if already used
+ 250: 1030+10	00DE' E1      	                pop hl
+ 251: 1040+6	00DF' 23      	                inc hl
+ 252: 1046+8+5	00E0' 10F5    	                djnz id_mark_used_lp
+ 253:				; 
+ 254:				; IX - pointer to DPB (DPB_xxx)
+ 255: 1054+10	00E2' 21FFFF  	                ld hl, 0xffff
+ 256: 1064+16	00E5' 220B00  	                ld (loaded_sector), hl  ; Set no sector loaded.
+ 257:				;
+ 258:				; Scan each entry, looking for valid-looking entries.
+ 259: 1080+10	00E8' 210000  	                ld hl, 0                ; Start at first entry
+ 260: 1090+16	00EB' 221E00  	scan_loop       ld (dir_entry_num), hl  ; Loop counter
+ 261: 1106+17	00EE' CD6006  	                call get_entry
+ 262:				; HL - points to start of entry
+ 263: 1123+11	00F1' E5      	                push hl                 ; Move address to IY
+ 264: 1134+14	00F2' FDE1    	                pop iy
+ 265: 1148+20	00F4' FD221A00	                ld (dire), iy           ; Save pointer to directory entry structure
+ 266:				;
+ 267:				; *** Examine the directory entry ***
+ 268:				; IX - pointer to DPB (DPB_xxx)
+ 269:				; IY - pointer to directory entry structure (DIRE_xxx)
+ 270: 1168+19	00F8' FD7E00  	                ld a, (iy + DIRE_USER)
+ 271: 1187+7	00FB' FEE5    	                cp 0xe5
+ 272: 1194+7+5	00FD' 200A    	                jr nz, sl_not_unused
+ 273:				; This is an unused entry.
+ 274: 1201+16	00FF' 2A1200  	                ld hl, (unused_count)
+ 275: 1217+6	0102' 23      	                inc hl
+ 276: 1223+16	0103' 221200  	                ld (unused_count), hl
+ 277: 1239+10	0106' C3B302  	                jp sl_entry_done        ; Entry done
+ 278:				;
+ 279:				; Calculate physical extent. Adapted from
+ 280:				; https://www.seasip.info/Cpm/format22.html:
+ 281:				; An extent is the portion of a file controlled by one directory entry. If a
+ 282:				; file takes up more blocks than can be listed in one directory entry, it is
+ 283:				; given multiple entries, distinguished by their EX and S2 bytes.  A logical
+ 284:				; extent is always 16 KB long, but there can be multiple logical extents in a
+ 285:				; physical extent (directory entry). This is defined by DPB.EXM. The formula
+ 286:				; is: directory number (physical extent) = ((32 * S2) + EX) / (exm + 1) where
+ 287:				; EXM is the extent mask value from the Disc Parameter Block.
+ 288: 1249+19	0109' FD6E0E  	sl_not_unused   ld l, (iy + DIRE_S2)        ; Extent counter, high byte
+ 289: 1268+7	010C' 2600    	                ld h, 0
+ 290: 1275+11	010E' 29      	                add hl, hl
+ 291: 1286+11	010F' 29      	                add hl, hl
+ 292: 1297+11	0110' 29      	                add hl, hl
+ 293: 1308+11	0111' 29      	                add hl, hl
+ 294: 1319+11	0112' 29      	                add hl, hl
+ 295:				; HL is (32 * S2)
+ 296: 1330+19	0113' FD5E0C  	                ld e, (iy + DIRE_EX)    ; Extent counter, low byte (0-31)
+ 297: 1349+7	0116' 1600    	                ld d, 0
+ 298: 1356+11	0118' 19      	                add hl, de
+ 299:				; HL is (32 * S2) + EX
+ 300: 1367+19	0119' DD4E04  	                ld c, (ix + DPB_EXM)    ; Extent mask
+ 301:				; A is 0, 1, 3, 7 or 15. We need to divide by one greater than each of these.
+ 302: 1386+4	011C' 79      	sl_calc_ext_lp  ld a, c
+ 303: 1390+4	011D' A7      	                and a
+ 304: 1394+7+5	011E' 2808    	                jr z, sl_calc_ext_dn
+ 305: 1401+8	0120' CB3C    	                srl h                   ; Divide by two
+ 306: 1409+8	0122' CB1D    	                rr l
+ 307: 1417+8	0124' CB39    	                srl c                   ; Reduce mask
+ 308: 1425+12	0126' 18F4    	                jr sl_calc_ext_lp
+ 309:				; HL - physical extent
+ 310: 1437+16	0128' 221600  	sl_calc_ext_dn  ld (phys_extent), hl    ; Save calculated extent
+ 311:				;
+ 312:				; Check user number
+ 313: 1453+10	012B' 118A08  	                ld de, bad_user_msg     ; " - bad user number"
+ 314: 1463+19	012E' FD7E00  	                ld a, (iy + DIRE_USER)
+ 315: 1482+7	0131' FE10    	                cp MAX_USER + 1
+ 316: 1489+10+7	0133' D4B404  	                call nc, sl_err_cont    ; Report any error and continue
+ 317:				;
+ 318:				; Check name. A flag is used to avoid one error message per bad character.
+ 319: 1499+15	0136' FDE5    	sl_user_ok      push iy
+ 320: 1514+10	0138' E1      	                pop hl
+ 321: 1524+10	0139' 010100  	                ld bc, DIRE_NAME
+ 322: 1534+11	013C' 09      	                add hl, bc
+ 323:				; HL - start address of name.
+ 324: 1545+7	013D' 0608    	                ld b, FILENAME_SIZE
+ 325: 1552+7	013F' 0E00    	                ld c, 0                 ; Error flag
+ 326: 1559+7	0141' 7E      	sl_name_chk     ld a, (hl)
+ 327: 1566+7	0142' FE20    	                cp ' '
+ 328: 1573+10+7	0144' DC0A05  	                call c, set_c_reg       ; < ' ' is a control character
+ 329: 1583+7	0147' FE7F    	                cp ascii_del
+ 330: 1590+10+7	0149' D40A05  	                call nc, set_c_reg      ; >= DEL isn't visible either
+ 331: 1600+6	014C' 23      	                inc hl
+ 332: 1606+8+5	014D' 10F2    	                djnz sl_name_chk
+ 333:				;
+ 334:				; Check type.
+ 335: 1614+19	014F' FD7E09  	                ld a, (iy + DIRE_TYP)
+ 336: 1633+7	0152' E67F    	                and 0x7f                ; Ignore read-only bit
+ 337: 1640+7	0154' FE20    	                cp ' '
+ 338: 1647+10+7	0156' DC0A05  	                call c, set_c_reg       ; < ' ' is a control character
+ 339: 1657+7	0159' FE7F    	                cp ascii_del
+ 340: 1664+10+7	015B' D40A05  	                call nc, set_c_reg      ; >= DEL isn't visible either
+ 341:				;
+ 342: 1674+19	015E' FD7E0A  	                ld a, (iy + DIRE_TYP + 1)
+ 343: 1693+7	0161' E67F    	                and 0x7f                ; Ignore system file bit
+ 344: 1700+7	0163' FE20    	                cp ' '
+ 345: 1707+10+7	0165' DC0A05  	                call c, set_c_reg       ; < ' ' is a control character
+ 346: 1717+7	0168' FE7F    	                cp ascii_del
+ 347: 1724+10+7	016A' D40A05  	                call nc, set_c_reg      ; >= DEL isn't visible either
+ 348:				;
+ 349: 1734+19	016D' FD7E0B  	                ld a, (iy + DIRE_TYP + 2)
+ 350:				; Bit 7 has no defined meaning for this character.
+ 351: 1753+7	0170' FE20    	                cp ' '
+ 352: 1760+10+7	0172' DC0A05  	                call c, set_c_reg       ; < ' ' is a control character
+ 353: 1770+7	0175' FE7F    	                cp ascii_del
+ 354: 1777+10+7	0177' D40A05  	                call nc, set_c_reg      ; >= DEL isn't visible either
+ 355:				;
+ 356:				; Report error if one or more issues were found.
+ 357: 1787+10	017A' 119D08  	                ld de, bad_name_msg     ; " - bad file name"
+ 358: 1797+4	017D' 79      	                ld a, c
+ 359: 1801+4	017E' A7      	                and a
+ 360: 1805+10+7	017F' C4B404  	                call nz, sl_err_cont    ; Report any error and continue
+ 361:				;
+ 362:				; Check extent counter.
+ 363: 1815+10	0182' 11AE08  	                ld de, bad_ex_cnt_msg   ; " - bad extent count"
+ 364: 1825+19	0185' FD7E0C  	                ld a, (iy + DIRE_EX)    ; Extent counter, low byte (0-31)
+ 365: 1844+7	0188' FE20    	                cp 32
+ 366: 1851+10+7	018A' D4B404  	                call nc, sl_err_cont    ; Report any error and continue
+ 367:				;
+ 368:				; Check S1.
+ 369: 1861+10	018D' 11C208  	                ld de, bad_s1_msg       ; " - bad S1"
+ 370: 1871+19	0190' FD7E0D  	                ld a, (iy + DIRE_S1)    ; Reserved, set to 0
+ 371: 1890+4	0193' A7      	                and a
+ 372: 1894+10+7	0194' C4B404  	                call nz, sl_err_cont    ; Report any error and continue
+ 373:				;
+ 374:				; *** Look for the file in the file information structure buffer ***
+ 375: 1904+20	0197' DD2A0700	                ld ix, (files_info)     ; Start address of FI structures
+ 376:				; IX - address in files_info structure.
+ 377: 1924+20	019B' ED5B0900	sl_find_loop    ld de, (free_start)     ; First free location
+ 378: 1944+15	019F' DDE5    	                push ix
+ 379: 1959+10	01A1' E1      	                pop hl
+ 380: 1969+4	01A2' A7      	                and a
+ 381: 1973+15	01A3' ED52    	                sbc hl, de
+ 382: 1988+10	01A5' D2C101  	                jp nc, slf_no_match     ; Jump if buffer exhausted
+ 383:				; There is an entry to examine.
+ 384: 1998+15	01A8' DDE5    	                push ix
+ 385: 2013+10	01AA' D1      	                pop de
+ 386: 2023+15	01AB' FDE5    	                push iy
+ 387: 2038+10	01AD' E1      	                pop hl
+ 388:				; DE - pointer to file information structure.
+ 389:				; HL - pointer to directory entry structure.
+ 390: 2048+17	01AE' CD3506  	                call match_files
+ 391:				; Carry flag set if files don't match.
+ 392: 2065+7+5	01B1' 3049    	                jr nc, slf_found_fi     ; Matching structure found
+ 393:				;
+ 394:				; Advance pointer by the length of this structure. We must include the length
+ 395:				; of the extent flags section (FI_EX_FL_LEN).
+ 396: 2072+19	01B3' DD5E0F  	                ld e, (ix + FI_EX_FL_LEN)
+ 397: 2091+7	01B6' 1600    	                ld d, 0
+ 398:				; DE - extent flags length.
+ 399: 2098+15	01B8' DD19    	                add ix, de              ; Add length to base
+ 400: 2113+10	01BA' 111000  	                ld de, FI_SIZE
+ 401: 2123+15	01BD' DD19    	                add ix, de              ; Add structure size
+ 402: 2138+12	01BF' 18DA    	                jr sl_find_loop
+ 403:				;
+ 404:				; File information structure buffer seach complete and no matching entry was
+ 405:				; found. Create a new entry.
+ 406: 2150+16	01C1' 2A0900  	slf_no_match    ld hl, (free_start)     ; Insert point
+ 407: 2166+10	01C4' 111000  	                ld de, FI_SIZE          ; Number of bytes required
+ 408: 2176+17	01C7' CD9B05  	                call fi_make_room       ; Make room in the FI structures store
+ 409: 2193+10	01CA' DAA104  	                jp c, out_of_memory
+ 410:				;
+ 411:				; Copy the relevant fields.
+ 412: 2203+11	01CD' E5      	                push hl
+ 413: 2214+14	01CE' DDE1    	                pop ix
+ 414: 2228+15	01D0' FDE5    	                push iy
+ 415: 2243+10	01D2' D1      	                pop de
+ 416:				; HL & IX - pointer to file information structure (FI_xxx)
+ 417:				; DE & IY - pointer to directory entry structure (DIRE_xxx)
+ 418:				; Copy user number.
+ 419:     -	0001'         	                assert FI_USER = 0
+ 420:     -	0001'         	                assert DIRE_USER = 0
+ 421: 2253+7	01D3' 1A      	                ld a, (de)
+ 422: 2260+7	01D4' 77      	                ld (hl), a
+ 423: 2267+6	01D5' 13      	                inc de
+ 424: 2273+6	01D6' 23      	                inc hl
+ 425:				;
+ 426:				; Copy filename.
+ 427:     -	0001'         	                assert FI_NAME = 1
+ 428:     -	0001'         	                assert DIRE_NAME = 1
+ 429: 2279+7	01D7' 0608    	                ld b, FILENAME_SIZE
+ 430: 2286+7	01D9' 1A      	slf_name_loop   ld a, (de)
+ 431: 2293+7	01DA' 77      	                ld (hl), a
+ 432: 2300+6	01DB' 13      	                inc de
+ 433: 2306+6	01DC' 23      	                inc hl
+ 434: 2312+8+5	01DD' 10FA    	                djnz slf_name_loop
+ 435:				;
+ 436:				; Copy type. Ignore read-only and hidden flags.
+ 437:     -	0001'         	                assert FI_TYP = 9
+ 438:     -	0001'         	                assert DIRE_TYP = 9
+ 439: 2320+7	01DF' 0603    	                ld b, FILEEXT_SIZE
+ 440: 2327+7	01E1' 1A      	slf_typ_loop    ld a, (de)
+ 441: 2334+7	01E2' E67F    	                and 0x7f
+ 442: 2341+7	01E4' 77      	                ld (hl), a
+ 443: 2348+6	01E5' 13      	                inc de
+ 444: 2354+6	01E6' 23      	                inc hl
+ 445: 2360+8+5	01E7' 10F8    	                djnz slf_typ_loop
+ 446:				;
+ 447: 2368+19	01E9' DD360F00	                ld (ix + FI_EX_FL_LEN), 0   ; No flags initially
+ 448: 2387+19	01ED' DD360C00	                ld (ix + FI_LAST_PEXT), 0   ; Last extent
+ 449: 2406+19	01F1' DD360D00	                ld (ix + FI_LAST_PEXT + 1), 0   ; Last extent
+ 450:				;
+ 451:				; Count new files.
+ 452: 2425+16	01F5' 2A1000  	                ld hl, (file_count)
+ 453: 2441+6	01F8' 23      	                inc hl
+ 454: 2447+16	01F9' 221000  	                ld (file_count), hl
+ 455:				;
+ 456:				; Go here after either locating an existing structure, or creating a new one.
+ 457:				; IX - pointer to file information structure.
+ 458:				; IY - pointer to directory entry structure (DIRE_xxx)
+ 459: 2463+20	01FC' DD221C00	slf_found_fi    ld (fie), ix            ; Save pointer to file information structure
+ 460:				; IX - pointer to file information structure (FI_xxx)
+ 461:				; IY - pointer to directory entry structure (DIRE_xxx)
+ 462:				;
+ 463:				; Set the relevant physical extent flag, expanding the length of the extent
+ 464:				; flags if required.
+ 465: 2483+16	0200' 2A1600  	                ld hl, (phys_extent)    ; Fetch extent number
+ 466: 2499+17	0203' CD4205  	                call flag_extent        ; Mark block used
+ 467: 2516+10	0206' 11CC08  	                ld de, ext_dup_msg      ; " - duplicated physical extent"
+ 468: 2526+10	0209' DACA02  	                jp c, sl_err_stop       ; Error and stop if already used
+ 469:				;
+ 470:				; Mark the blocks used. Entries may be 8 or 16-bit, depending on the number of
+ 471:				; blocks on the disk.
+ 472: 2536+20	020C' DD2A1800	slf_ext_done    ld ix, (dpb)
+ 473: 2556+7	0210' 0E00    	                ld c, 0                 ; Reset flags (ALLCF_xxx) and counter
+ 474:				; IX - pointer to DPB (DPB_xxx)
+ 475:				; IY - pointer to directory entry structure (DIRE_xxx)
+ 476:				; C - flags and counter
+ 477: 2563+19	0212' DD7E06  	                ld a, (ix + DPB_DSM + 1)    ; Fetch MS byte of DSM
+ 478: 2582+4	0215' A7      	                and a
+ 479: 2586+7+5	0216' 2825    	                jr z, slf_bytes         ; Jump if > 255 blocks
+ 480:				;
+ 481:				; The maximum block number is >= 256, so the allocation list is in words.
+ 482: 2593+7	0218' 0608    	                ld b, 8
+ 483: 2600+19	021A' FD6E10  	slf_wd_alu_lp   ld l, (iy + DIRE_ALLOC) ; Fetch next allocation
+ 484: 2619+19	021D' FD6611  	                ld h, (iy + DIRE_ALLOC + 1)
+ 485: 2638+4	0220' 7C      	                ld a, h
+ 486: 2642+4	0221' B5      	                or l
+ 487: 2646+7+5	0222' 2004    	                jr nz, slf_wd_alu_used
+ 488:				; Unused entry.
+ 489: 2653+8	0224' CBF9    	                set ALLCF_UNUSED_BIT, c ; Flag unused entry found
+ 490: 2661+12	0226' 180D    	                jr slf_wd_alu_dn
+ 491:				; Used entry.
+ 492: 2673+4	0228' 0C      	slf_wd_alu_used inc c                   ; Keep count
+ 493: 2677+17	0229' CD0D05  	                call flag_block         ; Mark block used
+ 494: 2694+10	022C' DACA02  	                jp c, sl_err_stop       ; Error if already used
+ 495: 2704+8	022F' CB79    	                bit ALLCF_UNUSED_BIT, c
+ 496: 2712+7+5	0231' 2802    	                jr z, slf_wd_alu_dn     ; Jump if no unused entries encountered
+ 497:				; This used entry is preceeded by an unused one. This means we have a holed, or
+ 498:				; "sparse" file.
+ 499: 2719+8	0233' CBF1    	                set ALLCF_SPARSE_BIT, c ; Hole detected
+ 500:				;
+ 501:				; Allocation entry done.
+ 502: 2727+10	0235' FD23    	slf_wd_alu_dn   inc iy
+ 503: 2737+10	0237' FD23    	                inc iy
+ 504: 2747+8+5	0239' 10DF    	                djnz slf_wd_alu_lp
+ 505: 2755+12	023B' 1820    	                jr slf_alu_dn
+ 506:				;
+ 507:				; The maximum block number is < 256, so the allocation list is in bytes.
+ 508: 2767+7	023D' 0610    	slf_bytes       ld b, 16
+ 509: 2774+19	023F' FD7E10  	slf_by_alu_lp   ld a, (iy + DIRE_ALLOC) ; Fetch next allocation
+ 510: 2793+4	0242' A7      	                and a
+ 511: 2797+7+5	0243' 2004    	                jr nz, slf_by_alu_used
+ 512:				; Unused entry.
+ 513: 2804+8	0245' CBF9    	                set ALLCF_UNUSED_BIT, c ; Flag unused entry found
+ 514: 2812+12	0247' 1810    	                jr slf_by_alu_dn
+ 515:				; Used entry.
+ 516: 2824+4	0249' 0C      	slf_by_alu_used inc c                   ; Keep count
+ 517: 2828+7	024A' 2600    	                ld h, 0
+ 518: 2835+4	024C' 6F      	                ld l, a
+ 519: 2839+17	024D' CD0D05  	                call flag_block         ; Mark block used
+ 520: 2856+10	0250' DACA02  	                jp c, sl_err_stop       ; Error if already used
+ 521: 2866+8	0253' CB79    	                bit ALLCF_UNUSED_BIT, c
+ 522: 2874+7+5	0255' 28DE    	                jr z, slf_wd_alu_dn     ; Jump if no unused entries encountered
+ 523:				; This used entry is preceeded by an unused one. This means we have a holed, or
+ 524:				; "sparse" file.
+ 525: 2881+8	0257' CBF1    	                set ALLCF_SPARSE_BIT, c ; Hole detected
+ 526:				;
+ 527:				; Allocation entry done.
+ 528: 2889+10	0259' FD23    	slf_by_alu_dn   inc iy
+ 529: 2899+8+5	025B' 10E2    	                djnz slf_by_alu_lp
+ 530:				;
+ 531:				; Blocks flagged appropriately.
+ 532: 2907+20	025D' FD2A1A00	slf_alu_dn      ld iy, (dire)           ; Restore pointer to directory entry structure
+ 533: 2927+8	0261' CB71    	                bit ALLCF_SPARSE_BIT, c
+ 534:				; A sparse file (one with a hole) is not necessarily an error, as discussed in
+ 535:				; http://www.gaby.de/cpm/manuals/archive/cpm22htm/ch5.htm function 35 (description).
+ 536: 2935+10	0263' 11FE08  	                ld de, sparse_msg       ; " - is sparse (holed) [warning]"
+ 537: 2945+10+7	0266' C4B404  	                call nz, sl_err_cont    ; Error if hole detected
+ 538:				;
+ 539:				; Check for blocks with no allocations at all.
+ 540: 2955+4	0269' 79      	                ld a, c
+ 541: 2959+7	026A' E60F    	                and ALLCF_COUNT         ; Isolate count
+ 542: 2966+10	026C' 113A09  	                ld de, no_alloc_msg     ; " - no allocations in physical extent [warning]"
+ 543: 2976+10+7	026F' CCB404  	                call z, sl_err_cont     ; Error if no allocations
+ 544:				;
+ 545:				; Checking record count (RC). This should be 0x80 (128 * 128 = 18 KB) for
+ 546:				; anything but the last extent. Note that FI_LAST_PEXT could be derived from
+ 547:				; the bitmap, but it is easier to store it.
+ 548:				; Note: the illegal case PEXT = FI_LAST_PEXT will be picked up in the extent
+ 549:				; flagging code.
+ 550: 2986+20	0272' DD2A1C00	                ld ix, (fie)            ; Fetch pointer to file information structure
+ 551:				; IX - pointer to file information structure (FI_xxx)
+ 552:				; IY - pointer to directory entry structure (DIRE_xxx)
+ 553: 3006+16	0276' 2A1600  	                ld hl, (phys_extent)
+ 554: 3022+19	0279' DD5E0C  	                ld e, (ix + FI_LAST_PEXT)   ; Last extent
+ 555: 3041+19	027C' DD560D  	                ld d, (ix + FI_LAST_PEXT + 1)
+ 556: 3060+4	027F' A7      	                and a
+ 557: 3064+15	0280' ED52    	                sbc hl, de
+ 558: 3079+7+5	0282' 300D    	                jr nc, slfrc_not_last
+ 559:				; Not the highest extent found so far, so RC should be 0x80.
+ 560: 3086+19	0284' FD7E10  	                ld a, (iy + DIRE_ALLOC)
+ 561: 3105+7	0287' FE80    	                cp 0x80
+ 562: 3112+10	0289' 116909  	                ld de, bad_rc_msg       ; " - RC not 0x80 in intermediate extent"
+ 563: 3122+10+7	028C' C4B404  	                call nz, sl_err_cont
+ 564: 3132+12	028F' 1822    	                jr slfrc_done
+ 565:				;
+ 566:				; This is the highest extent encountered so far or it is the first extent
+ 567:				; encountered (FI_LAST_PEXT = 0).
+ 568: 3144+19	0291' DD7E0C  	slfrc_not_last  ld a, (ix + FI_LAST_PEXT)   ; Last extent
+ 569: 3163+19	0294' DDB60D  	                or (ix + FI_LAST_PEXT + 1)
+ 570: 3182+7+5	0297' 280B    	                jr z, slfrc_update
+ 571:				;
+ 572:				; This isn’t the first extent, so the previous one should have RC = 0x80.
+ 573: 3189+19	0299' DD7E0E  	                ld a, (ix + FI_LAST_RC)
+ 574: 3208+7	029C' FE80    	                cp 0x80
+ 575: 3215+10	029E' 116909  	                ld de, bad_rc_msg       ; " - RC not 0x80 in intermediate extent"
+ 576: 3225+10+7	02A1' C4B404  	                call nz, sl_err_cont
+ 577:				;
+ 578:				; RC checks complete. Update the FI_LAST_PEXT and FI_LAST_RC fields for next
+ 579:				; time.
+ 580: 3235+16	02A4' 2A1600  	slfrc_update    ld hl, (phys_extent)    ; Set FI_LAST_PEXT = PEXTENT
+ 581: 3251+19	02A7' DD750C  	                ld (ix + FI_LAST_PEXT), l
+ 582: 3270+19	02AA' DD740D  	                ld (ix + FI_LAST_PEXT + 1), h
+ 583: 3289+19	02AD' FD7E0F  	                ld a, (iy + DIRE_RC)    ; Set FI_LAST_RC = RC
+ 584: 3308+19	02B0' DD770E  	                ld (ix + FI_LAST_RC), a
+ 585:     -	02B3'         	slfrc_done
+ 586:				;
+ 587:				; Entry scanned.
+ 588: 3327+20	02B3' DD2A1800	sl_entry_done   ld ix, (dpb)
+ 589:				; IX - pointer to DPB (DPB_xxx)
+ 590:				; IY - pointer to directory entry structure (DIRE_xxx)
+ 591: 3347+16	02B7' 2A1E00  	                ld hl, (dir_entry_num)  ; Loop counter
+ 592: 3363+4	02BA' 7D      	                ld a, l
+ 593: 3367+19	02BB' DDBE07  	                cp (ix + DPB_DRM)       ; Is this the last entry?
+ 594: 3386+7+5	02BE' 2006    	                jr nz, sl_do_next
+ 595: 3393+4	02C0' 7C      	                ld a, h
+ 596: 3397+19	02C1' DDBE08  	                cp (ix + DPB_DRM + 1)
+ 597: 3416+7+5	02C4' 2809    	                jr z, scan_done
+ 598: 3423+6	02C6' 23      	sl_do_next      inc hl                  ; Next entry
+ 599: 3429+10	02C7' C3EB00  	                jp scan_loop
+ 600:				;
+ 601:				;
+ 602:				; Error found. Display the entry and an appropriate message, then skip any
+ 603:				; remaining checks. Call with:
+ 604:				; DE - pointer to message
+ 605: 3439+17	02CA' CDB404  	sl_err_stop     call sl_err_cont
+ 606: 3456+12	02CD' 18E4    	                jr sl_entry_done
+ 607:				;
+ 608:				;
+ 609:				; *** Check for missing extents ***
+ 610:				; All directory entries scanned. Examine each file in files_info, ensuring
+ 611:				; there are no missing extents. This is different from the previous sparse
+ 612:				; check, as this looks for missing allocations within each physical extent.
+ 613: 3468+20	02CF' FD2A0700	scan_done       ld iy, (files_info)
+ 614: 3488+20	02D3' ED5B0900	spck_loop       ld de, (free_start)     ; First free location
+ 615: 3508+15	02D7' FDE5    	                push iy
+ 616: 3523+10	02D9' E1      	                pop hl
+ 617: 3533+4	02DA' A7      	                and a
+ 618: 3537+15	02DB' ED52    	                sbc hl, de
+ 619: 3552+10	02DD' D22D03  	                jp nc, spck_done        ; Jump if buffer exhausted
+ 620:				;
+ 621:				; There is an entry to examine. All extries except the last one should be 0xff.
+ 622:				; The last should consist of zero or more "1" bits extending from the LS end
+ 623:				; with no gaps.
+ 624: 3562+15	02E0' FDE5    	                push iy
+ 625: 3577+10	02E2' E1      	                pop hl
+ 626: 3587+10	02E3' 111000  	                ld de, FI_EX_FLAGS
+ 627: 3597+11	02E6' 19      	                add hl, de
+ 628:				; HL - pointer to first extent flag byte.
+ 629: 3608+19	02E7' FD7E0F  	                ld a, (iy + FI_EX_FL_LEN)
+ 630: 3627+4	02EA' A7      	                and a
+ 631: 3631+7+5	02EB' 2009    	                jr nz, spck_not_empty
+ 632:				;
+ 633: 3638+10	02ED' 118F09  	                ld de, empty_msg        ; " - has no data"
+ 634: 3648+17	02F0' CDD204  	                call spck_error         ; Error if no extents at all
+ 635: 3665+10	02F3' C31F03  	                jp spck_file_done
+ 636:				;
+ 637:				; File as at least one extent.
+ 638: 3675+4	02F6' 4F      	spck_not_empty  ld c, a
+ 639: 3679+7	02F7' 0600    	                ld b, 0                 ; Error flag
+ 640:				;
+ 641:				; B - sparse flag (zero if OK)
+ 642:				; C - length remaining
+ 643:				; HL - pointer to extent flag byte
+ 644:				; IY - pointer to files_info entry (FI_xxx)
+ 645: 3686+4	02F9' 79      	spck_byte_loop  ld a, c
+ 646: 3690+7	02FA' FE01    	                cp 1
+ 647: 3697+7+5	02FC' 280B    	                jr z, spck_last_byte
+ 648:				; Not the last byte.
+ 649: 3704+7	02FE' 7E      	                ld a, (hl)
+ 650: 3711+7	02FF' FEFF    	                cp 0xff
+ 651: 3718+7+5	0301' 2802    	                jr z, spck_byte_ok
+ 652:				; We have encountered a hole.
+ 653: 3725+7	0303' 0601    	spck_sp_err     ld b, 1                 ; Flag sparseness
+ 654: 3732+6	0305' 23      	spck_byte_ok    inc hl
+ 655: 3738+4	0306' 0D      	                dec c
+ 656: 3742+12	0307' 18F0    	                jr spck_byte_loop
+ 657:				;
+ 658:				; Process the last byte. This should not be zero, as flag bytes are only
+ 659:				; created when required to flag an extent.
+ 660: 3754+7	0309' 7E      	spck_last_byte  ld a, (hl)
+ 661: 3761+4	030A' A7      	                and a
+ 662: 3765+10+7	030B' CC0000  	                call z, panic           ; Panic if flag is all zeroes
+ 663: 3775+4	030E' 4F      	                ld c, a
+ 664:				; Keep shifting until no "1" bit falls off the end.
+ 665: 3779+8	030F' CB39    	spck_bit_loop   srl c                   ; Shift LS bit to carry
+ 666: 3787+7+5	0311' 38FC    	                jr c, spck_bit_loop
+ 667:				; The result should be zero.
+ 668: 3794+7+5	0313' 2802    	                jr z, spck_last_ok
+ 669: 3801+7	0315' 0601    	                ld b, 1                 ; Flag sparseness
+ 670:				;
+ 671:				; File checks complete.
+ 672:				; B - sparse flag (zero if OK)
+ 673: 3808+4	0317' 78      	spck_last_ok    ld a, b
+ 674: 3812+4	0318' A7      	                and a
+ 675: 3816+10	0319' 11FE08  	                ld de, sparse_msg       ; " - is sparse (holed) [warning]"
+ 676: 3826+10+7	031C' C4D204  	                call nz, spck_error     ; Error if hole detected
+ 677:				;
+ 678:				; Advance pointer by the length of this structure. We must include the length
+ 679:				; of the extent flags section (FI_EX_FL_LEN).
+ 680: 3836+19	031F' FD5E0F  	spck_file_done  ld e, (iy + FI_EX_FL_LEN)
+ 681: 3855+7	0322' 1600    	                ld d, 0
+ 682:				; DE - extent flags length.
+ 683: 3862+15	0324' FD19    	                add iy, de              ; Add length to base
+ 684: 3877+10	0326' 111000  	                ld de, FI_SIZE
+ 685: 3887+15	0329' FD19    	                add iy, de              ; Add structure size
+ 686: 3902+12	032B' 18A6    	                jr spck_loop
+ 687:				;
+ 688:				;
+ 689:				; All checks complete.
+ 690: 3914+20	032D' DD2A1800	spck_done       ld ix, (dpb)
+ 691:				; IX - pointer to DPB (DPB_xxx)
+ 692:				;
+ 693: 3934+10	0331' 218C07  	                ld hl, dir_done_msg     ; "Directory checks complete"
+ 694: 3944+17	0334' CD0000  	                call conwms             ; Print $-terminated string to console
+ 695:				;
+ 696: 3961+10	0337' 211A08  	                ld hl, errors_msg       ; "Errors and warnings: "
+ 697: 3971+17	033A' CD0000  	                call conwms             ; Print $-terminated string to console
+ 698: 3988+16	033D' 2A0E00  	                ld hl, (error_count)
+ 699: 4004+17	0340' CD0000  	                call cwpdwd             ; Print HL in decimal
+ 700: 4021+17	0343' CD0000  	                call cwnwln             ; Write new line characters to console
+ 701:				;
+ 702: 4038+10	0346' 21A807  	                ld hl, files_msg        ; "Files found: "
+ 703: 4048+17	0349' CD0000  	                call conwms             ; Print $-terminated string to console
+ 704: 4065+16	034C' 2A1000  	                ld hl, (file_count)
+ 705: 4081+17	034F' CD0000  	                call cwpdwd             ; Print HL in decimal
+ 706: 4098+17	0352' CD0000  	                call cwnwln             ; Write new line characters to console
+ 707:				;
+ 708: 4115+10	0355' 21B607  	                ld hl, unused_msg        ; "Unused directory entries: "
+ 709: 4125+17	0358' CD0000  	                call conwms             ; Print $-terminated string to console
+ 710: 4142+16	035B' 2A1200  	                ld hl, (unused_count)
+ 711: 4158+17	035E' CD0000  	                call cwpdwd             ; Print HL in decimal
+ 712: 4175+17	0361' CD0000  	                call cwnwln             ; Write new line characters to console
+ 713:				;
+ 714: 4192+10	0364' 21D107  	                ld hl, blocks_used_msg  ; "Blocks used: "
+ 715: 4202+17	0367' CD0000  	                call conwms             ; Print $-terminated string to console
+ 716: 4219+16	036A' 2A1400  	                ld hl, (blocks_used)
+ 717: 4235+17	036D' CD0000  	                call cwpdwd             ; Print HL in decimal
+ 718: 4252+17	0370' CD0000  	                call cwnwln             ; Write new line characters to console
+ 719:				;
+ 720:				;
+ 721:				; *** Display block usage map ***
+ 722:				; Blocks go from 0 to DPB.DSM. Scale this to the display. Scaling will be one
+ 723:				; block per character, unless this won't fit in a reasonable space. In that
+ 724:				; case, the scaling is progressively halved until it does fit.
+ 725: 4269+10	0373' 21DF07  	                ld hl, block_map_msg    ; "Block map ..."
+ 726: 4279+17	0376' CD0000  	                call conwms             ; Print $-terminated string to console
+ 727:				;
+ 728: 4296+7	0379' 0E00    	                ld c, 0                 ; Initial shift (scaling)
+ 729: 4303+7	037B' 0601    	                ld b, 1                 ; Scale factor
+ 730:				; Scaling loop.
+ 731: 4310+19	037D' DD6E05  	bdis_scale_loop ld l, (ix + DPB_DSM)    ; Maximum block number
+ 732: 4329+19	0380' DD6606  	                ld h, (ix + DPB_DSM + 1)
+ 733: 4348+6	0383' 23      	                inc hl
+ 734:				; HL - total number of blocks
+ 735: 4354+11	0384' C5      	                push bc
+ 736: 4365+17	0385' CD0005  	                call rshift_word        ; Shift HL >> C
+ 737: 4382+10	0388' C1      	                pop bc
+ 738: 4392+10	0389' 11C003  	                ld de, BDIS_CHARS_MAX
+ 739: 4402+4	038C' A7      	                and a
+ 740: 4406+15	038D' ED52    	                sbc hl, de
+ 741: 4421+7+5	038F' 3809    	                jr c, bdis_scale_done   ; Jump if scaling OK
+ 742:				; Halve size
+ 743: 4428+4	0391' 0C      	                inc c                   ; One more shift
+ 744: 4432+4	0392' A7      	                and a
+ 745: 4436+8	0393' CB10    	                rl b                    ; Double scale
+ 746: 4444+10+7	0395' DC0000  	                call c, panic           ; Panic on overflow
+ 747: 4454+12	0398' 18E3    	                jr bdis_scale_loop
+ 748:				;
+ 749: 4466+4	039A' 79      	bdis_scale_done ld a, c
+ 750: 4470+13	039B' 322000  	                ld (bdis_shift), a      ; Set shift (scaling)
+ 751: 4483+4	039E' 78      	                ld a, b
+ 752: 4487+13	039F' 322100  	                ld (bdis_scale), a      ; Set scale
+ 753:				;;
+ 754:				; Display loop.
+ 755: 4500+10	03A2' 210000  	                ld hl, 0                ; Start at first block
+ 756: 4510+4	03A5' AF      	                xor a
+ 757: 4514+13	03A6' 322200  	                ld (bdis_s_count), a    ; Scale counter
+ 758: 4527+13	03A9' 322300  	                ld (bdis_col), a        ; Display column
+ 759: 4540+7	03AC' 062D    	                ld b, "-"               ; Default character
+ 760:				; B - character
+ 761:				; HL - block number
+ 762:				; Is this a directory block?
+ 763: 4547+4	03AE' 7C      	bdis_loop       ld a, h
+ 764: 4551+4	03AF' A7      	                and a
+ 765: 4555+7+5	03B0' 200D    	                jr nz, bdis_not_dir     ; Not a directory block
+ 766: 4562+13	03B2' 3A0D00  	                ld a, (dir_blocks)      ; Number of blocks used by the directory
+ 767: 4575+4	03B5' 5F      	                ld e, a
+ 768: 4579+4	03B6' 7D      	                ld a, l
+ 769: 4583+4	03B7' BB      	                cp e
+ 770: 4587+7+5	03B8' 3005    	                jr nc, bdis_not_dir     ; Not a directory block
+ 771:				; This is a directory block.
+ 772: 4594+7	03BA' 3E44    	                ld a, "D"
+ 773: 4601+4	03BC' 47      	                ld b, a
+ 774: 4605+12	03BD' 1810    	                jr bdis_blk_done
+ 775:				;
+ 776:				; Not a directory block. Is this block allocated?
+ 777: 4617+11	03BF' E5      	bdis_not_dir    push hl                 ; Save block number
+ 778: 4628+20	03C0' ED5B0300	                ld de, (blk_flags)      ; Base address of bit map
+ 779: 4648+17	03C4' CDE804  	                call BitAddrMask        ; Find address and mask
+ 780:				; A – bit mask (one bit set)
+ 781:				; HL – address
+ 782: 4665+7	03C7' 5E      	                ld e, (hl)
+ 783: 4672+10	03C8' E1      	                pop hl                  ; Restore block number
+ 784: 4682+4	03C9' A3      	                and e
+ 785: 4686+7+5	03CA' 2803    	                jr z, bdis_blk_done     ; Jump if unused
+ 786:				;
+ 787:				; This is a file block
+ 788: 4693+7	03CC' 3E46    	                ld a, "F"
+ 789: 4700+4	03CE' 47      	                ld b, a
+ 790:				;
+ 791:				; Block processing complete. Have we reached the end of the displayed
+ 792:				; character?
+ 793: 4704+13	03CF' 3A2200  	bdis_blk_done   ld a, (bdis_s_count)    ; Scale (block) counter
+ 794: 4717+4	03D2' 3C      	                inc a
+ 795: 4721+4	03D3' 4F      	                ld c, a
+ 796: 4725+13	03D4' 3A2100  	                ld a, (bdis_scale)      ; Scale (n:1)
+ 797: 4738+4	03D7' B9      	                cp c
+ 798: 4742+7+5	03D8' 2017    	                jr nz, bdis_entry_done
+ 799:				;
+ 800:				; Display the character.
+ 801: 4749+4	03DA' 78      	                ld a, b
+ 802: 4753+17	03DB' CD0000  	                call conwch             ; Write character to console
+ 803: 4770+7	03DE' 062D    	                ld b, "-"               ; Default character
+ 804:				;
+ 805:				; Update display column and start a newline if required.
+ 806: 4777+13	03E0' 3A2300  	                ld a, (bdis_col)
+ 807: 4790+4	03E3' 3C      	                inc a
+ 808: 4794+7	03E4' FE50    	                cp VT100_COLS           ; Assume a VT-100 for this purpose
+ 809: 4801+7+5	03E6' 3804    	                jr c, bdis_col_done
+ 810:				; We are at the end of the line.
+ 811: 4808+17	03E8' CD0000  	                call cwnwln             ; Write new line characters to console
+ 812: 4825+4	03EB' AF      	                xor a
+ 813: 4829+13	03EC' 322300  	bdis_col_done   ld (bdis_col), a        ; Save updated column
+ 814: 4842+7	03EF' 0E00    	                ld c, 0                 ; Reset scale divider
+ 815:				;
+ 816:				; C - scale (block) counter
+ 817:				; HL - block number
+ 818:				; IX - pointer to DPB (DPB_xxx)
+ 819: 4849+4	03F1' 79      	bdis_entry_done ld a, c
+ 820: 4853+13	03F2' 322200  	                ld (bdis_s_count), a    ; Save updated scale (block) counter
+ 821: 4866+6	03F5' 23      	                inc hl                  ; Next block
+ 822: 4872+19	03F6' DD5E05  	                ld e, (ix + DPB_DSM)    ; Maximum block number
+ 823: 4891+19	03F9' DD5606  	                ld d, (ix + DPB_DSM + 1)
+ 824: 4910+6	03FC' 13      	                inc de
+ 825:				; DE - total number of blocks
+ 826: 4916+11	03FD' E5      	                push hl
+ 827: 4927+4	03FE' A7      	                and a
+ 828: 4931+15	03FF' ED52    	                sbc hl, de
+ 829: 4946+10	0401' E1      	                pop hl
+ 830: 4956+7+5	0402' 38AA    	                jr c, bdis_loop
+ 831: 4963+17	0404' CD0000  	                call cwnwln             ; Write new line characters to console
+ 832:				;
+ 833:				;
+ 834:				; *** Surface scan ***
+ 835:				; Read every block to ensure that they are readable. The reserved (system) area
+ 836:				; is not read, as this may have a different geometry to the files area and this
+ 837:				; may cause trouble. Blocks extend from 0 (the beginning of the directory) to
+ 838:				; DPB.DSM. Each block consists of DPB.BLM + 1 sectors. Alternatively, shifting
+ 839:				; the number of blocks by DPB.BSH gives the number of sectors.
+ 840:				;
+ 841: 4980+10	0407' 213008  	                ld hl, surf_scan_msg    ; "Checking all blocks are readable (surface scan)"
+ 842: 4990+17	040A' CD0000  	                call conwms             ; Print $-terminated string to console
+ 843:				; Find number of sectors in file system.
+ 844: 5007+19	040D' DD5E05  	                ld e, (ix + DPB_DSM)    ; Maximum block number
+ 845: 5026+19	0410' DD5606  	                ld d, (ix + DPB_DSM + 1)
+ 846: 5045+6	0413' 13      	                inc de
+ 847: 5051+7	0414' 0E00    	                ld c, 0                 ; Extend to 24 bits
+ 848:				; CDE - number of blocks
+ 849: 5058+19	0416' DD4602  	                ld b, (ix + DPB_BSH)    ; Block shift factor
+ 850:				; Valid BSH values are 3 to 7.
+ 851: 5077+8	0419' CB23    	ss_find_sec_lp  sla e
+ 852: 5085+8	041B' CB12    	                rl d
+ 853: 5093+8	041D' CB11    	                rl c
+ 854: 5101+10+7	041F' DC0000  	                call c, panic           ; Panic on overflow
+ 855: 5111+8+5	0422' 10F5    	                djnz ss_find_sec_lp
+ 856:				; CDE - number of sectors in file system area (does not include reserved
+ 857:				; (system) area.
+ 858: 5119+10	0424' 212B00  	                ld hl, total_sectors    ; Number of sectors in file system
+ 859: 5129+7	0427' 73      	                ld (hl), e
+ 860: 5136+6	0428' 23      	                inc hl
+ 861: 5142+7	0429' 72      	                ld (hl), d
+ 862: 5149+6	042A' 23      	                inc hl
+ 863: 5155+7	042B' 71      	                ld (hl), c
+ 864:				;
+ 865:				; All blocks are read, including the directory blocks processed earlier. It
+ 866:				; seems easier this way.
+ 867: 5162+10	042C' 21FFFF  	                ld hl, 0xffff
+ 868: 5172+16	042F' 222700  	                ld (disp_track), hl     ; Force display of first track
+ 869: 5188+10	0432' 110000  	                ld de, 0                ; Set initial sector
+ 870: 5198+7	0435' 0E00    	                ld c, 0
+ 871: 5205+11	0437' D5      	ss_loop         push de                 ; Save sector
+ 872: 5216+11	0438' C5      	                push bc
+ 873:				; CDE - CP/M (128-byte) sector number (offset into data area)
+ 874: 5227+17	0439' CDA206  	                call set_sector
+ 875:				;
+ 876:				; Display the track if it has changed. This is to avoid repeatedly writing the
+ 877:				; same track number, as this slows the scan greatly.
+ 878: 5244+16	043C' 2A2500  	                ld hl, (track)
+ 879: 5260+20	043F' ED5B2700	                ld de, (disp_track)
+ 880: 5280+4	0443' 7D      	                ld a, l
+ 881: 5284+4	0444' BB      	                cp e
+ 882: 5288+7+5	0445' 2004    	                jr nz, ss_disp_track    ; Jump on mismatch
+ 883: 5295+4	0447' 7C      	                ld a, h
+ 884: 5299+4	0448' BA      	                cp d
+ 885: 5303+7+5	0449' 280E    	                jr z, ss_nodisp         ; Jump match
+ 886: 5310+11	044B' E5      	ss_disp_track   push hl                 ; Save track
+ 887: 5321+10	044C' 216408  	                ld hl, track_msg        ; "<CR>Track: "
+ 888: 5331+17	044F' CD0000  	                call conwms             ; Print $-terminated string to console
+ 889: 5348+10	0452' E1      	                pop hl
+ 890: 5358+16	0453' 222700  	                ld (disp_track), hl     ; Save for next time
+ 891: 5374+17	0456' CD0000  	                call cwpdwd             ; Print HL in decimal
+ 892:				;
+ 893:				; Read the sector.
+ 894: 5391+10	0459' 212400  	ss_nodisp       ld hl, BIOS_READ        ; Read a sector
+ 895: 5401+17	045C' CD0000  	                call cbios              ; Call BIOS with some registers saved
+ 896: 5418+4	045F' A7      	                and a
+ 897: 5422+7+5	0460' 2815    	                jr z, ss_sec_done
+ 898:				; I/O error!
+ 899: 5429+10	0462' 216D08  	                ld hl, sector_msg       ; ", sector: "
+ 900: 5439+17	0465' CD0000  	                call conwms             ; Print $-terminated string to console
+ 901: 5456+16	0468' 2A2900  	                ld hl, (sector)
+ 902: 5472+17	046B' CD0000  	                call cwpdwd             ; Print HL in decimal
+ 903:				;
+ 904: 5489+17	046E' CD0000  	                call cwpspc             ; Print a space
+ 905: 5506+10	0471' 217A07  	                ld hl, disk_err_msg     ; "Disk I/O error."
+ 906: 5516+17	0474' CD0000  	                call conwms             ; Print $-terminated string to console
+ 907:				; This message ends in a CR / LF sequence, so it will remain visible.
+ 908:				;
+ 909:				; Sector done. Write a carriage return only, so the next message will overwrite
+ 910:				; the current one except after an error.
+ 911: 5533+10	0477' C1      	ss_sec_done     pop bc
+ 912: 5543+10	0478' D1      	                pop de
+ 913:				; Find next sector (in CDE).
+ 914: 5553+4	0479' 7B      	                ld a, e
+ 915: 5557+7	047A' C601    	                add 1
+ 916: 5564+4	047C' 5F      	                ld e, a
+ 917: 5568+4	047D' 7A      	                ld a, d
+ 918: 5572+7	047E' CE00    	                adc 0                   ; Propagate carry
+ 919: 5579+4	0480' 57      	                ld d, a
+ 920: 5583+4	0481' 79      	                ld a, c
+ 921: 5587+7	0482' CE00    	                adc 0
+ 922: 5594+4	0484' 4F      	                ld c, a
+ 923: 5598+10+7	0485' DC0000  	                call c, panic           ; Panic on overflow
+ 924:				;
+ 925:				; Is there more to do?
+ 926: 5608+10	0488' 212B00  	                ld hl, total_sectors    ; Number of sectors in file system
+ 927: 5618+4	048B' 7B      	                ld a, e
+ 928: 5622+7	048C' BE      	                cp (hl)
+ 929: 5629+7+5	048D' 20A8    	                jr nz, ss_loop
+ 930: 5636+6	048F' 23      	                inc hl
+ 931: 5642+4	0490' 7A      	                ld a, d
+ 932: 5646+7	0491' BE      	                cp (hl)
+ 933: 5653+7+5	0492' 20A3    	                jr nz, ss_loop
+ 934: 5660+6	0494' 23      	                inc hl
+ 935: 5666+4	0495' 79      	                ld a, c
+ 936: 5670+7	0496' BE      	                cp (hl)
+ 937: 5677+7+5	0497' 209E    	                jr nz, ss_loop
+ 938:				;
+ 939: 5684+10	0499' 217808  	                ld hl, scan_done_msg    ; "Scan complete"
+ 940: 5694+17	049C' CD0000  	                call conwms             ; Print $-terminated string to console
+ 941:				;
+ 942: 5711+12	049F' 1806    	                jr exit
+ 943:				;
+ 944: 5723+10	04A1' 214E07  	out_of_memory   ld hl, memory_msg       ; "Insufficient memory"
+ 945:				;
+ 946:				; Print message pointed to by HL, then exit.
+ 947: 5733+17	04A4' CD0000  	msg_exit        call conwms             ; Print $-terminated string to console
+ 948:				;
+ 949:				; Return to CP/M.
+ 950: 5750+10	04A7' 213907  	exit            ld hl, exit_msg         ; "Returning to CP/M."
+ 951: 5760+17	04AA' CD0000  	                call conwms             ; Print $-terminated string to console
+ 952: 5777+20	04AD' ED7B0000	                ld sp, (bdos_sp)
+ 953:				; For this application a warm boot is required as we may have overwritten the
+ 954:				; CCP.
+ 955:				;                ret                     ; Return to BDOS
+ 956: 5797+10	04B1' C30000  	                jp 0                    ; Warm boot
+ 957:				;
+ 958:				;
+ 959:				;
+ 960:				; ***************
+ 961:				; * Subroutines *
+ 962:				; ***************
+ 963:				;
+ 964:				;
+ 965:				; Error found during directory scan. Display the entry and an appropriate
+ 966:				; message, then return to continue checking. Call with:
+ 967:				; DE - pointer to message
+ 968: 5807+11	04B4' D5      	sl_err_cont     push de
+ 969: 5818+11	04B5' E5      	                push hl
+ 970: 5829+15	04B6' FDE5    	                push iy
+ 971:				;
+ 972: 5844+20	04B8' FD2A1A00	                ld iy, (dire)           ; Pointer to directory entry structure
+ 973: 5864+17	04BC' CDF905  	                call disp_file          ; Display filename etc.
+ 974: 5881+4	04BF' EB      	                ex de, hl
+ 975: 5885+17	04C0' CD0000  	                call conwms             ; Print $-terminated string to console
+ 976: 5902+17	04C3' CD0000  	                call cwnwln             ; Write new line characters to console
+ 977:				;
+ 978: 5919+16	04C6' 2A0E00  	                ld hl, (error_count)
+ 979: 5935+6	04C9' 23      	                inc hl
+ 980: 5941+16	04CA' 220E00  	                ld (error_count), hl
+ 981:				;
+ 982: 5957+14	04CD' FDE1    	                pop iy
+ 983: 5971+10	04CF' E1      	                pop hl
+ 984: 5981+10	04D0' D1      	                pop de
+ 985: 5991+10	04D1' C9      	                ret
+ 986:				;
+ 987:				;
+ 988:				; Error found during files infomation structure scan. Display the entry and an
+ 989:				; appropriate message, then return to continue checking. Call with:
+ 990:				; DE - pointer to message
+ 991:				; IY - pointer to files_info entry (FI_xxx)
+ 992: 6001+11	04D2' D5      	spck_error      push de
+ 993: 6012+11	04D3' E5      	                push hl
+ 994:				;
+ 995: 6023+17	04D4' CDF905  	                call disp_file          ; Display filename etc.
+ 996: 6040+4	04D7' EB      	                ex de, hl
+ 997: 6044+17	04D8' CD0000  	                call conwms             ; Print $-terminated string to console
+ 998: 6061+17	04DB' CD0000  	                call cwnwln             ; Write new line characters to console
+ 999:				;
+1000: 6078+16	04DE' 2A0E00  	                ld hl, (error_count)
+1001: 6094+6	04E1' 23      	                inc hl
+1002: 6100+16	04E2' 220E00  	                ld (error_count), hl
+1003:				;
+1004: 6116+10	04E5' E1      	                pop hl
+1005: 6126+10	04E6' D1      	                pop de
+1006: 6136+10	04E7' C9      	                ret
+1007:				;
+1008:				;
+1009:				; Find address and mask in a bit mapped array. Call with:
+1010:				; DE - base address
+1011:				; HL – bit address
+1012:				; Returns with:
+1013:				; A – bit mask (one bit set)
+1014:				; HL – address
+1015: 6146+11	04E8' C5      	BitAddrMask     push bc
+1016:				;
+1017:				; Find bit mask.
+1018: 6157+4	04E9' 7D      	                ld a, l
+1019: 6161+7	04EA' E607    	                and 7
+1020: 6168+4	04EC' 3C      	                inc a                   ; Make range 1 to 8
+1021: 6172+4	04ED' 47      	                ld b, a
+1022: 6176+7	04EE' 0E80    	                ld c, 0x80
+1023: 6183+8	04F0' CB01    	bam_mask_loop   rlc c
+1024: 6191+8+5	04F2' 10FC    	                djnz bam_mask_loop
+1025:				;
+1026:				; Find byte offset.
+1027: 6199+7	04F4' 0603    	                ld b, 3
+1028: 6206+8	04F6' CB3C    	bam_div_loop    srl h                   ; Divide by two
+1029: 6214+8	04F8' CB1D    	                rr l
+1030: 6222+8+5	04FA' 10FA    	                djnz bam_div_loop
+1031:				;
+1032:				; DE – bit address
+1033:				; HL - byte offset
+1034:				; C - bit mask
+1035: 6230+11	04FC' 19      	                add hl, de              ; Add base address
+1036: 6241+4	04FD' 79      	                ld a, c                 ; bit mask
+1037:				;
+1038: 6245+10	04FE' C1      	                pop bc
+1039: 6255+10	04FF' C9      	                ret
+1040:				;
+1041:				;
+1042:				; Shift a 16-bit value by a number of bits, which can be zero (Shift HL >> C).
+1043:				; Call with:
+1044:				; C - displacement
+1045:				; HL - value
+1046:				; Returns with:
+1047:				; HL - displaced value
+1048: 6265+4	0500' 79      	rshift_word     ld a, c
+1049: 6269+4	0501' A7      	rshw_loop       and a
+1050: 6273+5+6	0502' C8      	                ret z                   ; Return if complete
+1051: 6278+8	0503' CB3C    	                srl h                   ; Divide by two
+1052: 6286+8	0505' CB1D    	                rr l
+1053: 6294+4	0507' 3D      	                dec a
+1054: 6298+12	0508' 18F7    	                jr rshw_loop
+1055:				;
+1056:				;
+1057:				; Set C to non-zero. This provides a conditional flagging mechanism for use
+1058:				; when error checking. For example, "call c, set_c_reg".
+1059: 6310+7	050A' 0EFF    	set_c_reg       ld c, 0xff
+1060: 6317+10	050C' C9      	                ret
+1061:				;
+1062:				;
+1063:				; Mark block as used. Call with:
+1064:				; HL - block number (0 to DSM).
+1065:				; IX - pointer to DPB (DPB_xxx)
+1066:				; Returns with:
+1067:				; Carry clear if all went well. Carry will be set if there was an error.
+1068:				; DE - points to an appropriate error message if there was an error.
+1069: 6327+11	050D' C5      	flag_block      push bc
+1070: 6338+11	050E' D5      	                push de
+1071:				;
+1072:				; Check DE is within range.
+1073: 6349+11	050F' E5      	                push hl
+1074: 6360+19	0510' DD5E05  	                ld e, (ix + DPB_DSM)    ; Maximum block number
+1075: 6379+19	0513' DD5606  	                ld d, (ix + DPB_DSM + 1)
+1076: 6398+6	0516' 13      	                inc de
+1077: 6404+4	0517' A7      	                and a
+1078: 6408+15	0518' ED52    	                sbc hl, de
+1079: 6423+10	051A' E1      	                pop hl                  ; Restore block number
+1080: 6433+10	051B' 111D09  	                ld de, blk_too_big_msg  ; " - block number out of range"
+1081: 6443+7+5	051E' 301D    	                jr nc, fb_error
+1082:				;
+1083:				; Block number is OK. Find bit mask.
+1084: 6450+20	0520' ED5B0300	                ld de, (blk_flags)      ; Start of blocks used flags
+1085: 6470+17	0524' CDE804  	                call BitAddrMask        ; Find address and mask
+1086:				; A – bit mask (one bit set)
+1087:				; HL – address
+1088:				; Is the flag already set?
+1089: 6487+4	0527' 4F      	                ld c, a
+1090: 6491+7	0528' 7E      	                ld a, (hl)
+1091: 6498+4	0529' A1      	                and c
+1092: 6502+10	052A' 11EA08  	                ld de, dble_blk_msg     ; " - block not unique"
+1093: 6512+7+5	052D' 200E    	                jr nz, fb_error
+1094:				; No duplicate found, so set the bit.
+1095: 6519+7	052F' 7E      	                ld a, (hl)
+1096: 6526+4	0530' B1      	                or c
+1097: 6530+7	0531' 77      	                ld (hl), a
+1098:				;
+1099: 6537+16	0532' 2A1400  	                ld hl, (blocks_used)    ; Increment count
+1100: 6553+6	0535' 23      	                inc hl
+1101: 6559+16	0536' 221400  	                ld (blocks_used), hl
+1102:				;
+1103:				; Normal exit with carry reset.
+1104: 6575+10	0539' D1      	                pop de
+1105: 6585+10	053A' C1      	                pop bc
+1106: 6595+4	053B' A7      	                and a
+1107: 6599+10	053C' C9      	                ret
+1108:				;
+1109:				; Return with carry set and message pointer in DE.
+1110: 6609+6	053D' 33      	fb_error        inc sp                  ; Discard DE on stack
+1111: 6615+6	053E' 33      	                inc sp
+1112: 6621+10	053F' C1      	                pop bc
+1113: 6631+4	0540' 37      	                scf
+1114: 6635+10	0541' C9      	                ret
+1115:				;
+1116:				;
+1117:				; Mark physical extent found in FI structure. The flags space will be extended
+1118:				; if required. Call with:
+1119:				; HL - physical extent number (0 to 511).
+1120:				; IX - pointer to file information structure (FI_xxx)
+1121:				; Returns with carry set if extent flag was already set.
+1122: 6645+11	0542' C5      	flag_extent     push bc
+1123: 6656+11	0543' D5      	                push de
+1124:				;
+1125: 6667+10	0544' 110000  	                ld de, 0                ; No offset
+1126: 6677+17	0547' CDE804  	                call BitAddrMask        ; Find address and mask
+1127: 6694+4	054A' 4F      	                ld c, a
+1128:				; HL - byte offset
+1129:				; C - bit mask
+1130:				; Offset should be < FI_EX_FL_LEN, or we will have to make more space.
+1131: 6698+11	054B' E5      	                push hl
+1132: 6709+19	054C' DD5E0F  	                ld e, (ix + FI_EX_FL_LEN)
+1133: 6728+7	054F' 1600    	                ld d, 0
+1134: 6735+4	0551' A7      	                and a
+1135: 6739+15	0552' ED52    	                sbc hl, de
+1136: 6754+7+5	0554' 3822    	                jr c, fe_have_space
+1137:				;
+1138:				; Make room in the FI structures store.
+1139: 6761+4	0556' EB      	                ex de, hl
+1140: 6765+6	0557' 13      	                inc de
+1141:				; DE - number of bytes required
+1142: 6771+15	0558' DDE5    	                push ix                 ; Structure base
+1143: 6786+10	055A' E1      	                pop hl
+1144: 6796+11	055B' C5      	                push bc                 ; Save bit mask
+1145: 6807+10	055C' 011000  	                ld bc, FI_EX_FLAGS      ; Offset to flags
+1146: 6817+11	055F' 09      	                add hl, bc              ; Add byte offset
+1147: 6828+19	0560' DD4E0F  	                ld c, (ix + FI_EX_FL_LEN)
+1148: 6847+7	0563' 0600    	                ld b, 0
+1149: 6854+11	0565' 09      	                add hl, bc              ; Add length
+1150:				; BC - current length.
+1151:				; DE - number of bytes required.
+1152:				; HL - pointer to byte after last FI_EX_FLAGS byte.
+1153: 6865+11	0566' D5      	                push de
+1154: 6876+17	0567' CD9B05  	                call fi_make_room
+1155: 6893+10	056A' DAA104  	                jp c, out_of_memory
+1156:				; Adjust length by number of bytes extended.
+1157: 6903+10	056D' E1      	                pop hl
+1158:				; BC - current length.
+1159:				; HL - number of bytes required.
+1160: 6913+11	056E' 09      	                add hl, bc
+1161: 6924+19	056F' DD750F  	                ld (ix + FI_EX_FL_LEN), l
+1162: 6943+4	0572' 7C      	                ld a, h
+1163: 6947+4	0573' A7      	                and a
+1164: 6951+10+7	0574' C40000  	                call nz, panic          ; Panic at absurd lengths
+1165: 6961+10	0577' C1      	                pop bc                  ; Restore bit mask
+1166:				;
+1167:				; There is space in the buffer.
+1168:				; C - bit mask
+1169: 6971+10	0578' E1      	fe_have_space   pop hl                  ; Fetch byte offset
+1170: 6981+10	0579' 111000  	                ld de, FI_EX_FLAGS      ; Offset to flags
+1171: 6991+11	057C' 19      	                add hl, de              ; Add byte offset
+1172: 7002+15	057D' DDE5    	                push ix
+1173: 7017+10	057F' D1      	                pop de
+1174: 7027+11	0580' 19      	                add hl, de              ; Add structure base
+1175:				; Is the bit already set?
+1176: 7038+7	0581' 7E      	                ld a, (hl)
+1177: 7045+4	0582' A1      	                and c
+1178: 7049+7+5	0583' 2005    	                jr nz, fe_dup_err
+1179:				; No duplicate found, so set the bit.
+1180: 7056+7	0585' 7E      	                ld a, (hl)
+1181: 7063+4	0586' B1      	                or c
+1182: 7067+7	0587' 77      	                ld (hl), a
+1183: 7074+12	0588' 1801    	                jr fe_exit              ; Exit with carry reset
+1184:				;
+1185:				; Extent flag is already set, so we have a duplicate.
+1186: 7086+4	058A' 37      	fe_dup_err      scf                     ; Flag error
+1187: 7090+10	058B' D1      	fe_exit         pop de
+1188: 7100+10	058C' C1      	                pop bc
+1189: 7110+10	058D' C9      	                ret
+1190:				;
+1191:				;
+1192:				; Check pointer is lower than the start of BDOS so we don't overwrite CP/M.
+1193:				; Call with:
+1194:				; HL - address to be checked.
+1195:				; Returns with:
+1196:				; Carry flag set if HL >= start of BDOS.
+1197:				; HL is preserved.
+1198: 7120+11	058E' E5      	chk_mem_lim     push hl
+1199: 7131+11	058F' D5      	                push de
+1200: 7142+20	0590' ED5B0600	                ld de, (BDOS + 1)       ; Fetch first unusable address
+1201: 7162+4	0594' A7      	                and a
+1202: 7166+15	0595' ED52    	                sbc hl, de              ; This should carry
+1203: 7181+4	0597' 3F      	                ccf
+1204: 7185+10	0598' D1      	                pop de
+1205: 7195+10	0599' E1      	                pop hl
+1206: 7205+10	059A' C9      	                ret
+1207:				;
+1208:				;
+1209:				; Make room in the FI structures store. The new space is created at HL, and
+1210:				; everything from this address upwards is copied by DE bytes.
+1211:				; Call with:
+1212:				; HL - insert point
+1213:				; DE - number of bytes required
+1214:				; Returns with:
+1215:				; Carry flag set if out of memory.
+1216:				; HL is preserved.
+1217: 7215+11	059B' C5      	fi_make_room    push bc
+1218: 7226+11	059C' D5      	                push de
+1219: 7237+11	059D' E5      	                push hl
+1220:				;
+1221:				; Check the insert point is within the buffer. Panic if not.
+1222: 7248+11	059E' D5      	                push de
+1223: 7259+11	059F' E5      	                push hl
+1224: 7270+20	05A0' ED5B0900	                ld de, (free_start)     ; First free location
+1225: 7290+6	05A4' 13      	                inc de
+1226: 7296+4	05A5' A7      	                and a
+1227: 7300+15	05A6' ED52    	                sbc hl, de
+1228: 7315+10+7	05A8' D40000  	                call nc, panic          ; Panic if insert > end
+1229: 7325+10	05AB' E1      	                pop hl
+1230:				;
+1231: 7335+11	05AC' E5      	                push hl
+1232: 7346+20	05AD' ED5B0700	                ld de, (files_info)     ; Start address of FI structures
+1233: 7366+4	05B1' A7      	                and a
+1234: 7370+15	05B2' ED52    	                sbc hl, de
+1235: 7385+10+7	05B4' DC0000  	                call c, panic           ; Panic if insert < start
+1236: 7395+10	05B7' E1      	                pop hl
+1237: 7405+10	05B8' D1      	                pop de
+1238:				;
+1239:				; Find new start of free space if the allocation is successful.
+1240: 7415+16	05B9' 2A0900  	                ld hl, (free_start)     ; First free location
+1241: 7431+11	05BC' 19      	                add hl, de
+1242:				; HL - adjusted free_start
+1243: 7442+17	05BD' CD8E05  	                call chk_mem_lim        ; Check HL < BDOS start
+1244: 7459+7+5	05C0' 381E    	                jr c, fimr_exit         ; Return with carry set on error
+1245:				; Find out how much we have to copy (free_start - insert point)
+1246: 7466+4	05C2' EB      	                ex de, hl
+1247:				; DE - adjusted free_start
+1248: 7470+16	05C3' 2A0900  	                ld hl, (free_start)     ; First free location
+1249: 7486+10	05C6' C1      	                pop bc                  ; Insert point
+1250: 7496+11	05C7' C5      	                push bc
+1251: 7507+4	05C8' A7      	                and a
+1252: 7511+15	05C9' ED42    	                sbc hl, bc
+1253: 7526+10+7	05CB' DC0000  	                call c, panic
+1254:				; BC - insert point
+1255:				; DE - adjusted free_start
+1256:				; HL - number of bytes required
+1257:				; Note: there is nothing to copy if we are inserting at the end of the buffer.
+1258: 7536+4	05CE' 7C      	                ld a, h
+1259: 7540+4	05CF' B5      	                or l
+1260: 7544+7+5	05D0' 2820    	                jr z, fimr_no_copy
+1261:				;
+1262:				; We have data to move.
+1263: 7551+4	05D2' 44      	                ld b, h                 ; Number of bytes required
+1264: 7555+4	05D3' 4D      	                ld c, l
+1265: 7559+16	05D4' 2A0900  	                ld hl, (free_start)     ; First free location
+1266: 7575+20	05D7' ED530900	                ld (free_start), de     ; Save updated free_start
+1267: 7595+6	05DB' 2B      	                dec hl
+1268: 7601+6	05DC' 1B      	                dec de
+1269:				;
+1270:				; HL = FreeStart - 1 (source)
+1271:				; DE = adjusted free_start - 1 (destination)
+1272:				; BC = number of bytes required
+1273: 7607+16+5	05DD' EDB8    	                lddr
+1274: 7623+4	05DF' A7      	                and a                   ; Flag success
+1275:				;
+1276:				; Clear the newly created space.
+1277: 7627+10	05E0' E1      	fimr_exit       pop hl                  ; Fetch insert point and length
+1278: 7637+10	05E1' D1      	                pop de
+1279: 7647+11	05E2' D5      	                push de
+1280: 7658+11	05E3' E5      	                push hl
+1281:				;
+1282: 7669+4	05E4' 7A      	fimr_clr_loop   ld a, d
+1283: 7673+4	05E5' B3      	                or e
+1284: 7677+7+5	05E6' 2806    	                jr z, fimr_clr_done
+1285: 7684+10	05E8' 3600    	                ld (hl), 0
+1286: 7694+6	05EA' 23      	                inc hl
+1287: 7700+6	05EB' 1B      	                dec de
+1288: 7706+12	05EC' 18F6    	                jr fimr_clr_loop
+1289:				;
+1290: 7718+10	05EE' E1      	fimr_clr_done   pop hl
+1291: 7728+10	05EF' D1      	                pop de
+1292: 7738+10	05F0' C1      	                pop bc
+1293: 7748+10	05F1' C9      	                ret
+1294:				;
+1295:				; The insert point is at the end of the buffer, so there is nothing to copy.
+1296: 7758+20	05F2' ED530900	fimr_no_copy    ld (free_start), de     ; Save updated free_start
+1297: 7778+4	05F6' A7      	                and a                   ; Flag success
+1298: 7782+12	05F7' 18E7    	                jr fimr_exit
+1299:				;
+1300:				;
+1301:				; Display filename etc. from directory entry OR file information structure.
+1302:				; Format is:
+1303:				; U<user> <name>.<type>
+1304:				; IY - pointer to directory entry structure (DIRE_xxx)
+1305:				; IY is preserved.
+1306: 7794+11	05F9' C5      	disp_file       push bc
+1307: 7805+11	05FA' E5      	                push hl
+1308:				;
+1309:				; Ensure the offsets are the same for both structures.
+1310:     -	0001'         	                assert DIRE_USER = FI_USER
+1311:     -	0001'         	                assert DIRE_NAME = FI_NAME
+1312:     -	0001'         	                assert DIRE_TYP = FI_TYP
+1313:				;
+1314:				; Display user.
+1315: 7816+7	05FB' 3E55    	                ld a, "U"
+1316: 7823+17	05FD' CD0000  	                call conwch             ; Write character to console
+1317: 7840+19	0600' FD7E00  	                ld a, (iy + DIRE_USER)  ; User number
+1318: 7859+17	0603' CD0000  	                call cwpdby             ; Print A in decimal
+1319: 7876+17	0606' CD0000  	                call cwpspc             ; Print a space
+1320:				;
+1321:				; Display name.
+1322: 7893+15	0609' FDE5    	                push iy
+1323: 7908+10	060B' E1      	                pop hl
+1324: 7918+10	060C' 010100  	                ld bc, DIRE_NAME
+1325: 7928+11	060F' 09      	                add hl, bc
+1326:				; HL - start address of name.
+1327: 7939+7	0610' 0608    	                ld b, FILENAME_SIZE
+1328: 7946+7	0612' 0E3F    	                ld c, "?"               ; Substitution character
+1329: 7953+7	0614' 7E      	df_name_loop    ld a, (hl)
+1330: 7960+17	0615' CD0000  	                call cwvich             ; Print only visible 7-bit characters
+1331: 7977+6	0618' 23      	                inc hl
+1332: 7983+8+5	0619' 10F9    	                djnz df_name_loop
+1333:				;
+1334:				; Display type.
+1335: 7991+7	061B' 3E2E    	                ld a, "."
+1336: 7998+17	061D' CD0000  	                call conwch             ; Write character to console
+1337: 8015+15	0620' FDE5    	                push iy
+1338: 8030+10	0622' E1      	                pop hl
+1339: 8040+10	0623' 010900  	                ld bc, DIRE_TYP
+1340: 8050+11	0626' 09      	                add hl, bc
+1341:				; HL - start address of type.
+1342: 8061+7	0627' 0603    	                ld b, FILEEXT_SIZE
+1343: 8068+7	0629' 0E3F    	                ld c, "?"               ; Substitution character
+1344: 8075+7	062B' 7E      	df_type_loop    ld a, (hl)
+1345: 8082+17	062C' CD0000  	                call cwvich             ; Print only visible 7-bit characters
+1346: 8099+6	062F' 23      	                inc hl
+1347: 8105+8+5	0630' 10F9    	                djnz df_type_loop
+1348:				;
+1349: 8113+10	0632' E1      	                pop hl
+1350: 8123+10	0633' C1      	                pop bc
+1351: 8133+10	0634' C9      	                ret
+1352:				;
+1353:				;
+1354:				; Compare file in directory entry structure with one in a file information
+1355:				; structure. The comparison includes the user number, filename and extension.
+1356:				; Call with:
+1357:				; DE - pointer to file information structure.
+1358:				; HL - pointer to directory entry structure.
+1359:				; Returns with:
+1360:				; Carry flag set if files don't match.
+1361:				; DE and HL are preserved.
+1362: 8143+11	0635' C5      	match_files     push bc
+1363: 8154+11	0636' D5      	                push de
+1364: 8165+11	0637' E5      	                push hl
+1365:				;
+1366:				; Compare user number.
+1367:     -	0001'         	                assert FI_USER = 0
+1368:     -	0001'         	                assert DIRE_USER = 0
+1369: 8176+7	0638' 1A      	                ld a, (de)
+1370: 8183+7	0639' BE      	                cp (hl)
+1371: 8190+7+5	063A' 2021    	                jr nz, mf_no_match
+1372: 8197+6	063C' 13      	                inc de
+1373: 8203+6	063D' 23      	                inc hl
+1374:				;
+1375:				; Compare filename.
+1376:     -	0001'         	                assert FI_NAME = 1
+1377:     -	0001'         	                assert DIRE_NAME = 1
+1378: 8209+7	063E' 0608    	                ld b, FILENAME_SIZE
+1379: 8216+7	0640' 1A      	mf_name_loop    ld a, (de)
+1380: 8223+7	0641' BE      	                cp (hl)
+1381: 8230+7+5	0642' 2019    	                jr nz, mf_no_match
+1382: 8237+6	0644' 13      	                inc de
+1383: 8243+6	0645' 23      	                inc hl
+1384: 8249+8+5	0646' 10F8    	                djnz mf_name_loop
+1385:				;
+1386:				; Compare type. Ignore read-only and hidden flags.
+1387:     -	0001'         	                assert FI_TYP = 9
+1388:     -	0001'         	                assert DIRE_TYP = 9
+1389: 8257+7	0648' 0603    	                ld b, FILEEXT_SIZE
+1390: 8264+7	064A' 1A      	mf_typ_loop     ld a, (de)
+1391: 8271+7	064B' E67F    	                and 0x7f
+1392: 8278+4	064D' 4F      	                ld c, a
+1393: 8282+7	064E' 7E      	                ld a, (hl)
+1394: 8289+7	064F' E67F    	                and 0x7f
+1395: 8296+4	0651' B9      	                cp c
+1396: 8300+7+5	0652' 2009    	                jr nz, mf_no_match
+1397: 8307+6	0654' 13      	                inc de
+1398: 8313+6	0655' 23      	                inc hl
+1399: 8319+8+5	0656' 10F2    	                djnz mf_typ_loop
+1400:				;
+1401:				; Files match!
+1402: 8327+4	0658' A7      	                and a
+1403:				;
+1404: 8331+10	0659' E1      	mf_exit         pop hl
+1405: 8341+10	065A' D1      	                pop de
+1406: 8351+10	065B' C1      	                pop bc
+1407: 8361+10	065C' C9      	                ret
+1408:				;
+1409:				; Mismatch.
+1410: 8371+4	065D' 37      	mf_no_match     scf
+1411: 8375+12	065E' 18F9    	                jr mf_exit
+1412:				;
+1413:				;
+1414:				; Read a directory entry from the disk and return a pointer to it.
+1415:				; Call with:
+1416:				; HL - required directory entry number
+1417:				; IX - pointer to Disk Parameter Block (DPB)
+1418:				; Returns with:
+1419:				; HL - points to start of entry
+1420: 8387+11	0660' C5      	get_entry       push bc
+1421: 8398+11	0661' D5      	                push de
+1422: 8409+11	0662' E5      	                push hl                 ; Save entry number
+1423:				; Divide by four to find the sector number.
+1424: 8420+4	0663' A7      	                and a
+1425: 8424+8	0664' CB1C    	                rr h
+1426: 8432+8	0666' CB1D    	                rr l
+1427: 8440+4	0668' A7      	                and a
+1428: 8444+8	0669' CB1C    	                rr h
+1429: 8452+8	066B' CB1D    	                rr l
+1430:				; HL - CP/M (128-byte) sector number (offset into data area)
+1431:				; Is this already in the buffer?
+1432: 8460+20	066D' ED5B0B00	                ld de, (loaded_sector)
+1433: 8480+4	0671' 7C      	                ld a, h
+1434: 8484+4	0672' BA      	                cp d
+1435: 8488+7+5	0673' 2004    	                jr nz, ge_load_reqd
+1436: 8495+4	0675' 7D      	                ld a, l
+1437: 8499+4	0676' BB      	                cp e
+1438: 8503+7+5	0677' 2816    	                jr z, ge_have_sec
+1439:				;
+1440:				; We need to load the sector containing the required entry.
+1441: 8510+16	0679' 220B00  	ge_load_reqd    ld (loaded_sector), hl  ; Save sector number
+1442: 8526+7	067C' 0E00    	                ld c, 0
+1443: 8533+4	067E' EB      	                ex de, hl
+1444:				; CDE - CP/M (128-byte) sector number (offset into data area)
+1445: 8537+17	067F' CDA206  	                call set_sector
+1446:				; Read the sector.
+1447: 8554+10	0682' 212400  	                ld hl, BIOS_READ        ; Read a sector
+1448: 8564+17	0685' CD0000  	                call cbios              ; Call BIOS with some registers saved
+1449: 8581+4	0688' A7      	                and a
+1450: 8585+10	0689' 217A07  	                ld hl, disk_err_msg     ; "Disk I/O error."
+1451: 8595+10	068C' C2A404  	                jp nz, msg_exit
+1452:				;
+1453:				; The required sector is loaded. Find the start address of the directory entry.
+1454: 8605+10	068F' E1      	ge_have_sec     pop hl                  ; Restore directory entry number
+1455: 8615+4	0690' 7D      	                ld a, l
+1456: 8619+7	0691' E603    	                and 0x03
+1457: 8626+4	0693' 6F      	                ld l, a
+1458: 8630+7	0694' 2600    	                ld h, 0
+1459:				; HL - number of entry within sector.
+1460: 8637+11	0696' 29      	                add hl, hl              ; Multiply by 32 to find offset
+1461: 8648+11	0697' 29      	                add hl, hl
+1462: 8659+11	0698' 29      	                add hl, hl
+1463: 8670+11	0699' 29      	                add hl, hl
+1464: 8681+11	069A' 29      	                add hl, hl
+1465: 8692+10	069B' 118000  	                ld de, DEF_BUFFER
+1466: 8702+11	069E' 19      	                add hl, de              ; Add buffer start address
+1467:				;
+1468: 8713+10	069F' D1      	                pop de
+1469: 8723+10	06A0' C1      	                pop bc
+1470: 8733+10	06A1' C9      	                ret                     ; Return with address in HL
+1471:				;
+1472:				;
+1473:				; Set track and sector numbers for subsequent read and / or write operations.
+1474:				; DMA address is set to the default area (0x80). The variables track and sector
+1475:				; are set appropriately.
+1476:				; Call with:
+1477:				; CDE - CP/M (128-byte) sector number (offset into data area)
+1478:				; IX - pointer to Disk Parameter Block (DPB)
+1479: 8743+11	06A2' C5      	set_sector      push bc
+1480: 8754+11	06A3' E5      	                push hl
+1481:				; Find track number. For this application, the track number is likely to be small
+1482:				; (normally zero). Hence this crude algorithm is sufficient.
+1483: 8765+19	06A4' DD6E0D  	                ld l, (ix + DPB_OFF)    ; Start after reserved tracks
+1484: 8784+19	06A7' DD660E  	                ld h, (ix + DPB_OFF + 1)
+1485: 8803+11	06AA' D5      	ss_track_loop   push de                 ; Save LS 16 bits of sector number
+1486:				; Perform a trial subtraction to see if we have a complete track worth of sectors.
+1487: 8814+4	06AB' 7B      	                ld a, e
+1488: 8818+19	06AC' DD9600  	                sub (ix + DPB_SPT)
+1489: 8837+4	06AF' 5F      	                ld e, a
+1490: 8841+4	06B0' 7A      	                ld a, d
+1491: 8845+19	06B1' DD9E01  	                sbc (ix + DPB_SPT + 1)
+1492: 8864+4	06B4' 57      	                ld d, a
+1493: 8868+4	06B5' 79      	                ld a, c
+1494: 8872+7	06B6' DE00    	                sbc 0
+1495: 8879+4	06B8' 4F      	                ld c, a
+1496: 8883+7+5	06B9' 3805    	                jr c, ss_track_done
+1497:				; No carry, so we can advance to the next track.
+1498: 8890+6	06BB' 23      	                inc hl
+1499: 8896+6	06BC' 33      	                inc sp                  ; Discard saved sector number
+1500: 8902+6	06BD' 33      	                inc sp
+1501: 8908+12	06BE' 18EA    	                jr ss_track_loop
+1502:				;
+1503:				; There was a carry in the last subtract, so this is the track we want.
+1504:				; HL - track number
+1505:				; (stacked) - sector number
+1506:				; Set track.
+1507: 8920+4	06C0' 44      	ss_track_done   ld b, h                 ; Move track number to BC
+1508: 8924+4	06C1' 4D      	                ld c, l
+1509: 8928+20	06C2' ED432500	                ld (track), bc          ; Save track for status reporting
+1510: 8948+10	06C6' 211B00  	                ld hl, BIOS_SETTRK      ; Set track number
+1511: 8958+17	06C9' CD0000  	                call cbios              ; Call BIOS with some registers saved
+1512:				;
+1513:				; Set sector.
+1514: 8975+10	06CC' C1      	                pop bc                  ; Fetch sector
+1515: 8985+20	06CD' ED432900	                ld (sector), bc         ; Save sector for status reporting
+1516: 9005+10	06D1' 211E00  	                ld hl, BIOS_SETSEC      ; Set sector number
+1517: 9015+17	06D4' CD0000  	                call cbios              ; Call BIOS with some registers saved
+1518:				;
+1519:				; Set DMA address.
+1520: 9032+10	06D7' 018000  	                ld bc, DEF_BUFFER
+1521: 9042+10	06DA' 212100  	                ld hl, BIOS_SETDMA      ; Set DMA address
+1522: 9052+17	06DD' CD0000  	                call cbios              ; Call BIOS with some registers saved
+1523:				;
+1524: 9069+10	06E0' E1      	                pop hl
+1525: 9079+10	06E1' C1      	                pop bc
+1526: 9089+10	06E2' C9      	                ret
+1527:				;
+1528:				;
+1529:				;
+1530:				; *************
+1531:				; * Constants *
+1532:				; *************
+1533:				;
+1534:				;
+1535:     -	06E3' 2A2A2A20	signon_msg      byte "*** CP/M File System Checker V1.0 ***", 0x0d, 0x0a, 0x0d, 0x0a, "$"
+	              43502F4D
+	              2046696C
+	              65205379
+	              7374656D
+	              20436865
+	              636B6572
+	              2056312E
+	              30202A2A
+	              2A0D0A0D
+	              0A24
+1536:     -	070D' 5A383020	no_z80_msg      byte "Z80 CPU required", 0x0d, 0x0a, "$"
+	              43505520
+	              72657175
+	              69726564
+	              0D0A24
+1537:     -	0720' 44726976	op_err_msg      byte "Drive letter expected.", 0x0d, 0x0a, "$"
+	              65206C65
+	              74746572
+	              20657870
+	              65637465
+	              642E0D0A
+	              24
+1538:     -	0739' 52657475	exit_msg        byte "Returning to CP/M.", 0x0d, 0x0a, "$"
+	              726E696E
+	              6720746F
+	              2043502F
+	              4D2E0D0A
+	              24
+1539:     -	074E' 496E7375	memory_msg      byte "Insufficient memory", 0x0d, 0x0a, "$"
+	              66666963
+	              69656E74
+	              206D656D
+	              6F72790D
+	              0A24
+1540:     -	0764' 43616E27	sel_err_msg     byte "Can't select drive.", 0x0d, 0x0a, "$"
+	              74207365
+	              6C656374
+	              20647269
+	              76652E0D
+	              0A24
+1541:     -	077A' 4469736B	disk_err_msg    byte "Disk I/O error.", 0x0d, 0x0a, "$"
+	              20492F4F
+	              20657272
+	              6F722E0D
+	              0A24
+1542:     -	078C' 44697265	dir_done_msg    byte "Directory checks complete", 0x0d, 0x0a, "$"
+	              63746F72
+	              79206368
+	              65636B73
+	              20636F6D
+	              706C6574
+	              650D0A24
+1543:     -	07A8' 46696C65	files_msg       byte "Files found: $"
+	              7320666F
+	              756E643A
+	              2024
+1544:     -	07B6' 556E7573	unused_msg      byte "Unused directory entries: $"
+	              65642064
+	              69726563
+	              746F7279
+	              20656E74
+	              72696573
+	              3A2024
+1545:     -	07D1' 426C6F63	blocks_used_msg byte "Blocks used: $"
+	              6B732075
+	              7365643A
+	              2024
+1546:     -	07DF' 0D0A426C	block_map_msg   byte 0x0d, 0x0a, "Block map ('D': directory, 'F': file and '-': unused).", 0x0d, 0x0a, "$"
+	              6F636B20
+	              6D617020
+	              28274427
+	              3A206469
+	              72656374
+	              6F72792C
+	              20274627
+	              3A206669
+	              6C652061
+	              6E642027
+	              2D273A20
+	              756E7573
+	              6564292E
+	              0D0A24
+1547:     -	081A' 4572726F	errors_msg      byte "Errors and warnings: $"
+	              72732061
+	              6E642077
+	              61726E69
+	              6E67733A
+	              2024
+1548:     -	0830' 0D0A4368	surf_scan_msg   byte 0x0d, 0x0a, "Checking all blocks are readable (surface scan)", 0x0d, 0x0a, "$"
+	              65636B69
+	              6E672061
+	              6C6C2062
+	              6C6F636B
+	              73206172
+	              65207265
+	              61646162
+	              6C652028
+	              73757266
+	              61636520
+	              7363616E
+	              290D0A24
+1549:     -	0864' 0D547261	track_msg       byte 0x0d, "Track: $"
+	              636B3A20
+	              24
+1550:     -	086D' 2C207365	sector_msg      byte ", sector: $"
+	              63746F72
+	              3A2024
+1551:     -	0878' 0D0A5363	scan_done_msg   byte 0x0d, 0x0a, "Scan complete", 0x0d, 0x0a, "$"
+	              616E2063
+	              6F6D706C
+	              6574650D
+	              0A24
+1552:				; Directory entry error messages
+1553:     -	088A' 202D2062	bad_user_msg    byte " - bad user number$"
+	              61642075
+	              73657220
+	              6E756D62
+	              657224
+1554:     -	089D' 202D2062	bad_name_msg    byte " - bad file name$"
+	              61642066
+	              696C6520
+	              6E616D65
+	              24
+1555:     -	08AE' 202D2062	bad_ex_cnt_msg  byte " - bad extent count$"
+	              61642065
+	              7874656E
+	              7420636F
+	              756E7424
+1556:     -	08C2' 202D2062	bad_s1_msg      byte " - bad S1$"
+	              61642053
+	              3124
+1557:     -	08CC' 202D2064	ext_dup_msg     byte " - duplicated physical extent$"
+	              75706C69
+	              63617465
+	              64207068
+	              79736963
+	              616C2065
+	              7874656E
+	              7424
+1558:     -	08EA' 202D2062	dble_blk_msg    byte " - block not unique$"
+	              6C6F636B
+	              206E6F74
+	              20756E69
+	              71756524
+1559:     -	08FE' 202D2069	sparse_msg      byte " - is sparse (holed) [warning]$"
+	              73207370
+	              61727365
+	              2028686F
+	              6C656429
+	              205B7761
+	              726E696E
+	              675D24
+1560:     -	091D' 202D2062	blk_too_big_msg byte " - block number out of range$"
+	              6C6F636B
+	              206E756D
+	              62657220
+	              6F757420
+	              6F662072
+	              616E6765
+	              24
+1561:     -	093A' 202D206E	no_alloc_msg    byte " - no allocations in physical extent [warning]$"
+	              6F20616C
+	              6C6F6361
+	              74696F6E
+	              7320696E
+	              20706879
+	              73696361
+	              6C206578
+	              74656E74
+	              205B7761
+	              726E696E
+	              675D24
+1562:     -	0969' 202D2052	bad_rc_msg      byte " - RC not 0x80 in intermediate extent$"
+	              43206E6F
+	              74203078
+	              38302069
+	              6E20696E
+	              7465726D
+	              65646961
+	              74652065
+	              7874656E
+	              7424
+1563:     -	098F' 202D2068	empty_msg       byte " - has no data [warning]$"
+	              6173206E
+	              6F206461
+	              7461205B
+	              7761726E
+	              696E675D
+	              24
+1564:				;
+1565:				;
+1566:				; *************
+1567:				; * Variables *
+1568:				; *************
+1569:				;
+1570:				;
+1571:				; Note: linker "-c" option is used, so no data is initialised here.
+1572:				                dseg                ; Data segment
+1573:				;
+1574:     -	0000"         	bdos_sp         defs 2              ; BDOS's stack pointer
+1575:     -	0002"         	drive           defs 1              ; Drive number (0 to 15)
+1576:     -	0003"         	blk_flags       defs 2              ; Pointer to start of blocks used flags
+1577:     -	0005"         	blk_flags_size  defs 2              ; Size of block flags buffer
+1578:     -	0007"         	files_info      defs 2              ; Start address of FI structures
+1579:     -	0009"         	free_start      defs 2              ; First free location
+1580:     -	000B"         	loaded_sector   defs 2              ; Currently loaded sector
+1581:     -	000D"         	dir_blocks      defs 1              ; Number of blocks used by the directory
+1582:     -	000E"         	error_count     defs 2              ; Error count
+1583:     -	0010"         	file_count      defs 2              ; Files count
+1584:     -	0012"         	unused_count    defs 2              ; Unused entry count
+1585:     -	0014"         	blocks_used     defs 2              ; Number of blocks used
+1586:     -	0016"         	phys_extent     defs 2              ; Calculated physical extent
+1587:     -	0018"         	dpb             defs 2              ; Pointer to Disk Parameter Block (DPB_xxx)
+1588:     -	001A"         	dire            defs 2              ; Pointer to directory entry structure (DIRE_xxx)
+1589:     -	001C"         	fie             defs 2              ; Pointer to file information structure (FI_xxx)
+1590:     -	001E"         	dir_entry_num   defs 2              ; Directory entry number being processed
+1591:     -	0020"         	bdis_shift      defs 1              ; Block display shift (scaling)
+1592:     -	0021"         	bdis_scale      defs 1              ; Scale (n:1)
+1593:     -	0022"         	bdis_s_count    defs 1              ; Scale (block) counter
+1594:     -	0023"         	bdis_col        defs 2              ; Display column
+1595:     -	0025"         	track           defs 2              ; Current track
+1596:     -	0027"         	disp_track      defs 2              ; Displayed track
+1597:     -	0029"         	sector          defs 2              ; Current sector
+1598:     -	002B"         	total_sectors   defs 3              ; Number of sectors in file system
+1599:     -	002E"         	                defs STACK_SIZE     ; Stack space
+1600:     -	006E"         	app_stack_top
+1601:				;
+1602:     -	006E"         	                end
+
+
+
+Statistics:
+
+     4	passes
+     0	jr promotions
+   425	symbols
+  2472	bytes
+
+   108	macro calls
+  1546	macro bytes
+     0	invented symbols
+
+
+
+Symbol Table:
+
+ALLCF_COUNT    =0F        15
+ALLCF_SPARSE_BIT=06        6
+ALLCF_SPARSE_MASK=40        64
+ALLCF_UNUSED_BIT=07        7
+ALLCF_UNUSED_MASK=80        128
+ANSI_SGR_BLINK_OFF=19        25
+ANSI_SGR_BOLD  =01        1
+ANSI_SGR_DULINE=15        21
+ANSI_SGR_FAINT =02        2
+ANSI_SGR_FONT_1=0B        11
+ANSI_SGR_FONT_2=0C        12
+ANSI_SGR_FONT_3=0D        13
+ANSI_SGR_FONT_4=0E        14
+ANSI_SGR_FONT_5=0F        15
+ANSI_SGR_FONT_6=10        16
+ANSI_SGR_FONT_7=11        17
+ANSI_SGR_FONT_8=12        18
+ANSI_SGR_FONT_9=13        19
+ANSI_SGR_GOTHIC=14        20
+ANSI_SGR_HIDE_OFF=1C        28
+ANSI_SGR_ITAL_OFF=17        23
+ANSI_SGR_NORMAL=00        0
+ANSI_SGR_NORM_INTEN=16        22
+ANSI_SGR_PRI_FONT=0A        10
+ANSI_SGR_RBLINK=06        6
+ANSI_SGR_REV   =07        7
+ANSI_SGR_REV_OFF=1B        27
+ANSI_SGR_SBLINK=05        5
+ANSI_SGR_STRIKE=09        9
+ANSI_SGR_STRIKE_OFF=1D        29
+ANSI_SGR_ULINE =04        4
+ANSI_SGR_ULINE_OFF=18        24
+ASCII_BS       =08        8
+ASCII_CR       =0D        13
+ASCII_DEL      =7F        127
+ASCII_ENQ      =05        5
+ASCII_ESC      =1B        27
+ASCII_FF       =0C        12
+ASCII_HT       =09        9
+ASCII_LF       =0A        10
+ASCII_RS       =1E        30
+ASCII_SUB      =1A        26
+ASCII_SYN      =16        22
+ASCII_VT       =0B        11
+BDIS_CHARS_MAX = 3C0      960
+BDOS           =05        5
+BDOS_CLOSE_FILE=10        16
+BDOS_CON_IN    =01        1
+BDOS_CON_OUT   =02        2
+BDOS_DELETE_FILE=13        19
+BDOS_DIRECT_CON_IO=06        6
+BDOS_GET_ALLOC_ADDR=1B        27
+BDOS_GET_CON_STAT=0B        11
+BDOS_GET_CURR_DISK=19        25
+BDOS_GET_DPB   =1F        31
+BDOS_GET_FILE_SIZE=23        35
+BDOS_GET_IO_BYTE=07        7
+BDOS_GET_LOGIN_VEC=18        24
+BDOS_GET_RO_VEC=1D        29
+BDOS_GET_SET_USER=20        32
+BDOS_LST_OUT   =05        5
+BDOS_MAKE_FILE =16        22
+BDOS_OPEN_FILE =0F        15
+BDOS_PRINT_STRING=09        9
+BDOS_PUN_OUT   =04        4
+BDOS_RDR_IN    =03        3
+BDOS_READ_CON_BUFF=0A        10
+BDOS_READ_RANDOM=21        33
+BDOS_READ_SEQ  =14        20
+BDOS_READ_SEQ_EOF=01        1
+BDOS_RENAME_FILE=17        23
+BDOS_RESET_DISK_SYS=0D        13
+BDOS_RESET_DRIVES=25        37
+BDOS_SEARCH_FIRST=11        17
+BDOS_SEARCH_NEXT=12        18
+BDOS_SEL_DISK  =0E        14
+BDOS_SET_DMA_ADDR=1A        26
+BDOS_SET_FILE_ATTR=1E        30
+BDOS_SET_IO_BYTE=08        8
+BDOS_SET_RANDOM_REC=24        36
+BDOS_START     =DE06      56838
+BDOS_SYS_RST   =00        0
+BDOS_VERSION   =0C        12
+BDOS_WRITE_PROT=1C        28
+BDOS_WRITE_RANDOM=22        34
+BDOS_WRITE_RAN_ZFILL=28        40
+BDOS_WRITE_SEQ =15        21
+BIOS_AUXIST    =33        51
+BIOS_AUXOST    =36        54
+BIOS_CONIN     =06        6
+BIOS_CONOST    =30        48
+BIOS_CONOUT    =09        9
+BIOS_CONST     =03        3
+BIOS_CPM_START_SEC=2C        44
+BIOS_DEVINI    =3C        60
+BIOS_DEVTBL    =39        57
+BIOS_DRVTBL    =3F        63
+BIOS_FLUSH     =45        69
+BIOS_GET_TIMER =7B        123
+BIOS_HOME      =15        21
+BIOS_ID        =60        96
+BIOS_INT_DISABLE=6F        111
+BIOS_INT_ENABLE=72        114
+BIOS_JPTBL_NEXT=7E        126
+BIOS_LISTST    =2A        42
+BIOS_MAX_SIZE  =1000      4096
+BIOS_MON_CALL  =69        105
+BIOS_MOVE      =48        72
+BIOS_MULTIO    =42        66
+BIOS_OPT_DEBUG_BIT=00        0
+BIOS_OPT_DEBUG_MASK=01        1
+BIOS_OPT_NOINTS_BIT=01        1
+BIOS_OPT_NOINTS_MASK=02        2
+BIOS_OPT_RAWCON_BIT=02        2
+BIOS_OPT_RAWCON_MASK=04        4
+BIOS_PLIST     =0C        12
+BIOS_PUNCH     =0F        15
+BIOS_READ      =24        36
+BIOS_READER    =12        18
+BIOS_RESERV1   =5A        90
+BIOS_RESERV2   =5D        93
+BIOS_SECTRAN   =2D        45
+BIOS_SELDSK    =18        24
+BIOS_SELMEM    =4E        78
+BIOS_SETBNK    =51        81
+BIOS_SETDMA    =21        33
+BIOS_SETSEC    =1E        30
+BIOS_SETTRK    =1B        27
+BIOS_SET_TIMER =78        120
+BIOS_START     =EC00      60416
+BIOS_STARTUP   =66        102
+BIOS_SUPER     =6C        108
+BIOS_TIME      =4B        75
+BIOS_TIRD      =75        117
+BIOS_USERF     =57        87
+BIOS_VER       =63        99
+BIOS_WBOOT     =00        0
+BIOS_WRITE     =27        39
+BIOS_XMOVE     =54        84
+BREAK_CHAR     =03        3
+BitAddrMask      4E8'     1256
+CCP_START      =D600      54784
+CDISK          =04        4
+CONCAP_ANSI_BIT=01        1
+CONCAP_ANSI_MASK=02        2
+CONCAP_UNICODE_BIT=02        2
+CONCAP_UNICODE_MASK=04        4
+CONCAP_ZARC_BIT=00        0
+CONCAP_ZARC_MASK=01        1
+CPM_BIAS       =A200      41472
+CPM_DISK_SIZE  =00100000  1048576
+CPM_SECTOR_SIZE=80        128
+CPM_SYS_SIZE   =00100000  1048576
+DEF_BUFFER     =80        128
+DEF_BUFFER_SIZE=80        128
+DIRE_ALLOC     =10        16
+DIRE_EX        =0C        12
+DIRE_NAME      =01        1
+DIRE_RC        =0F        15
+DIRE_S1        =0D        13
+DIRE_S2        =0E        14
+DIRE_SIZE      =20        32
+DIRE_TYP       =09        9
+DIRE_USER      =00        0
+DPB_AL0        =09        9
+DPB_AL1        =0A        10
+DPB_BLM        =03        3
+DPB_BSH        =02        2
+DPB_CKS        =0B        11
+DPB_DRM        =07        7
+DPB_DSM        =05        5
+DPB_EXM        =04        4
+DPB_OFF        =0D        13
+DPB_SIZE       =0F        15
+DPB_SPT        =00        0
+DPH_ALV        =0E        14
+DPH_CSV        =0C        12
+DPH_DIRBF      =08        8
+DPH_DPB        =0A        10
+DPH_SCRATCH0   =02        2
+DPH_SCRATCH1   =04        4
+DPH_SCRATCH2   =06        6
+DPH_SIZE       =10        16
+DPH_XLT        =00        0
+FCB1           =5C        92
+FCB2           =6C        108
+FCB_ALLOC      =10        16
+FCB_CR         =20        32
+FCB_DRIVE      =00        0
+FCB_EX         =0C        12
+FCB_NAME       =01        1
+FCB_RC         =0F        15
+FCB_RECORD     =21        33
+FCB_S1         =0D        13
+FCB_S2         =0E        14
+FCB_SIZE       =24        36
+FCB_TYP        =09        9
+FILEEXT_SIZE   =03        3
+FILENAME_SIZE  =08        8
+FILE_EOF       =1A        26
+FI_EX_FLAGS    =10        16
+FI_EX_FL_LEN   =0F        15
+FI_LAST_PEXT   =0C        12
+FI_LAST_RC     =0E        14
+FI_NAME        =01        1
+FI_SIZE        =10        16
+FI_TYP         =09        9
+FI_USER        =00        0
+INT_VEC_TABLE  =FFE0      65504
+IOBYTE         =03        3
+IOB_CON_MASK   =03        3
+IOB_LST_MASK   =C0        192
+IOB_PUN_MASK   =30        48
+IOB_RDR_MASK   =0C        12
+MAX_USER       =0F        15
+MMAP_CPM_PAGES =04        4
+MTWDLI_ABBREV_BIT=00        0
+MTWDLI_ABBREV_MASK=01        1
+MTWDLI_ICASE_BIT=01        1
+MTWDLI_ICASE_MASK=02        2
+MTWDLI_TERM_BIT=07        7
+MTWDLI_TERM_MASK=80        128
+NUM_DISKS      =10        16
+NUM_DISKS_MAX  =10        16
+STACK_SIZE     =40        64
+TPA_START      = 100      256
+VT100_COLS     =50        80
+VT100_ROWS     =18        24
+ZKEY_CSR_DOWN  =1E        30
+ZKEY_CSR_LEFT  =01        1
+ZKEY_CSR_RIGHT =06        6
+ZKEY_CSR_UP    =1F        31
+ZKEY_DELETE    =7F        127
+ZKEY_END       =04        4
+ZKEY_HOME      =02        2
+ZKEY_INSERT    =16        22
+ZKEY_PAGE_DOWN =1C        28
+ZKEY_PAGE_UP   =1D        29
+app_stack_top   6E"       110
+bad_ex_cnt_msg   8AE'     2222
+bad_name_msg     89D'     2205
+bad_rc_msg       969'     2409
+bad_s1_msg       8C2'     2242
+bad_user_msg     88A'     2186
+bam_div_loop     4F6'     1270
+bam_mask_loop    4F0'     1264
+bdis_blk_done    3CF'     975
+bdis_col        23"       35
+bdis_col_done    3EC'     1004
+bdis_entry_done  3F1'     1009
+bdis_loop        3AE'     942
+bdis_not_dir     3BF'     959
+bdis_s_count    22"       34
+bdis_scale      21"       33
+bdis_scale_done  39A'     922
+bdis_scale_loop  37D'     893
+bdis_shift      20"       32
+bdos_sp         00"       0
+bfc_done        AD'       173
+bfc_loop        9D'       157
+blk_flags       03"       3
+blk_flags_size  05"       5
+blk_too_big_msg  91D'     2333
+block_map_msg    7DF'     2015
+blocks_used     14"       20
+blocks_used_msg  7D1'     2001
+cbdos           00        0 (extern)
+cbios           00        0 (extern)
+ccinit          00        0 (extern)
+ccls            00        0 (extern)
+chk_mem_lim      58E'     1422
+cldcur          00        0 (extern)
+concap          00        0 (extern)
+conrch          00        0 (extern)
+conrev          00        0 (extern)
+const           00        0 (extern)
+conuln          00        0 (extern)
+conwch          00        0 (extern)
+conwmn          00        0 (extern)
+conwms          00        0 (extern)
+cscrup          00        0 (extern)
+csrvis          00        0 (extern)
+cwnwln          00        0 (extern)
+cwpdby          00        0 (extern)
+cwpdlo          00        0 (extern)
+cwpdwd          00        0 (extern)
+cwphby          00        0 (extern)
+cwphnb          00        0 (extern)
+cwphwd          00        0 (extern)
+cwpspc          00        0 (extern)
+cwvich          00        0 (extern)
+dble_blk_msg     8EA'     2282
+df_name_loop     614'     1556
+df_type_loop     62B'     1579
+dir_blocks      0D"       13
+dir_done_msg     78C'     1932
+dir_entry_num   1E"       30
+dire            1A"       26
+disk_err_msg     77A'     1914
+disp_file        5F9'     1529
+disp_track      27"       39
+dpb             18"       24
+drive           02"       2
+drive_sel_ok    63'       99
+empty_msg        98F'     2447
+error_count     0E"       14
+errors_msg       81A'     2074
+exit             4A7'     1191
+exit_msg         739'     1849
+ext_dup_msg      8CC'     2252
+fb_error         53D'     1341
+fe_dup_err       58A'     1418
+fe_exit          58B'     1419
+fe_have_space    578'     1400
+fi_make_room     59B'     1435
+fie             1C"       28
+file_count      10"       16
+files_info      07"       7
+files_msg        7A8'     1960
+fimr_clr_done    5EE'     1518
+fimr_clr_loop    5E4'     1508
+fimr_exit        5E0'     1504
+fimr_no_copy     5F2'     1522
+flag_block       50D'     1293
+flag_extent      542'     1346
+free_start      09"       9
+fstfre          00        0 (extern)
+ge_have_sec      68F'     1679
+ge_load_reqd     679'     1657
+get_entry        660'     1632
+id_al_done      CB'       203
+id_al_loop      C3'       195
+id_mark_used_lp D7'       215
+init_blk_div    8E'       142
+jptbl_addr     =7E        126
+loaded_sector   0B"       11
+match_files      635'     1589
+memory_msg       74E'     1870
+mf_exit          659'     1625
+mf_name_loop     640'     1600
+mf_no_match      65D'     1629
+mf_typ_loop      64A'     1610
+msg_exit         4A4'     1188
+mtwdli          00        0 (extern)
+no_alloc_msg     93A'     2362
+no_z80_msg       70D'     1805
+on_z80          18'       24
+op_check_term   37'       55
+op_err_msg       720'     1824
+op_error        3E'       62
+operands_ok     44'       68
+out_of_memory    4A1'     1185
+panic           00        0 (extern)
+phys_extent     16"       22
+rddulo          00        0 (extern)
+rdduwd          00        0 (extern)
+rdhxwd          00        0 (extern)
+rshift_word      500'     1280
+rshw_loop        501'     1281
+scan_done        2CF'     719
+scan_done_msg    878'     2168
+scan_loop       EB'       235
+sector          29"       41
+sector_msg       86D'     2157
+sel_err_msg      764'     1892
+set_c_reg        50A'     1290
+set_sector       6A2'     1698
+signon_msg       6E3'     1763
+skpspc          00        0 (extern)
+sl_calc_ext_dn   128'     296
+sl_calc_ext_lp   11C'     284
+sl_do_next       2C6'     710
+sl_entry_done    2B3'     691
+sl_err_cont      4B4'     1204
+sl_err_stop      2CA'     714
+sl_find_loop     19B'     411
+sl_name_chk      141'     321
+sl_not_unused    109'     265
+sl_user_ok       136'     310
+slf_alu_dn       25D'     605
+slf_by_alu_dn    259'     601
+slf_by_alu_lp    23F'     575
+slf_by_alu_used  249'     585
+slf_bytes        23D'     573
+slf_ext_done     20C'     524
+slf_found_fi     1FC'     508
+slf_name_loop    1D9'     473
+slf_no_match     1C1'     449
+slf_typ_loop     1E1'     481
+slf_wd_alu_dn    235'     565
+slf_wd_alu_lp    21A'     538
+slf_wd_alu_used  228'     552
+slfrc_done       2B3'     691
+slfrc_not_last   291'     657
+slfrc_update     2A4'     676
+sparse_msg       8FE'     2302
+spck_bit_loop    30F'     783
+spck_byte_loop   2F9'     761
+spck_byte_ok     305'     773
+spck_done        32D'     813
+spck_error       4D2'     1234
+spck_file_done   31F'     799
+spck_last_byte   309'     777
+spck_last_ok     317'     791
+spck_loop        2D3'     723
+spck_not_empty   2F6'     758
+spck_sp_err      303'     771
+ss_disp_track    44B'     1099
+ss_find_sec_lp   419'     1049
+ss_loop          437'     1079
+ss_nodisp        459'     1113
+ss_sec_done      477'     1143
+ss_track_done    6C0'     1728
+ss_track_loop    6AA'     1706
+str_offset     =10        16
+surf_scan_msg    830'     2096
+toloca          00        0 (extern)
+total_sectors   2B"       43
+toupca          00        0 (extern)
+track           25"       37
+track_msg        864'     2148
+unused_count    12"       18
+unused_msg       7B6'     1974
+z80det          00        0 (extern)
+zrcdet          00        0 (extern)

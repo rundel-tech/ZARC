@@ -1,0 +1,56 @@
+digraph CPU_Block {
+#    node [shape=box]; course; institute; student;
+#    node [shape=ellipse]; {node [label="name"] name0; name1; name2;}
+#        code; grade; number;
+#    node [shape=diamond,style=filled,color=lightgrey]; "C-I"; "S-C"; "S-I";
+
+#    code -- course;
+#    course -- "C-I" [label="n"];
+#   "AM-AC-2WT1" -- "AM-AF-3330" [label="F1303\n61611937AA00",len=1\n00];
+
+    graph [rankdir=LR]
+    edge [color=black];
+
+    node [shape=ellipse color=aquamarine style=filled];
+
+    {
+        node [shape=box color=lightskyblue]
+        rank=source;
+        "Start";
+    }
+
+    {
+        node [shape=box color=lightskyblue]
+        rank=sink;
+        "End";
+        node [color=firebrick1]
+        "Error";
+    }
+
+
+    "Start" -> "Send Rx0\n(Filename)";
+
+    "Send Rx0\n(Filename)" -> "Rx0 Await\nResponse";
+    "Rx0 Await\nResponse" -> "Send Rx0\n(Filename)" [label = "Timeout,\nretry"];
+    "Rx0 Await\nResponse" -> "Error" [label = "Timeout\nOut of retries"];
+    "Rx0 Await\nResponse" -> "Rxn Await\nResponse" [label = "ACK"]
+    "Rx0 Await\nResponse" -> "Send Rx0\n(Filename)" [label = "NAK\n(CRC)"]
+    "Rx0 Await\nResponse" -> "Error" [label = "NAK (not CRC)\nor unexpected packet type"]
+
+    "Rxn Await\nResponse" -> "Error" [label = "Timeout"];
+    "Rxn Await\nResponse" -> "Store\ndata" [label = "Rx\nCRC OK"]
+    "Rxn Await\nResponse" -> "Send\nNAK" [label = "Bad CRC"]
+    "Rxn Await\nResponse" -> "End\nSend ACK" [label = "Exit"]
+    "Rxn Await\nResponse" -> "Error" [label = "Unexpected\npacket type"]
+
+    "Store\ndata" -> "Send ACK"
+    "Send ACK" -> "Rxn Await\nResponse"
+
+    "Send\nNAK" -> "Rxn Await\nResponse"
+
+    "End\nSend ACK" -> "End"
+
+    label = "Linux Side Receive File State Diagram";
+    fontsize=20;
+}
+

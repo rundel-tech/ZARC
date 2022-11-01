@@ -1,0 +1,647 @@
+panic              ; Panic if function out of range
+read_mmc_sect          ; Read sector into cache
+find_sec               ; Is it in the cache?
+num_to_addr
+camnt                  ; Perform maintenance
+mcrrs                  ; Raw read sector
+cpm_to_mmc         ; Find 512-byte sector and offset
+panic           ; Panic if sector out of range
+read_mmc_sect      ; Read MMC sector into cache
+panic
+panic                  ; Should never go here
+mamwwu                 ; 16-bit * 16-bit unsigned multiply
+panic              ; MS 16 bits should be zero
+cars               ; Read sector
+itstrt             ; Start monitor interrupts
+cacrs              ; Read CP/M sector
+conwms             ; Print message
+cwnwln             ; Write new line characters to console
+panic          ; System panic if no tick found
+panic          ; System panic if no tick found
+mt_test_patt   ; All zeros
+mt_test_patt   ; All ones
+mt_test_patt   ; All ones
+mt_test_patt   ; All ones
+conwms   ; Print "Addressing test" message
+conwms         ; Print "Error at " message
+cwphwd         ; Print address in hex
+conwms         ; Print ", read " message
+cwphby         ; Print data read in hex
+cwnwln         ; Write new line characters to console
+conwms         ; Print "Passed" message
+conwms         ; Print "Failed" message
+conwms         ; Print "Pattern " message
+cwphby         ; Print in hex
+cwnwln         ; Write new line characters to console
+conwms         ; Print "Error at " message
+cwphwd         ; Print address in hex
+conwms         ; Print ", read " message
+cwphby         ; Print data read in hex
+cwnwln         ; Write new line characters to console
+conwms         ; Print "Page" message
+cwphby         ; Print page in hex
+cwnwln         ; Write new line characters to console
+memtst
+conwms         ; Print "Paging test" message
+conwms         ; Print "Expected " message
+cwphby         ; Print data expected in hex
+conwms         ; Print ", read " message
+cwphby         ; Print data read in hex
+cwnwln         ; Write new line characters to console
+di_fetch       ; Fetch instruction
+panic          ; System panic
+di_fetch       ; Fetch index offset
+panic          ; System panic
+panic          ; System panic
+di_outmsgspc   ; Output instruction
+di_out_c
+di_comma
+di_outmsgn     ; Output message <n>
+di_outmsgspc   ; Output instruction followed by a space
+di_out_s       ; Output "s" (bc, de, [HL, IX or IY] or sp)
+di_comma_spc
+di_outmsgspc   ; Output instruction followed by a space
+di_out_y       ; Output "Y" (HL, IX or IY)
+di_comma_spc
+di_outmsgspc   ; Output instruction followed by a space
+panic          ; System panic
+di_out_pvv     ; Output 16-bit pointer (VV)
+di_comma_spc
+di_out_y       ; Output "Y" (HL, IX or IY)
+di_comma_spc
+di_out_pvv     ; Output 16-bit pointer (VV)
+di_comma_spc
+di_outchar
+di_comma_spc
+di_outmsgspc   ; Output instruction followed by a space
+di_outmsgspc   ; Output instruction followed by a space
+di_outmsgspc   ; Output instruction followed by a space
+di_outmsgspc   ; Output instruction followed by a space
+di_outmsgspc   ; Output instruction followed by a space
+di_out_r       ; Output "r" (b, c, d, e, h, l, X or a)
+di_comma_spc
+di_outmsgspc   ; Output instruction followed by a space
+di_out_r       ; Output "r" (b, c, d, e, h, l, X or a)
+di_comma_spc
+di_out_xinst   ; Output "ADD A," ... "CP"
+di_spc         ; Write a space
+panic          ; System panic
+di_outmsgspc   ; Output instruction
+di_outmsgspc   ; Output instruction
+di_outmsgn     ; Output message <n>
+di_outmsgspc   ; Output instruction
+di_outchar
+di_out_y       ; Output "Y" (HL, IX or IY)
+di_outmsgspc   ; Output instruction
+di_outmsgspc   ; Output instruction
+di_out_c
+di_comma_spc
+di_outmsgn     ; Output message <n>
+di_out_v       ; Output 8-bit value from instruction stream
+di_out_v       ; Output 8-bit value from instruction stream
+di_outmsgspc   ; Output instruction
+di_out_c
+di_comma_spc
+di_outmsgspc   ; Output instruction
+di_outmsgspc   ; Output instruction
+di_out_xinst   ; Output "ADD A," ... "CP"
+di_spc         ; Write a space
+di_outmsgspc   ; Output instruction
+di_outchar
+panic          ; System panic
+di_outmsgn     ; Output message <n>
+di_spc         ; Write a space
+di_outmsgspc   ; Output instruction
+di_outchar
+di_comma_spc
+panic          ; System panic
+di_outmsgspc   ; Output instruction
+di_out_r       ; Output "r" (b, c, d, e, h, l, X or a)
+di_comma_spc
+di_outmsgspc   ; Output instruction
+di_outmsg      ; Output (c)
+di_comma_spc
+panic          ; System panic
+di_outmsgspc   ; Output instruction
+di_outmsgspc   ; Output "hl, "
+di_outmsgspc   ; Output instruction
+panic          ; System panic
+di_out_pvv     ; Output 16-bit pointer (VV)
+di_comma_spc
+di_out_s       ; Output "s" (bc, de, [HL, IX or IY] or sp)
+di_comma_spc
+di_outmsg      ; Output instruction
+panic          ; System panic
+di_outmsgspc   ; Output instruction
+di_outmsgn     ; Output message <n>
+di_outchar
+di_out_vv      ; Output 16-bit value
+di_outchar
+di_fetch       ; Fetch immediate value
+di_outchar
+di_fetch       ; Fetch LSB of immediate value
+di_outchar
+di_fetch       ; Fetch MSB of immediate value
+di_spc         ; Write a space
+di_fetch       ; Fetch offset
+di_outchar
+di_outchar
+di_outmsgn     ; Output message <n>
+di_outmsgn     ; Output message <n>
+di_outmsgn     ; Output message <n>
+di_outchar
+di_fetch       ; Fetch immediate value
+di_outchar
+di_outmsgn     ; Output message <n>
+di_outmsgn     ; Output message <n>
+di_outmsgn     ; Output message <n>
+di_outmsgn     ; Output message <n>
+di_outchar
+di_outchar     ; Output character
+di_outmsg
+di_outchar
+cwphwd         ; Print HL in hexadecimal
+cwpspc         ; Print a space
+cwpspc
+cwphby         ; Print A in hexadecimal
+cwpspc         ; Print a space
+cwpspc
+cwpspc
+cwpspc   ; Print a space
+cwvich   ; Print only visible 7-bit characters
+hex_pref
+cwphby         ; Print A in hexadecimal
+hex_pref
+cwphwd         ; Print HL in hexadecimal
+conwch         ; Write sign to the console
+cwpspc         ; Print a space
+cwpdby         ; Print A in decimal. Leading zeros are suppressed.
+di_outmsg      ; Output instruction
+conwch         ; Write character in A to the console
+conwch         ; Write character in A to the console
+itsvec             ; Set interrupt vector
+itsvec             ; Set interrupt vector
+itsvec             ; Set interrupt vector
+tird               ; Read current time and date
+panic           ; System panic on underflow
+panic           ; System panic on overflow
+panic          ; Panic if count != 0
+panic          ; Panic if count != 0
+i2c_wtbusy         ; Ensure master interface is not busy
+i2c_wtbusy
+i2c_wr_byte        ; Send it
+i2c_wr_byte        ; Send it
+i2c_wr_byte        ; Send it
+i2c_wtbusy         ; Ensure master interface is not busy
+i2c_wtbusy
+i2c_wr_byte        ; Send it
+i2c_wr_byte        ; Send it
+i2c_wtbusy
+i2c_wr_byte        ; Send it
+i2c_wtbusy
+i2c_wtbusy
+panic          ; Panic if result is non-zero
+panic          ; Panic if result is non-zero
+conwch         ; Echo it
+cwphby         ; Print byte in hexadecimal
+conwch         ; Echo it
+cwphby         ; Print byte in hexadecimal
+cwnwln         ; Write new line characters to console
+conwms       ; Print message
+spiini             ; Initialise SPI interface and set speed
+spitr              ; Send / receive byte
+select             ; Set slave select
+clr_cmd_buff       ; Clear command buffer
+command
+wait_r1_resp       ; Await R1 response.
+deselect           ; Remove slave select
+select             ; Set slave select
+command
+wait_r1_resp
+deselect           ; Remove slave select
+mcperr             ; Display any errors
+select             ; Set slave select
+command
+wait_r1_resp       ; Await R1 response.
+deselect           ; Remove slave select
+select             ; Set slave select
+command
+wait_r1_resp       ; Await R1 response.
+deselect           ; Remove slave select
+spiini             ; Initialise SPI interface and set speed
+select             ; Set slave select
+command
+wait_r1_resp       ; Await R1 response.
+deselect           ; Remove slave select
+clr_cmd_buff       ; Clear command buffer (remove arguments)
+select             ; Set slave select
+command
+wait_r1_resp       ; Await R1 response.
+read_block         ; Read a block of data
+deselect           ; Remove slave select
+select             ; Set slave select
+command
+wait_r1_resp       ; Await R1 response.
+read_block         ; Read a block of data
+deselect           ; Remove slave select
+conwms             ; Print message
+cwvich             ; Print visible characters only
+cwnwln             ; Write new line characters to console
+conwms             ; Print message
+cwphby             ; Print byte
+cwnwln             ; Write new line characters to console
+conwms             ; Print message
+cwpdby             ; Print A in decimal
+conwch             ; Print separator
+cwpdwd             ; Print year in decimal
+cwnwln             ; Write new line characters to console
+conwms             ; Print message
+cwpdwd             ; Print HL in decimal
+conwms             ; Print message
+conwms             ; Print message
+cwpdwd      ; Print size in decimal
+conwms             ; Print message
+m, panic           ; Panic if block < sector
+select             ; Set slave select
+command
+wait_r1_resp       ; Await R1 response.
+deselect           ; Remove slave select
+clr_cmd_buff       ; Clear command buffer (remove arguments)
+mcperr             ; Display any errors
+deselect           ; Remove slave select
+select             ; Set slave select
+set_addr_arg       ; Set start address
+command
+wait_r1_resp       ; Await R1 response.
+read_block
+deselect           ; Remove slave select
+select             ; Set slave select
+set_addr_arg       ; Set start address
+command
+wait_r1_resp       ; Await R1 response.
+write_block
+clr_cmd_buff       ; Clear the command buffer
+select             ; Set slave select
+command
+wait_r1_resp       ; Await R1 response.
+spitr              ; Send / receive byte
+deselect           ; Remove slave select
+panic          ; System panic if out of range
+panic           ; System panic on overflow
+spitr              ; Send / receive byte
+crc7               ; Include in CRC
+spitr              ; Send / receive byte
+spitr              ; Send / receive byte
+wait_strt_token    ; Await start token
+spitr              ; Send / receive byte
+crc16x             ; CRC-16/XMODEM
+spitr              ; Send / receive byte
+spitr              ; Send / receive byte
+deselect           ; Remove slave select
+spitr              ; Send / receive byte
+spitr              ; Send / receive byte
+crc16x             ; CRC-16/XMODEM
+spitr              ; Send / receive byte
+spitr              ; Send / receive byte
+spitr              ; Send / receive byte
+spitr              ; Send / receive byte
+spitr              ; Send / receive byte
+deselect           ; Remove slave select
+spitr              ; Send / receive byte
+spiss              ; Set SPI slave select(s)
+spiss              ; Set SPI slave select(s)
+spitr              ; Send / receive byte (generate some clocks)
+conwms       ; Print "*** MMC error: " message
+conwmn             ; Print message <n> in a list
+conwms             ; Print " *** " message
+conwms             ; Print "*** MMC R1 errors: " message
+conwch             ; Print separator 
+cwpspc             ; Print a space
+conwmn             ; Print message <n> in a list
+conwms             ; Print " *** " message
+conwms             ; Print "*** MMC R2 errors: " message
+conwch             ; Print separator 
+cwpspc             ; Print a space
+conwmn             ; Print message <n> in a list
+conwms             ; Print " *** " message
+utrivc
+panic           ; Panic on error
+utrivc
+panic           ; Panic on error
+utrivc
+panic           ; Panic on error
+utrivc
+panic           ; Panic on error
+utrivc
+panic           ; Panic on error
+utrivc
+panic           ; Panic on error
+utrivc
+panic           ; Panic on error
+mmap_page0_ro      ; Set page 0 to read only
+itsvec             ; Set interrupt vector
+con_init_basic     ; Initialise console I/O in basic mode
+cpuspd             ; Measure approximate CPU clock speed
+conwms             ; Print message
+carst              ; Reset memory card cache (cold start)
+cwnwln             ; Write new line characters to console
+cwnwln
+conwms             ; Print message
+conwms             ; Print message
+hinit
+mcinit
+mcprer         ; Print memory card error text
+cainit             ; Initialise cache (warm start)
+conwms       ; Print message
+hist_val_ptr       ; Make sure it is valid
+conrch        ; Fetch next character from user
+conwch             ; Echo it
+gc_do_del          ; Delete a character if there is one
+hist_val_ptr       ; Validate pointer
+gc_check_end
+hist_val_ptr       ; Validate pointer
+gc_check_end
+gc_check_end
+hist_val_ptr       ; Validate pointer
+hist_val_ptr       ; Validate pointer
+gc_check_end
+hist_val_ptr       ; Validate pointer
+gc_del_cmd
+gc_del_cmd         ; Delete entire command
+hist_val_ptr       ; Validate pointer
+conwch             ; Display character
+hist_val_ptr       ; Validate pointer
+gc_do_del
+conwch
+cwpspc             ; Print a space
+conwch
+cwnwln             ; Write new line characters to console
+skpspc             ; Skip any leading spaces
+hist_val_ptr       ; Validate pointer
+hist_val_ptr       ; Validate pointer
+mtwdli
+conwms             ; Print message
+conwms             ; Print message
+conwms             ; Print message
+skpspc             ; Skip spaces
+rdhxwd             ; Fetch address
+skpspc             ; Skip spaces
+rdhxwd             ; Fetch length
+skpspc             ; Skip spaces
+cwpspc             ; Print a space
+conwch
+cwnwln             ; New line
+cwphwd      ; Print address in hexadecimal
+cwpspc
+cwpspc
+cwpspc
+cwpspc
+cwphby             ; Print in hex
+cwpspc
+cwpspc
+conwch
+cwpspc
+cwvich             ; Print visible characters only
+conwch
+cwnwln             ; End of line
+skpspc      ; Skip spaces
+rdhxwd       ; Fetch address
+skpspc             ; Skip spaces
+rdhxwd             ; Fetch length
+skpspc             ; Skip spaces
+diproc             ; Disassemble instruction to intermediate form
+diprnt             ; Print the result
+cwnwln             ; New line
+skpspc             ; Skip spaces
+rdhxwd             ; Fetch address
+skpspc             ; Skip spaces
+rdhxwd             ; Fetch byte
+skpspc      ; Skip spaces
+cwphwd             ; Print number of bytes written
+conwms             ; Print message
+skpspc             ; Skip spaces
+rdhxwd             ; Fetch address
+skpspc             ; Skip spaces
+cwphby             ; Print result
+skpspc             ; Skip spaces
+rdhxwd             ; Fetch address
+skpspc             ; Skip spaces
+cwphby             ; Print result
+skpspc             ; Skip spaces
+rdhxwd             ; Fetch address
+skpspc             ; Skip spaces
+rdhxwd             ; Fetch byte
+skpspc             ; Skip spaces
+cwphwd             ; Print number of bytes written
+conwms             ; Print message
+skpspc             ; Skip spaces
+rdhxwd             ; Fetch bank number
+skpspc             ; Skip spaces
+rdhxwd             ; Fetch page
+skpspc             ; Skip spaces
+mtwdli
+cwphnb             ; Print bank as a nibble
+cwpspc             ; Print a space
+conwch
+cwphwd             ; Print address in hexadecimal
+conwms             ; Print message
+cwphwd             ; Print address in hexadecimal
+conwch
+conwch
+cwpspc
+cwphby             ; Print page number in hexadecimal
+conwms             ; Print message
+conwms             ; Print message
+cwnwln             ; New line
+skpspc             ; Skip spaces
+conwms             ; Print message
+cwphby             ; Print byte in hexadecimal
+conwch 
+cwphby             ; Print byte in hexadecimal
+conwms             ; Print message
+cwpdwd             ; Print size in decimal
+conwms             ; Print message
+cwpdwd             ; Print size in decimal
+conwms             ; Print message
+conwms             ; Print message
+cwpdwd             ; Print reset counter in decimal
+cwnwln             ; New line
+skpspc      ; Skip spaces
+rdhxwd       ; Fetch address
+skpspc      ; Skip spaces
+rdhxwd       ; Fetch length
+skpspc      ; Skip spaces
+conwms             ; Print "Continue" message
+conrch             ; Fetch next character from user
+conwch             ; Echo the response
+cwnwln             ; Write new line characters to console
+skpspc             ; Skip spaces
+tird               ; Read current time and date
+conwms             ; Print "RTC error " message
+cwphby             ; Print error code in hex
+cwnwln             ; New line
+tiitos             ; Convert integer time to TM structure
+cwptm              ; Print time structure to console
+cwnwln             ; New line
+rdduwd             ; Read a 16-bit unsigned decimal
+rdduwd      ; Read a 16-bit unsigned decimal
+rdduwd             ; Read a 16-bit unsigned decimal
+rdduwd             ; Read a 16-bit unsigned decimal
+rdduwd             ; Read a 16-bit unsigned decimal
+rdduwd             ; Read a 16-bit unsigned decimal
+skpspc  ; Skip spaces
+tistoi    ; Convert TM structure time to integer
+tiitos    ; Convert integer time to TM structure
+tiitos             ; Convert integer time to TM structure
+cwptm              ; Print time structure to console
+cwnwln             ; New line
+tiwr               ; Set time and date
+skpspc  ; Skip spaces
+skpspc             ; Skip spaces
+rdhxwd             ; Fetch address
+skpspc             ; Skip spaces
+conrch             ; Fetch next character from user
+itinit             ; Initialise and set basic I/O mode
+conwch
+skpspc             ; Skip spaces
+rddulo             ; Read a 32-bit decimal number
+skpspc             ; Skip spaces
+rdduwd             ; Read a 16-bit unsigned decimal
+skpspc             ; Skip spaces
+rdhxwd             ; Fetch length
+skpspc             ; Skip spaces
+conwms             ; Print message
+cwpdlo             ; Print DEHL in decimal
+cwnwln             ; Write new line characters to console
+cars               ; Read the sector (use cache)
+mcprer
+skpspc             ; Skip spaces
+rddulo             ; Read a 32-bit decimal number
+skpspc             ; Skip spaces
+rdduwd             ; Read a 16-bit unsigned decimal
+skpspc             ; Skip spaces
+rdhxwd             ; Fetch length
+skpspc             ; Skip spaces
+conwms       ; Print message
+cwpdlo             ; Print DEHL in decimal
+cwnwln             ; Write new line characters to console
+mcrws              ; Write the sector
+mcprer
+skpspc             ; Skip spaces
+skpspc             ; Skip spaces
+rdhxwd             ; Fetch address
+skpspc             ; Skip spaces
+conwms       ; Print message
+conwms             ; Print "Continue" message
+conrch             ; Fetch next character from user
+conwch             ; Echo the response
+cwnwln             ; Write new line characters to console
+skpspc             ; Skip spaces
+rdhxwd             ; Fetch address
+skpspc             ; Skip spaces
+skpspc      ; Skip spaces
+skpspc  ; Skip spaces
+mtwdli
+skpspc             ; Skip spaces
+rdhxwd             ; Fetch value
+skpspc             ; Skip spaces
+skpspc  ; Skip spaces
+con_init_basic     ; Initialise console I/O in basic mode
+conwms       ; Print "*** " message
+conwmn      ; Print message <n> in a list
+conwms
+conwms
+conwms
+conwms
+conwms       ; Print " ***" message
+disp_regs
+dr_reg_set         ; Display AF, BC, DE and HL
+dr_reg_set         ; Display alternate set
+conwms             ; Print next part of text
+cwphwd             ; Print word
+conwms             ; Print next part of text
+cwphwd             ; Print word
+dr_16              ; Display and update pointers
+dr_16              ; Display and update pointers
+dr_8               ; Display and update pointers
+dr_8               ; Display and update pointers
+conwms             ; Print next part of text
+cwphnb             ; Print as a nibble
+cwnwln             ; Write new line characters to console
+conwms             ; Print next part of text
+cwpspc             ; Print a space
+cwphwd             ; Print word
+cwnwln             ; Write new line characters to console
+diproc             ; Disassemble instruction to intermediate form
+conwch             ; Write character
+diproc             ; Disassemble instruction to intermediate form
+diprnt             ; Print the result
+cwnwln             ; New line
+conwch             ; Write character
+diproc             ; Disassemble instruction to intermediate form
+diprnt             ; Print the result
+cwnwln             ; New line
+dr_8               ; Display A register
+conwms             ; Print next part of text
+conwch             ; Write character
+dr_16
+conwms             ; Print next part of text
+cwphby             ; Print byte
+conwms             ; Print next part of text
+cwphby             ; Print byte
+cwphby             ; Print byte
+itdis              ; Disable interrupts and keep count
+itena              ; Enable interrupts if safe
+read_rtc
+i2crd              ; Read from I2C device
+itdis    ; Disable interrupts and keep count
+itena     ; Enable interrupts if safe
+i2cwr              ; Write to I2C device
+madlbu             ; 32-bit / 8-bit unsigned divide
+madlbu             ; 32-bit / 8-bit unsigned divide
+madlbu             ; 32-bit / 8-bit unsigned divide
+panic          ; System panic if out of range
+madlbu             ; 32-bit / 8-bit unsigned divide
+leap_year
+panic          ; System panic if out of range
+leap_year
+panic          ; System panic if out of range
+check_dst
+leap_year
+leap_year
+mamlbu             ; 32-bit * 8-bit unsigned multiply
+mamlbu             ; 32-bit * 8-bit unsigned multiply
+mamlbu             ; 32-bit * 8-bit unsigned multiply
+cwpdby             ; Print hours in decimal
+conwch 
+cwpdby             ; Print minutes in decimal
+conwch 
+cwpdby             ; Print seconds in decimal
+cwpspc             ; Print a space
+conwmn             ; Print message <n> in a list
+cwpspc             ; Print a space
+cwpdby             ; Print day of month in decimal
+conwch 
+cwpdby             ; Print month in decimal
+conwch
+cwpdwd             ; Print year in decimal
+cwpspc             ; Print a space
+conwmn             ; Print message <n> in a list
+conwch
+conwch             ; Write character to console
+conwch             ; Write character to console
+cwphnb             ; Print MSN
+cwphby             ; Print MSB
+pdw_digit
+pdw_digit
+pdw_digit
+pdw_digit
+pdw_digit
+conwch
+pdl_digit
+pdl_digit
+pdl_digit
+pdl_digit
+pdl_digit
+pdl_digit
+conwch

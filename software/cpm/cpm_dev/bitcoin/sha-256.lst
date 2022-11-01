@@ -1,0 +1,1627 @@
+   1:				; *******************************************************
+   2:				; * SHA-256 Routines for CP/M                           *
+   3:				; * Version: V1.0                                       *
+   4:				; * Merlin Skinner, 16/9/2022                           *
+   5:				; *******************************************************
+   6:				;
+   7:				                title sha-256
+   8:				;
+   9:				;
+  10:				;
+  11:				; ************
+  12:				; * Includes *
+  13:				; ************
+  14:				;
+  15:				;
+  16:				                include "macros.i"
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//macros.i ****
+   1:				; ***********************************
+   2:				; * ZARC Macro Definitions          *
+   3:				; * Written by: Merlin Skinner      *
+   4:				; * Date Started: 30/7/2020         *
+   5:				; ***********************************
+   6:				;
+   7:				;
+   8:				;
+   9:				; **********
+  10:				; * Macros *
+  11:				; **********
+  12:				;
+  13:				;
+  14:				; Initialise enumeration.
+  15:				; The absolute segment is used so the offsets are not marked as relocatable. This
+  16:				; avoids "Not relocatable" errors.
+  17:				ENUM_START      macro
+  18:				                .aseg
+  19:				enum_counter    set 0
+  20:				                endm
+  21:				;
+  22:				; Invoke for each item.
+  23:				ENUM            macro x
+  24:				x               equ enum_counter
+  25:				enum_counter    set enum_counter + 1
+  26:				                endm
+  27:				;
+  28:				ENUM_END        macro x
+  29:				x               set enum_counter    ; Set label to count of items
+  30:				                .cseg
+  31:				                endm
+  32:				;
+  33:				;
+  34:				; Initialise a structure. This is used to generate offsets for data structures.
+  35:				; The absolute segment is used so the offsets are not marked as relocatable. This
+  36:				; avoids "Not relocatable" errors.
+  37:				STRUCT          macro
+  38:				                .aseg
+  39:				str_offset      set 0
+  40:				                endm
+  41:				;
+  42:				; Add a byte entry.
+  43:				STR_BYTE        macro x
+  44:				x               equ str_offset
+  45:				str_offset      set str_offset + 1
+  46:				                endm
+  47:				;
+  48:				; Add a word (16-bit) entry.
+  49:				STR_WORD        macro x
+  50:				x               equ str_offset
+  51:				str_offset      set str_offset + 2
+  52:				                endm
+  53:				;
+  54:				; Add a 3 byte (24-bit) entry.
+  55:				STR_24BIT       macro x
+  56:				x               equ str_offset
+  57:				str_offset      set str_offset + 3
+  58:				                endm
+  59:				;
+  60:				; Add a long (32-bit) entry.
+  61:				STR_LONG        macro x
+  62:				x               equ str_offset
+  63:				str_offset      set str_offset + 4
+  64:				                endm
+  65:				;
+  66:				; Add an arbitrary length entry.
+  67:				STR_BLOCK       macro x, size   ; <name>, <size>
+  68:				x               equ str_offset
+  69:				str_offset      set str_offset + size
+  70:				                endm
+  71:				;
+  72:				; End of structure (used to set size)
+  73:				STR_END         macro x
+  74:				x               equ str_offset
+  75:				                .cseg
+  76:				                endm
+  77:				;
+  78:				;
+  79:				; Calculate offsets into jump tables.
+  80:				; The absolute segment is used so the offsets are not marked as relocatable. This
+  81:				; avoids "Not relocatable" errors.
+  82:				JPTBL_START     macro x
+  83:				                .aseg
+  84:				jptbl_addr      set x               ; Set start address
+  85:				                endm
+  86:				;
+  87:				; Invoke for each item.
+  88:				JPTBL_ENTRY     macro x
+  89:				x               equ jptbl_addr
+  90:				jptbl_addr      set jptbl_addr + 3
+  91:				                endm
+  92:				;
+  93:				; Invoke for a data block in the jump table
+  94:				JPTBL_BLOCK     macro x, size   ; <name>, <size>
+  95:				x               equ jptbl_addr
+  96:				jptbl_addr      set jptbl_addr + size
+  97:				                endm
+  98:				;
+  99:				JPTBL_END       macro x
+ 100:				x               set jptbl_addr      ; Set label to next address
+ 101:				                .cseg
+ 102:				                endm
+ 103:				;
+ 104:				;
+ 105:				; Define bits and masks. This is inspired by the Commodore Amiga BITDEF mechanism.
+ 106:				; Given:
+ 107:				; BITDEF I2C_CSR_STOP, 2
+ 108:				; Yields:
+ 109:				; I2C_CSR_STOP_BIT  EQU 2       ; Bit number
+ 110:				; I2C_CSR_STOP_MASK EQU 1<<2    ; Bit mask
+ 111:				BITDEF          macro n, b      ; <Name>, <bit>
+ 112:				n`_BIT          equ b
+ 113:				n`_MASK         equ 1 << b
+ 114:				                endm
+ 115:				;
+ 116:				;
+ 117:				; Force alignment. This asserts an appropriate number of zero bytes to achieve
+ 118:				; the required alignment. Note that these macros cannot work for relocatable
+ 119:				; files.
+ 120:				; 16-bit
+ 121:				ALIGN_WORD      macro
+ 122:				                if $ and 1
+ 123:				                    byte 0
+ 124:				                endif
+ 125:				                endm
+ 126:				;
+ 127:				; 32-bit
+ 128:				ALIGN_LONG      macro
+ 129:				                ALIGN_WORD
+ 130:				                if $ and 2
+ 131:				                    byte 0, 0
+ 132:				                endif
+ 133:				                endm
+ 134:				
+**** sha-256.z80 ****
+  17:				;                include "cpm.i"
+  18:				                include "bitcoin.i"     ; Project include file
+**** bitcoin.i ****
+   1:				; *******************************************************
+   2:				; * Bitcoin Mining for CP/M                             *
+   3:				; * Include file                                        *
+   4:				; * Written by: Merlin Skinner                          *
+   5:				; * Date Started: 5/9/2022                              *
+   6:				; *******************************************************
+   7:				;
+   8:				;
+   9:				;
+  10:				; *************
+  11:				; * Constants *
+  12:				; *************
+  13:				;
+  14:				;
+  15:				;DEBUG           equ 1                   ; Define to enable debug messages
+  16:				;
+  17:     -	0040'         	STACK_SIZE      equ 64                  ; Stack space allocation
+  18:     -	0003'         	BREAK_CHAR      equ 'C' - 0x40
+  19:				;
+  20:     -	07D0'         	MSG_PERIOD      equ 2 * 1000            ; Time between messages in ms (ZARC)
+  21:     -	001F'         	MSG_REP_MASK    equ 32 - 1              ; Iteration report mask
+  22:				; MSG_REP_MASK must be 2^n - 1, where n is a positive integer. Reports will
+  23:				; occur every 2^n iterations.
+  24:     -	0200'         	SH2_CHUNK_BITS  equ 512                 ; SHA-2 chunk size in bits
+  25:     -	0040'         	SH2_CHUNK_BYTES equ (SH2_CHUNK_BITS / 8) ; Above in bytes
+  26:     -	0010'         	SH2_CHUNK_LONGS equ (SH2_CHUNK_BYTES / 4) ; Above in 32-bit words
+  27:     -	0100'         	SH2_DIGEST_BITS equ 256                 ; SHA-2 digest size in bits
+  28:     -	0020'         	SH2_DIGEST_BYTES equ (SH2_DIGEST_BITS / 8) ; Above in bytes
+  29:				;
+  30:				; Block header structure.
+  31:     -	        	                STRUCT
+  32:     -	        	                STR_LONG BH_VER         ; Bitcoin version number
+  33:     -	        	                STR_BLOCK BH_PREV_HASH, 32  ; Previous block hash
+  34:     -	        	                STR_BLOCK BH_MERKLE, 32 ; Merkle root
+  35:     -	        	                STR_LONG BH_TIME_STAMP  ; Bitcoin version number
+  36:     -	        	                STR_LONG BH_DIFFICULTY  ; Difficulty target for the block
+  37:     -	        	                STR_LONG BH_NONCE
+  38:     -	        	                STR_END BH_SIZE
+  39:				;
+  40:     -	0001'         	                assert BH_SIZE = 80
+  41:				;
+  42:				; From https://developer.bitcoin.org/reference/block_chain.html
+  43:				; The hashes are in internal byte order; the other values are all in
+  44:				; little-endian order.
+  45:				;
+  46:				;
+**** sha-256.z80 ****
+  19:				                include "cpm_utility.i" ; CP/M utilities
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//cpm_utility.i ****
+   1:				; *******************************************************
+   2:				; * Utility Routines for CP/M Applications              *
+   3:				; * Version: V1.0                                       *
+   4:				; * Merlin Skinner, 16/12/2021                          *
+   5:				; *******************************************************
+   6:				;
+   7:				; Note that ld80 only considers the first six characters of labels significant.
+   8:				;
+   9:     -	0001'         	            ifndef CPMU         ; Inhibit for this module
+  10:				; CP/M specific.
+  11:				                extern cbdos    ; Call BDOS with some registers saved
+  12:				                extern cbios    ; Call BIOS with some registers saved
+  13:				                extern panic    ; Fatal application error
+  14:				                extern zrcdet   ; Detect ZARC
+  15:				                extern z80det   ; Detect Z80 (instead of 8080 / 8085)
+  16:				;
+  17:				; Derived from the monitor's utility.z80.
+  18:				                extern conwch   ; Write character to console
+  19:				                extern conrch   ; Read character from the console
+  20:				                extern const    ; Fetch console input status
+  21:				                extern cwnwln   ; Write new line characters to console
+  22:				                extern conwms   ; Print "$" terminated string to the console
+  23:				                extern conwmn   ; Print message <n> in a list
+  24:				                extern skpspc   ; Step hl past spaces
+  25:				                extern toupca   ; Convert character in A to upper case
+  26:				                extern toloca   ; Convert character in A to lower case
+  27:				                extern cwvich   ; Print only visible 7-bit characters
+  28:				                extern cwpspc   ; Print a space
+  29:				                extern mtwdli   ; Match word in a string against list of options
+  30:				                extern cwphnb   ; Print least-significant nibble in A in hexadecimal
+  31:				                extern cwphby   ; Print A in hexadecimal
+  32:				                extern cwphwd   ; Print HL in hexadecimal
+  33:				                extern cwpdwd   ; Print HL in decimal. Leading zeros are suppressed
+  34:				                extern cwpdby   ; Print A in decimal. Leading zeros are suppressed
+  35:				                extern cwpdwd   ; Print HL in decimal. Leading zeros are suppressed
+  36:				                extern cwpdlo   ; Print DEHL in decimal. Leading zeros are suppressed
+  37:				                extern rdhxwd   ; Read a 16-bit hexadecimal number from a string
+  38:				                extern rdduwd   ; Read a 16-bit unsigned decimal number from a string
+  39:				                extern rddulo   ; Read a 32-bit unsigned decimal number from a string
+  40:				;
+  41:				            endif
+  42:				;
+  43:				;
+  44:				; mtwdli (match word in a string against list of options) option bits. Each bit
+  45:				; has the described effect if set.
+  46:     -	        	BITDEF MTWDLI_ABBREV, 0                 ; Enable "." abbreviation
+  47:     -	        	BITDEF MTWDLI_ICASE, 1                  ; Ignore case when matching
+  48:     -	        	BITDEF MTWDLI_TERM, 7                   ; Terminator found (internal use only)
+  49:				
+**** sha-256.z80 ****
+  20:				                include "cpm_maths.i"   ; Integer mathematics
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//cpm_maths.i ****
+   1:				; *******************************************************
+   2:				; * Mathematical Routines for CP/M Applications         *
+   3:				; * Version: V1.0                                       *
+   4:				; * Merlin Skinner, 10/9/2022                           *
+   5:				; *******************************************************
+   6:				;
+   7:				; Note that ld80 only considers the first six characters of labels significant.
+   8:				;
+   9:     -	0001'         	            ifndef CPMM         ; Inhibit for this module
+  10:				; CP/M specific.
+  11:				; 32-bit arithmetic.
+  12:				                extern mclr32       ; 32-bit clear (zero)
+  13:				                extern mcop32       ; 32-bit copy from (hl) to (de)
+  14:				                extern minc32       ; 32-bit increment
+  15:				                extern mcp32        ; 32-bit compare (hl) - (de)
+  16:				                extern madd32       ; 32-bit add (hl) <- (hl) + (de)
+  17:				                extern msub32       ; 32-bit sub (hl) <- (hl) - (de)
+  18:				;
+  19:				; Derived from the monitor's maths.z80.
+  20:				                extern madlbu       ; 32-bit / 8-bit unsigned divide
+  21:				                extern madwbu       ; 16-bit / 8-bit unsigned divide
+  22:				                extern madbbu       ; 8-bit / 8-bit unsigned divide
+  23:				                extern mamwwu       ; 16-bit * 16-bit unsigned multiply
+  24:				                extern mamlbu       ; 32-bit * 8-bit unsigned multiply
+  25:				                extern crc16x       ; Software CRC-16 (XMODEM)
+  26:				;
+  27:				            endif
+  28:				;
+**** sha-256.z80 ****
+  21:				;
+  22:				;
+  23:				;
+  24:				; *************
+  25:				; * Externals *
+  26:				; *************
+  27:				;
+  28:				;
+  29:				; Variables
+  30:				;                extern zrcflg   ; Non-zero if on a ZARC system
+  31:				;                extern brkflg   ; Non-zero if break character detected
+  32:				;
+  33:				; Functions
+  34:				                public sh2ini   ; Initialise sha-256 state
+  35:				                public sh2m     ; Process a message in memory
+  36:				                public sh2dh    ; Display hash value
+  37:				;
+  38:				;
+  39:				                cseg                    ; Code segment
+  40:				;
+  41:				;
+  42:				;
+  43:				; ***************
+  44:				; * Subroutines *
+  45:				; ***************
+  46:				;
+  47:				;
+  48:				; Initialise sha-256 state
+  49:    0+11	0000' C5      	sh2ini          push bc
+  50:   11+11	0001' D5      	                push de
+  51:   22+11	0002' E5      	                push hl
+  52:				;
+  53:				; Initialize hash values.
+  54:   33+10	0003' 210905  	                ld hl, hash_init_data   ; Source
+  55:   43+10	0006' 114601  	                ld de, reg_h0           ; Destination
+  56:   53+10	0009' 012000  	                ld bc, 8 * 4            ; Copy 8 32-bit values
+  57:   63+16+5	000C' EDB0    	                ldir
+  58:				;
+  59:   79+10	000E' E1      	                pop hl
+  60:   89+10	000F' D1      	                pop de
+  61:   99+10	0010' C1      	                pop bc
+  62:  109+10	0011' C9      	                ret
+  63:				;
+  64:				;
+  65:				; Process a message in memory using the sha-256 algorithm. Call with:
+  66:				; BC - overall message length in bytes
+  67:				; HL - pointer to message
+  68:				; Returns with:
+  69:				; HL - pointer to hash (h0 to h7)
+  70:  119+11	0012' D5      	sh2m            push de
+  71:				;
+  72:  130+16	0013' 220001  	                ld (message_ptr), hl
+  73:  146+20	0016' ED430201	                ld (msg_total_len), bc  ; Overall message length in bytes
+  74:  166+20	001A' ED430401	                ld (msg_remain_len), bc ; Remaining message length in bytes
+  75:				;
+  76:				; Process each complete 512 bit chunk in turn.
+  77:  186+16	001E' 2A0401  	sh2m_chunk_loop ld hl, (msg_remain_len) ; Fetch remaining length
+  78:  202+10	0021' 114000  	                ld de, SH2_CHUNK_BYTES
+  79:  212+4	0024' A7      	                and a
+  80:  216+15	0025' ED52    	                sbc hl, de
+  81:				; Exit if there are not at least 512 bits of data to process. This does not
+  82:				; include the additional bits we must append.
+  83:  231+7+5	0027' 3833    	                jr c, sh2m_compl_done
+  84:				;
+  85:				; Prepare the chunk. This will involve endian conversion, as the algorithm
+  86:				; assumes big-endian.
+  87:  238+16	0029' 2A0001  	                ld hl, (message_ptr)
+  88:  254+10	002C' 110601  	                ld de, chunk            ; Chunk buffer (512 bits)
+  89:  264+7	002F' 0E10    	                ld c, SH2_CHUNK_LONGS   ; Word count
+  90:  271+7	0031' 0604    	cc_word_loop    ld b, 4
+  91:  278+6	0033' 13      	                inc de                  ; Advance to end of word
+  92:  284+6	0034' 13      	                inc de
+  93:  290+6	0035' 13      	                inc de
+  94:  296+11	0036' D5      	                push de
+  95:  307+7	0037' 7E      	cc_byte_loop    ld a, (hl)
+  96:  314+7	0038' 12      	                ld (de), a
+  97:  321+6	0039' 23      	                inc hl
+  98:  327+6	003A' 1B      	                dec de
+  99:  333+8+5	003B' 10FA    	                djnz cc_byte_loop
+ 100:  341+10	003D' D1      	                pop de
+ 101:  351+6	003E' 13      	                inc de                  ; Point to next destination word
+ 102:  357+4	003F' 0D      	                dec c
+ 103:  361+7+5	0040' 20EF    	                jr nz, cc_word_loop
+ 104:  368+16	0042' 220001  	                ld (message_ptr), hl    ; Update pointer
+ 105:				;
+ 106:  384+10	0045' 210601  	                ld hl, chunk            ; Chunk buffer (512 bits)
+ 107:  394+17	0048' CD2501  	                call sh2_chunk
+ 108:				;
+ 109:				; Reduce length by 512 bits.
+ 110:  411+16	004B' 2A0401  	                ld hl, (msg_remain_len) ; Fetch remaining length
+ 111:  427+10	004E' 114000  	                ld de, SH2_CHUNK_BYTES
+ 112:  437+4	0051' A7      	                and a
+ 113:  441+15	0052' ED52    	                sbc hl, de
+ 114:  456+10+7	0054' DC0000  	                call c, panic           ; Earlier test should prevent panic
+ 115:  466+16	0057' 220401  	                ld (msg_remain_len), hl
+ 116:				;
+ 117:  482+12	005A' 18C2    	                jr sh2m_chunk_loop      ; Do next chunk
+ 118:				;
+ 119:				; We have less than 512 bits of original data to process.
+ 120:				; Pre-processing (Padding):
+ 121:				; begin with the original message of length L bits
+ 122:				; append a single '1' bit
+ 123:				; append K '0' bits, where K is the minimum number >= 0 such that
+ 124:				; (L + 1 + K + 64) is a multiple of 512
+ 125:				; append L as a 64-bit big-endian integer, making the total post-processed
+ 126:				; length a multiple of 512 bits such that the bits in the message are:
+ 127:				; <original message of length L> 1 <K zeros> <L as 64 bit integer>
+ 128:				; Copy what we have to the chunk buffer. This will involve endian conversion,
+ 129:				; as the algorithm assumes big-endian.
+ 130:  494+16	005C' 2A0001  	sh2m_compl_done ld hl, (message_ptr)
+ 131:  510+10	005F' 110601  	                ld de, chunk            ; Chunk buffer (512 bits)
+ 132:  520+20	0062' ED4B0401	                ld bc, (msg_remain_len) ; Fetch remaining length
+ 133:  540+4	0066' 78      	                ld a, b
+ 134:  544+4	0067' A7      	                and a
+ 135:  548+10+7	0068' C40000  	                call nz, panic          ; Panic if length > 255 bytes
+ 136:				; C - remaining length in bytes
+ 137:				; DE - pointer to chunk buffer
+ 138:				; HL - pointer to next byte in message
+ 139:  558+7	006B' 0604    	pc_word_loop    ld b, 4
+ 140:  565+6	006D' 13      	                inc de                  ; Advance to end of word
+ 141:  571+6	006E' 13      	                inc de
+ 142:  577+6	006F' 13      	                inc de
+ 143:  583+11	0070' D5      	                push de
+ 144:  594+4	0071' 79      	pc_byte_loop    ld a, c
+ 145:  598+4	0072' A7      	                and a
+ 146:  602+7+5	0073' 280B    	                jr z, pc_cpy_done       ; Exit if all done
+ 147:  609+7	0075' 7E      	                ld a, (hl)
+ 148:  616+7	0076' 12      	                ld (de), a
+ 149:  623+6	0077' 23      	                inc hl
+ 150:  629+6	0078' 1B      	                dec de
+ 151:  635+4	0079' 0D      	                dec c
+ 152:  639+8+5	007A' 10F5    	                djnz pc_byte_loop
+ 153:  647+10	007C' D1      	                pop de
+ 154:  657+6	007D' 13      	                inc de                  ; Point to next destination word
+ 155:  663+12	007E' 18EB    	                jr pc_word_loop
+ 156:  675+6	0080' 33      	pc_cpy_done     inc sp                  ; Discard pointer to start of long
+ 157:  681+6	0081' 33      	                inc sp
+ 158:				; DE - pointer to next free byte in chunk buffer
+ 159:				; Calculate how much space remains in the buffer.
+ 160:  687+11	0082' D5      	                push de
+ 161:  698+10	0083' 214000  	                ld hl, SH2_CHUNK_BYTES
+ 162:  708+20	0086' ED5B0401	                ld de, (msg_remain_len)
+ 163:  728+4	008A' A7      	                and a
+ 164:  732+15	008B' ED52    	                sbc hl, de
+ 165:  747+10+7	008D' DC0000  	                call c, panic
+ 166:				; HL - remaining space in buffer. The maximum value is 0x0040, so H should be
+ 167:				; zero.
+ 168:  757+4	0090' 7C      	                ld a, h
+ 169:  761+4	0091' A7      	                and a
+ 170:  765+10+7	0092' C40000  	                call nz, panic
+ 171:  775+10	0095' D1      	                pop de
+ 172:				; There must be space for the single "1" bit and associated pads in the byte
+ 173:				; otherwise we would have been able to send another complete chunk earlier.
+ 174:  785+7	0096' 3E80    	                ld a, 0x80
+ 175:  792+7	0098' 12      	                ld (de), a              ; Insert "1" bit and some pads
+ 176:  799+17	0099' CD1401  	                call chunk_adv_de       ; Advance DE allowing for endianness
+ 177:  816+4	009C' 2D      	                dec l                   ; One more byte used
+ 178:				; Is there space for the length?
+ 179:  820+4	009D' 7D      	                ld a, l
+ 180:  824+7	009E' FE08    	                cp 8                    ; 8 byte length
+ 181:  831+7+5	00A0' 3854    	                jr c, sh2m_no_space     ; Jump if no room for length
+ 182:				; Insert pads until we have just sufficient space for the length.
+ 183:				; Also goes here from sh2m_no_space.
+ 184:  838+4	00A2' 7D      	sh2m_pad_loop   ld a, l
+ 185:  842+7	00A3' FE08    	                cp 8
+ 186:  849+7+5	00A5' 2808    	                jr z, sh2m_length
+ 187:  856+4	00A7' AF      	                xor a
+ 188:  860+7	00A8' 12      	                ld (de), a
+ 189:  867+17	00A9' CD1401  	                call chunk_adv_de       ; Advance DE allowing for endianness
+ 190:  884+4	00AC' 2D      	                dec l
+ 191:  888+12	00AD' 18F3    	                jr sh2m_pad_loop
+ 192:				; Insert length in bits as a 64-bit big-endian integer.
+ 193:  900+16	00AF' 2A0201  	sh2m_length     ld hl, (msg_total_len)  ; Overall message length in bytes
+ 194:				; Convert to bits in CHL.
+ 195:  916+7	00B2' 0E00    	                ld c, 0
+ 196:  923+4	00B4' A7      	                and a                   ; x 2
+ 197:  927+8	00B5' CB15    	                rl l
+ 198:  935+8	00B7' CB14    	                rl h
+ 199:  943+8	00B9' CB11    	                rl c
+ 200:  951+4	00BB' A7      	                and a                   ; x 4
+ 201:  955+8	00BC' CB15    	                rl l
+ 202:  963+8	00BE' CB14    	                rl h
+ 203:  971+8	00C0' CB11    	                rl c
+ 204:  979+4	00C2' A7      	                and a                   ; x 8
+ 205:  983+8	00C3' CB15    	                rl l
+ 206:  991+8	00C5' CB14    	                rl h
+ 207:  999+8	00C7' CB11    	                rl c
+ 208:				; CHL - message length in bits.
+ 209:				; DE - pointer to next free byte in chunk buffer
+ 210:				; Write length in bits as a 64-bit big-endian integer.
+ 211: 1007+4	00C9' AF      	                xor a
+ 212: 1011+7	00CA' 12      	                ld (de), a
+ 213: 1018+17	00CB' CD1401  	                call chunk_adv_de       ; Advance DE allowing for endianness
+ 214: 1035+4	00CE' AF      	                xor a
+ 215: 1039+7	00CF' 12      	                ld (de), a
+ 216: 1046+17	00D0' CD1401  	                call chunk_adv_de       ; Advance DE allowing for endianness
+ 217: 1063+4	00D3' AF      	                xor a
+ 218: 1067+7	00D4' 12      	                ld (de), a
+ 219: 1074+17	00D5' CD1401  	                call chunk_adv_de       ; Advance DE allowing for endianness
+ 220: 1091+4	00D8' AF      	                xor a
+ 221: 1095+7	00D9' 12      	                ld (de), a
+ 222: 1102+17	00DA' CD1401  	                call chunk_adv_de       ; Advance DE allowing for endianness
+ 223: 1119+4	00DD' AF      	                xor a
+ 224: 1123+7	00DE' 12      	                ld (de), a
+ 225: 1130+17	00DF' CD1401  	                call chunk_adv_de       ; Advance DE allowing for endianness
+ 226: 1147+4	00E2' 79      	                ld a, c
+ 227: 1151+7	00E3' 12      	                ld (de), a
+ 228: 1158+17	00E4' CD1401  	                call chunk_adv_de       ; Advance DE allowing for endianness
+ 229: 1175+4	00E7' 7C      	                ld a, h
+ 230: 1179+7	00E8' 12      	                ld (de), a
+ 231: 1186+17	00E9' CD1401  	                call chunk_adv_de       ; Advance DE allowing for endianness
+ 232: 1203+4	00EC' 7D      	                ld a, l
+ 233: 1207+7	00ED' 12      	                ld (de), a
+ 234:				;
+ 235:				; Process this final chunk, then exit.
+ 236: 1214+10	00EE' 210601  	                ld hl, chunk            ; Chunk buffer (512 bits)
+ 237: 1224+17	00F1' CD2501  	                call sh2_chunk
+ 238: 1241+12	00F4' 1819    	                jr sh2m_exit
+ 239:				;
+ 240:				; Go here if there is free space, but not sufficient for the length. Insert pads
+ 241:				; until the chunk is full.
+ 242: 1253+4	00F6' 7D      	sh2m_no_space   ld a, l
+ 243: 1257+4	00F7' A7      	                and a
+ 244: 1261+7+5	00F8' 2808    	                jr z, sh2m_pad_exit
+ 245: 1268+4	00FA' AF      	                xor a
+ 246: 1272+7	00FB' 12      	                ld (de), a
+ 247: 1279+17	00FC' CD1401  	                call chunk_adv_de       ; Advance DE allowing for endianness
+ 248: 1296+4	00FF' 2D      	                dec l
+ 249: 1300+12	0100' 18F4    	                jr sh2m_no_space
+ 250:				; Process this chunk.
+ 251: 1312+10	0102' 210601  	sh2m_pad_exit   ld hl, chunk            ; Chunk buffer (512 bits)
+ 252: 1322+17	0105' CD2501  	                call sh2_chunk
+ 253:				;
+ 254:				; Another chunk is required. This one will contain only the length.
+ 255: 1339+10	0108' 110901  	                ld de, chunk + 3        ; Chunk buffer (512 bits)
+ 256: 1349+7	010B' 2E40    	                ld l, SH2_CHUNK_BYTES   ; Buffer is empty
+ 257: 1356+12	010D' 1893    	                jr sh2m_pad_loop
+ 258:				;
+ 259: 1368+10	010F' 214601  	sh2m_exit       ld hl, reg_h0           ; Point to hash
+ 260:				;
+ 261: 1378+10	0112' D1      	                pop de
+ 262: 1388+10	0113' C9      	                ret
+ 263:				;
+ 264:				; Advance DE as a pointer to the chunk buffer allowing for endian conversion.
+ 265: 1398+4	0114' 7B      	chunk_adv_de    ld a, e
+ 266: 1402+7	0115' D606    	                sub low chunk           ; Allow for start address
+ 267: 1409+7	0117' E603    	                and 3
+ 268: 1416+7+5	0119' 2802    	                jr z, cad_new_word
+ 269: 1423+6	011B' 1B      	                dec de
+ 270: 1429+10	011C' C9      	                ret
+ 271:				; Start a new word. We need to advance from the beginning of the current word
+ 272:				; to the end of the next one.
+ 273: 1439+6	011D' 13      	cad_new_word    inc de
+ 274: 1445+6	011E' 13      	                inc de
+ 275: 1451+6	011F' 13      	                inc de
+ 276: 1457+6	0120' 13      	                inc de
+ 277: 1463+6	0121' 13      	                inc de
+ 278: 1469+6	0122' 13      	                inc de
+ 279: 1475+6	0123' 13      	                inc de
+ 280: 1481+10	0124' C9      	                ret
+ 281:				
+ 282:				;
+ 283:				;
+ 284:				; Process a 512-bit (64-byte) chunk using the sha-256 algorithm. Call with:
+ 285:				; HL - pointer to chunk (512 bits / 64 bytes)
+ 286:				; Returns with:
+ 287:				; HL - pointer to hash (h0 to h7) as 8 x 32-bit little endian words.
+ 288: 1491+11	0125' C5      	sh2_chunk       push bc
+ 289: 1502+11	0126' D5      	                push de
+ 290: 1513+15	0127' DDE5    	                push ix
+ 291: 1528+15	0129' FDE5    	                push iy
+ 292:				;
+ 293:				; Copy chunk into first 16 words w[0..15] of the message schedule array
+ 294: 1543+10	012B' 110000  	                ld de, w_array
+ 295: 1553+10	012E' 014000  	                ld bc, 4 * 16
+ 296: 1563+16+5	0131' EDB0    	                ldir
+ 297:				;
+ 298:				; Extend the first 16 words into the remaining 48 words w[16..63] of the message
+ 299:				; schedule array.
+ 300:				;    for i from 16 to 63
+ 301: 1579+7	0133' 0630    	                ld b, 48                ; Loop counter
+ 302: 1586+14	0135' DD214000	                ld ix, w_array + (16 * 4)   ; Point to w[i]
+ 303:				;
+ 304:				; Find various rotated and shifted versions of w[i-15] for later.
+ 305:				; Find w[i-15] rotated right by 7 (wim15_rr7). This is achieved by rotating
+ 306:				; right by 8 (one byte) then left by one bit.
+ 307:				; Load into BCDE rotated by 8.
+ 308: 1600+11	0139' C5      	extend_loop     push bc                 ; Save counter
+ 309:				;
+ 310: 1611+19	013A' DD46C4  	                ld b, (ix + (4 * -15) + 0)  ; LS byte
+ 311: 1630+19	013D' DD5EC5  	                ld e, (ix + (4 * -15) + 1)
+ 312: 1649+19	0140' DD56C6  	                ld d, (ix + (4 * -15) + 2)
+ 313: 1668+19	0143' DD4EC7  	                ld c, (ix + (4 * -15) + 3)  ; MS byte
+ 314:				; Rotate left.
+ 315: 1687+4	0146' 78      	                ld a, b
+ 316: 1691+4	0147' 17      	                rla                     ; Put MS bit into carry
+ 317: 1695+8	0148' CB13    	                rl e
+ 318: 1703+8	014A' CB12    	                rl d
+ 319: 1711+8	014C' CB11    	                rl c
+ 320: 1719+8	014E' CB10    	                rl b
+ 321:				; Store the result.
+ 322: 1727+10	0150' 218601  	                ld hl, wim15_rr7
+ 323: 1737+7	0153' 73      	                ld (hl), e
+ 324: 1744+6	0154' 23      	                inc hl
+ 325: 1750+7	0155' 72      	                ld (hl), d
+ 326: 1757+6	0156' 23      	                inc hl
+ 327: 1763+7	0157' 71      	                ld (hl), c
+ 328: 1770+6	0158' 23      	                inc hl
+ 329: 1776+7	0159' 70      	                ld (hl), b
+ 330:				;
+ 331:				; Find w[i-15] rotated right by 18 (wim15_rr18). This is achieved by rotating
+ 332:				; right by two, then right by 16 (two bytes).
+ 333:				; Load into BCDE rotated by 8.
+ 334: 1783+19	015A' DD5EC4  	                ld e, (ix + (4 * -15) + 0)  ; LS byte
+ 335: 1802+19	015D' DD56C5  	                ld d, (ix + (4 * -15) + 1)
+ 336: 1821+19	0160' DD4EC6  	                ld c, (ix + (4 * -15) + 2)
+ 337: 1840+19	0163' DD46C7  	                ld b, (ix + (4 * -15) + 3)  ; MS byte
+ 338:				; Rotate right.
+ 339: 1859+4	0166' 7B      	                ld a, e
+ 340: 1863+4	0167' 1F      	                rra                     ; Put LS bit into carry
+ 341: 1867+8	0168' CB18    	                rr b
+ 342: 1875+8	016A' CB19    	                rr c
+ 343: 1883+8	016C' CB1A    	                rr d
+ 344: 1891+8	016E' CB1B    	                rr e
+ 345:				; Once again.
+ 346: 1899+4	0170' 7B      	                ld a, e
+ 347: 1903+4	0171' 1F      	                rra                     ; Put LS bit into carry
+ 348: 1907+8	0172' CB18    	                rr b
+ 349: 1915+8	0174' CB19    	                rr c
+ 350: 1923+8	0176' CB1A    	                rr d
+ 351: 1931+8	0178' CB1B    	                rr e
+ 352:				; Save w[i-15] rr 2 for later use.
+ 353: 1939+11	017A' C5      	                push bc
+ 354: 1950+11	017B' D5      	                push de
+ 355:				; Store the result, swapping bytes to achieve the rotate right by 16 bits.
+ 356: 1961+10	017C' 218A01  	                ld hl, wim15_rr18
+ 357: 1971+7	017F' 71      	                ld (hl), c
+ 358: 1978+6	0180' 23      	                inc hl
+ 359: 1984+7	0181' 70      	                ld (hl), b
+ 360: 1991+6	0182' 23      	                inc hl
+ 361: 1997+7	0183' 73      	                ld (hl), e
+ 362: 2004+6	0184' 23      	                inc hl
+ 363: 2010+7	0185' 72      	                ld (hl), d
+ 364:				;
+ 365:				; Find w[i-15] shifted right by 3 (wim15_rs3). This is achieved by using the
+ 366:				; previously saved w[i-15] rr 2, rotating by a further bit and discarding the
+ 367:				; upper three bits.
+ 368: 2017+10	0186' D1      	                pop de                  ; Recover w[i-15] rr 2
+ 369: 2027+10	0187' C1      	                pop bc
+ 370:				; Rotate right.
+ 371: 2037+4	0188' 7B      	                ld a, e
+ 372: 2041+4	0189' 1F      	                rra                     ; Put LS bit into carry
+ 373: 2045+8	018A' CB18    	                rr b
+ 374: 2053+8	018C' CB19    	                rr c
+ 375: 2061+8	018E' CB1A    	                rr d
+ 376: 2069+8	0190' CB1B    	                rr e
+ 377:				; Discard the upper three bits as we need a shift, not a rotate.
+ 378: 2077+7	0192' 3E1F    	                ld a, 0x1f
+ 379: 2084+4	0194' A0      	                and b
+ 380:				; Store the result (currently in ACDE)
+ 381: 2088+10	0195' 218E01  	                ld hl, wim15_rs3
+ 382: 2098+7	0198' 73      	                ld (hl), e
+ 383: 2105+6	0199' 23      	                inc hl
+ 384: 2111+7	019A' 72      	                ld (hl), d
+ 385: 2118+6	019B' 23      	                inc hl
+ 386: 2124+7	019C' 71      	                ld (hl), c
+ 387: 2131+6	019D' 23      	                inc hl
+ 388: 2137+7	019E' 77      	                ld (hl), a
+ 389:				;
+ 390:				;        s0 := (w[i-15] rightrotate 7) xor (w[i-15] rightrotate 18) xor
+ 391:				;           (w[i-15] rightshift  3)
+ 392: 2144+15	019F' DDE5    	                push ix                 ; Save w array index
+ 393: 2159+10	01A1' 218601  	                ld hl, wim15_rr7
+ 394: 2169+14	01A4' DD218A01	                ld ix, wim15_rr18
+ 395: 2183+14	01A8' FD218E01	                ld iy, wim15_rs3
+ 396: 2197+10	01AC' 11B701  	                ld de, reg_s0
+ 397: 2207+7	01AF' 0604    	                ld b, 4
+ 398: 2214+7	01B1' 7E      	ext_s0_loop     ld a, (hl)
+ 399: 2221+19	01B2' DDAE00  	                xor (ix)
+ 400: 2240+19	01B5' FDAE00  	                xor (iy)
+ 401: 2259+7	01B8' 12      	                ld (de), a              ; Save result
+ 402: 2266+6	01B9' 23      	                inc hl
+ 403: 2272+10	01BA' DD23    	                inc ix
+ 404: 2282+10	01BC' FD23    	                inc iy
+ 405: 2292+6	01BE' 13      	                inc de
+ 406: 2298+8+5	01BF' 10F0    	                djnz ext_s0_loop
+ 407: 2306+14	01C1' DDE1    	                pop ix                  ; Restore w array index
+ 408:				;
+ 409:				; Find various rotated and shifted versions of w[i-2] for later.
+ 410:				; Find w[i-2] rotated right by 17 (wim2_rr17). This is achieved by rotating
+ 411:				; right by one then right by 16 bits (two bytes).
+ 412:				; Load into BCDE.
+ 413: 2320+19	01C3' DD5EF8  	                ld e, (ix + (4 * -2) + 0)   ; LS byte
+ 414: 2339+19	01C6' DD56F9  	                ld d, (ix + (4 * -2) + 1)
+ 415: 2358+19	01C9' DD4EFA  	                ld c, (ix + (4 * -2) + 2)
+ 416: 2377+19	01CC' DD46FB  	                ld b, (ix + (4 * -2) + 3)   ; MS byte
+ 417:				; Rotate right.
+ 418: 2396+4	01CF' 7B      	                ld a, e
+ 419: 2400+4	01D0' 1F      	                rra                     ; Put LS bit into carry
+ 420: 2404+8	01D1' CB18    	                rr b
+ 421: 2412+8	01D3' CB19    	                rr c
+ 422: 2420+8	01D5' CB1A    	                rr d
+ 423: 2428+8	01D7' CB1B    	                rr e
+ 424:				; Save w[i-2] rr 1 for later use.
+ 425: 2436+11	01D9' C5      	                push bc
+ 426: 2447+11	01DA' D5      	                push de
+ 427:				; Store the result, swapping bytes to achieve the rotate right by 16 bits.
+ 428: 2458+10	01DB' 219201  	                ld hl, wim2_rr17
+ 429: 2468+7	01DE' 71      	                ld (hl), c
+ 430: 2475+6	01DF' 23      	                inc hl
+ 431: 2481+7	01E0' 70      	                ld (hl), b
+ 432: 2488+6	01E1' 23      	                inc hl
+ 433: 2494+7	01E2' 73      	                ld (hl), e
+ 434: 2501+6	01E3' 23      	                inc hl
+ 435: 2507+7	01E4' 72      	                ld (hl), d
+ 436:				;
+ 437:				; Find w[i-2] rotated right by 19 (wim2_rr19). This is achieved by using the
+ 438:				; previously calculated w[i-2] rr 1 value, rotating right by two bits and
+ 439:				; then rotating by right by 16 (two bytes).
+ 440: 2514+10	01E5' D1      	                pop de                  ; Recover w[i-2] rr 1
+ 441: 2524+10	01E6' C1      	                pop bc
+ 442:				; Rotate right.
+ 443: 2534+4	01E7' 7B      	                ld a, e
+ 444: 2538+4	01E8' 1F      	                rra                     ; Put LS bit into carry
+ 445: 2542+8	01E9' CB18    	                rr b
+ 446: 2550+8	01EB' CB19    	                rr c
+ 447: 2558+8	01ED' CB1A    	                rr d
+ 448: 2566+8	01EF' CB1B    	                rr e
+ 449:				; Save w[i-2] rr 2 for later use.
+ 450: 2574+11	01F1' C5      	                push bc
+ 451: 2585+11	01F2' D5      	                push de
+ 452:				; Rotate right once again.
+ 453: 2596+4	01F3' 7B      	                ld a, e
+ 454: 2600+4	01F4' 1F      	                rra                     ; Put LS bit into carry
+ 455: 2604+8	01F5' CB18    	                rr b
+ 456: 2612+8	01F7' CB19    	                rr c
+ 457: 2620+8	01F9' CB1A    	                rr d
+ 458: 2628+8	01FB' CB1B    	                rr e
+ 459:				; Store the result, swapping bytes to achieve the rotate right by 16 bits.
+ 460: 2636+10	01FD' 219601  	                ld hl, wim2_rr19
+ 461: 2646+7	0200' 71      	                ld (hl), c
+ 462: 2653+6	0201' 23      	                inc hl
+ 463: 2659+7	0202' 70      	                ld (hl), b
+ 464: 2666+6	0203' 23      	                inc hl
+ 465: 2672+7	0204' 73      	                ld (hl), e
+ 466: 2679+6	0205' 23      	                inc hl
+ 467: 2685+7	0206' 72      	                ld (hl), d
+ 468:				;
+ 469:				; Find w[i-2] shifted right by 10 (wim2_rs10). This is achieved by using the
+ 470:				; previously saved w[i-2] rr 2, rotating by a further byte and discarding the
+ 471:				; upper three bits.
+ 472: 2692+10	0207' D1      	                pop de                  ; w[i-2] rr 2
+ 473: 2702+10	0208' C1      	                pop bc
+ 474:				; Discard the upper ten bits as we need a shift, not a rotate.
+ 475: 2712+7	0209' 3E3F    	                ld a, 0x3f
+ 476: 2719+4	020B' A0      	                and b
+ 477:				; Store the result, swapping bytes to achieve the rotate right by 8 bits. The
+ 478:				; upper byte is replaced by zero to convert to a shift.
+ 479: 2723+10	020C' 219A01  	                ld hl, wim2_rs10
+ 480: 2733+7	020F' 72      	                ld (hl), d
+ 481: 2740+6	0210' 23      	                inc hl
+ 482: 2746+7	0211' 71      	                ld (hl), c
+ 483: 2753+6	0212' 23      	                inc hl
+ 484: 2759+7	0213' 77      	                ld (hl), a              ; B less MS two bits
+ 485: 2766+6	0214' 23      	                inc hl
+ 486: 2772+10	0215' 3600    	                ld (hl), 0              ; Would be E for a rotate
+ 487:				;
+ 488:				;        s1 := (w[i-2] rightrotate 17) xor (w[i-2] rightrotate 19) xor
+ 489:				;           (w[i-2] rightshift 10)
+ 490: 2782+15	0217' DDE5    	                push ix                 ; Save w array index
+ 491: 2797+10	0219' 219201  	                ld hl, wim2_rr17
+ 492: 2807+14	021C' DD219601	                ld ix, wim2_rr19
+ 493: 2821+14	0220' FD219A01	                ld iy, wim2_rs10
+ 494: 2835+10	0224' 11BB01  	                ld de, reg_s1
+ 495: 2845+7	0227' 0604    	                ld b, 4
+ 496: 2852+7	0229' 7E      	ext_s1_loop     ld a, (hl)
+ 497: 2859+19	022A' DDAE00  	                xor (ix)
+ 498: 2878+19	022D' FDAE00  	                xor (iy)
+ 499: 2897+7	0230' 12      	                ld (de), a              ; Save result
+ 500: 2904+6	0231' 23      	                inc hl
+ 501: 2910+10	0232' DD23    	                inc ix
+ 502: 2920+10	0234' FD23    	                inc iy
+ 503: 2930+6	0236' 13      	                inc de
+ 504: 2936+8+5	0237' 10F0    	                djnz ext_s1_loop
+ 505: 2944+14	0239' DDE1    	                pop ix                  ; Restore w array index
+ 506:				;
+ 507:				;        w[i] := w[i-16] + s0 + w[i-7] + s1
+ 508:				; Set w[i] := w[i-16]
+ 509: 2958+15	023B' DDE5    	                push ix
+ 510: 2973+10	023D' E1      	                pop hl
+ 511: 2983+10	023E' 11C0FF  	                ld de, 4 * -16
+ 512: 2993+11	0241' 19      	                add hl, de
+ 513:				; HL - points to w[i-16]
+ 514: 3004+15	0242' DDE5    	                push ix
+ 515: 3019+10	0244' D1      	                pop de
+ 516:				; DE - points to w[i]
+ 517: 3029+16	0245' EDA0    	                ldi
+ 518: 3045+16	0247' EDA0    	                ldi
+ 519: 3061+16	0249' EDA0    	                ldi
+ 520: 3077+16	024B' EDA0    	                ldi
+ 521:				; Add S0
+ 522: 3093+10	024D' 11B701  	                ld de, reg_s0
+ 523: 3103+15	0250' DDE5    	                push ix
+ 524: 3118+10	0252' E1      	                pop hl
+ 525: 3128+17	0253' CD0000  	                call madd32             ; 32-bit add (hl) <- (hl) + (de)
+ 526:				; Add w[i-7]
+ 527: 3145+15	0256' DDE5    	                push ix
+ 528: 3160+10	0258' E1      	                pop hl
+ 529: 3170+10	0259' 11E4FF  	                ld de, 4 * -7
+ 530: 3180+11	025C' 19      	                add hl, de
+ 531: 3191+4	025D' EB      	                ex de, hl
+ 532:				; DE - points to w[i-7]
+ 533: 3195+15	025E' DDE5    	                push ix
+ 534: 3210+10	0260' E1      	                pop hl
+ 535: 3220+17	0261' CD0000  	                call madd32             ; 32-bit add (hl) <- (hl) + (de)
+ 536:				; Add S1
+ 537: 3237+10	0264' 11BB01  	                ld de, reg_s1
+ 538: 3247+15	0267' DDE5    	                push ix
+ 539: 3262+10	0269' E1      	                pop hl
+ 540: 3272+17	026A' CD0000  	                call madd32             ; 32-bit add (hl) <- (hl) + (de)
+ 541:				;
+ 542:				; End of extend loop.
+ 543: 3289+10	026D' DD23    	                inc ix                  ; Point to next w[] entry
+ 544: 3299+10	026F' DD23    	                inc ix
+ 545: 3309+10	0271' DD23    	                inc ix
+ 546: 3319+10	0273' DD23    	                inc ix
+ 547: 3329+10	0275' C1      	                pop bc
+ 548: 3339+4	0276' 05      	                dec b
+ 549: 3343+10	0277' C23901  	                jp nz, extend_loop      ; Loop too long for DJNZ
+ 550:				;
+ 551:				; Initialize working variables to current hash value, so:
+ 552:				; a := h0, b := h1 ...
+ 553: 3353+10	027A' 214601  	                ld hl, reg_h0           ; Source
+ 554: 3363+10	027D' 116601  	                ld de, reg_a            ; Destination
+ 555: 3373+10	0280' 012000  	                ld bc, 8 * 4            ; Copy 8 32-bit values
+ 556: 3383+16+5	0283' EDB0    	                ldir
+ 557:				;
+ 558:				; Set pointers to start of arrays.
+ 559: 3399+10	0285' 212905  	                ld hl, round_constants
+ 560: 3409+16	0288' 22CB01  	                ld (k_ptr), hl          ; Round constant pointer
+ 561: 3425+10	028B' 210000  	                ld hl, w_array
+ 562: 3435+16	028E' 22CD01  	                ld (w_ptr), hl          ; Message schedule pointer
+ 563:				;
+ 564:				;    for i from 0 to 63
+ 565: 3451+4	0291' AF      	                xor a
+ 566: 3455+13	0292' 32B601  	                ld (loop_counter), a    ; Loop counter
+ 567:				;
+ 568:				; Compression inner loop. Start by pre-calculating some values. These are
+ 569:				; rotated versions of reg_a and reg_e.
+ 570:     -	0295'         	comp_loop
+ 571:				; Find reg_e rotated right by 6 (reg_e_rr6). This is achieved by rotating right
+ 572:				; by 8 (one byte) then left by two bits.
+ 573: 3468+10	0295' 217601  	                ld hl, reg_e
+ 574:				; Load into BCDE rotated by 8.
+ 575: 3478+7	0298' 46      	                ld b, (hl)              ; LS byte
+ 576: 3485+6	0299' 23      	                inc hl
+ 577: 3491+7	029A' 5E      	                ld e, (hl)
+ 578: 3498+6	029B' 23      	                inc hl
+ 579: 3504+7	029C' 56      	                ld d, (hl)
+ 580: 3511+6	029D' 23      	                inc hl
+ 581: 3517+7	029E' 4E      	                ld c, (hl)              ; MS byte
+ 582:				; Save e rr 8 for later use.
+ 583: 3524+11	029F' C5      	                push bc
+ 584: 3535+11	02A0' D5      	                push de
+ 585:				; Rotate left.
+ 586: 3546+4	02A1' 78      	                ld a, b
+ 587: 3550+4	02A2' 17      	                rla                     ; Put MS bit into carry
+ 588: 3554+8	02A3' CB13    	                rl e
+ 589: 3562+8	02A5' CB12    	                rl d
+ 590: 3570+8	02A7' CB11    	                rl c
+ 591: 3578+8	02A9' CB10    	                rl b
+ 592:				; Once more.
+ 593: 3586+4	02AB' 78      	                ld a, b
+ 594: 3590+4	02AC' 17      	                rla                     ; Put MS bit into carry
+ 595: 3594+8	02AD' CB13    	                rl e
+ 596: 3602+8	02AF' CB12    	                rl d
+ 597: 3610+8	02B1' CB11    	                rl c
+ 598: 3618+8	02B3' CB10    	                rl b
+ 599:				; Store the result.
+ 600: 3626+10	02B5' 219E01  	                ld hl, reg_e_rr6
+ 601: 3636+7	02B8' 73      	                ld (hl), e
+ 602: 3643+6	02B9' 23      	                inc hl
+ 603: 3649+7	02BA' 72      	                ld (hl), d
+ 604: 3656+6	02BB' 23      	                inc hl
+ 605: 3662+7	02BC' 71      	                ld (hl), c
+ 606: 3669+6	02BD' 23      	                inc hl
+ 607: 3675+7	02BE' 70      	                ld (hl), b
+ 608:				;
+ 609:				; Find reg_e rotated right by 11 (reg_e_rr11). This is achieved by using the
+ 610:				; previously calculated rr 8 value then rotating right by three bits.
+ 611: 3682+10	02BF' D1      	                pop de                  ; Recover e rr 8
+ 612: 3692+10	02C0' C1      	                pop bc
+ 613:				; Rotate right.
+ 614: 3702+4	02C1' 7B      	                ld a, e
+ 615: 3706+4	02C2' 1F      	                rra                     ; Put LS bit into carry
+ 616: 3710+8	02C3' CB18    	                rr b
+ 617: 3718+8	02C5' CB19    	                rr c
+ 618: 3726+8	02C7' CB1A    	                rr d
+ 619: 3734+8	02C9' CB1B    	                rr e
+ 620:				; Save e rr 9 for later use.
+ 621: 3742+11	02CB' C5      	                push bc
+ 622: 3753+11	02CC' D5      	                push de
+ 623:				; Rotate twice more.
+ 624: 3764+4	02CD' 7B      	                ld a, e
+ 625: 3768+4	02CE' 1F      	                rra                     ; Put LS bit into carry
+ 626: 3772+8	02CF' CB18    	                rr b
+ 627: 3780+8	02D1' CB19    	                rr c
+ 628: 3788+8	02D3' CB1A    	                rr d
+ 629: 3796+8	02D5' CB1B    	                rr e
+ 630: 3804+4	02D7' 7B      	                ld a, e
+ 631: 3808+4	02D8' 1F      	                rra                     ; Put LS bit into carry
+ 632: 3812+8	02D9' CB18    	                rr b
+ 633: 3820+8	02DB' CB19    	                rr c
+ 634: 3828+8	02DD' CB1A    	                rr d
+ 635: 3836+8	02DF' CB1B    	                rr e
+ 636:				; Store the result.
+ 637: 3844+10	02E1' 21A201  	                ld hl, reg_e_rr11
+ 638: 3854+7	02E4' 73      	                ld (hl), e
+ 639: 3861+6	02E5' 23      	                inc hl
+ 640: 3867+7	02E6' 72      	                ld (hl), d
+ 641: 3874+6	02E7' 23      	                inc hl
+ 642: 3880+7	02E8' 71      	                ld (hl), c
+ 643: 3887+6	02E9' 23      	                inc hl
+ 644: 3893+7	02EA' 70      	                ld (hl), b
+ 645:				;
+ 646:				; Find reg_e rotated right by 25 (reg_e_rr25). This is achieved by using the
+ 647:				; previously calculated rr 9 value then rotating right by 16 bits.
+ 648: 3900+10	02EB' D1      	                pop de                  ; Recover e rr 9
+ 649: 3910+10	02EC' C1      	                pop bc
+ 650:				; Store the result, swapping bytes to achieve the rotate right by 16 bits.
+ 651: 3920+10	02ED' 21A601  	                ld hl, reg_e_rr25
+ 652: 3930+7	02F0' 71      	                ld (hl), c
+ 653: 3937+6	02F1' 23      	                inc hl
+ 654: 3943+7	02F2' 70      	                ld (hl), b
+ 655: 3950+6	02F3' 23      	                inc hl
+ 656: 3956+7	02F4' 73      	                ld (hl), e
+ 657: 3963+6	02F5' 23      	                inc hl
+ 658: 3969+7	02F6' 72      	                ld (hl), d
+ 659:				;
+ 660:				; Find reg_a rotated right by 2 (reg_a_rr2).
+ 661: 3976+10	02F7' 216601  	                ld hl, reg_a
+ 662:				; Load into BCDE.
+ 663: 3986+7	02FA' 5E      	                ld e, (hl)              ; LS byte
+ 664: 3993+6	02FB' 23      	                inc hl
+ 665: 3999+7	02FC' 56      	                ld d, (hl)
+ 666: 4006+6	02FD' 23      	                inc hl
+ 667: 4012+7	02FE' 4E      	                ld c, (hl)
+ 668: 4019+6	02FF' 23      	                inc hl
+ 669: 4025+7	0300' 46      	                ld b, (hl)              ; MS byte
+ 670:				; Rotate right.
+ 671: 4032+4	0301' 7B      	                ld a, e
+ 672: 4036+4	0302' 1F      	                rra                     ; Put LS bit into carry
+ 673: 4040+8	0303' CB18    	                rr b
+ 674: 4048+8	0305' CB19    	                rr c
+ 675: 4056+8	0307' CB1A    	                rr d
+ 676: 4064+8	0309' CB1B    	                rr e
+ 677:				; Once more.
+ 678: 4072+4	030B' 7B      	                ld a, e
+ 679: 4076+4	030C' 1F      	                rra                     ; Put LS bit into carry
+ 680: 4080+8	030D' CB18    	                rr b
+ 681: 4088+8	030F' CB19    	                rr c
+ 682: 4096+8	0311' CB1A    	                rr d
+ 683: 4104+8	0313' CB1B    	                rr e
+ 684:				; Store the result.
+ 685: 4112+10	0315' 21AA01  	                ld hl, reg_a_rr2
+ 686: 4122+7	0318' 73      	                ld (hl), e
+ 687: 4129+6	0319' 23      	                inc hl
+ 688: 4135+7	031A' 72      	                ld (hl), d
+ 689: 4142+6	031B' 23      	                inc hl
+ 690: 4148+7	031C' 71      	                ld (hl), c
+ 691: 4155+6	031D' 23      	                inc hl
+ 692: 4161+7	031E' 70      	                ld (hl), b
+ 693:				;
+ 694:				; Find reg_a rotated right by 13 (reg_a_rr13). This is achieved by rotating
+ 695:				; right by 16 bits and then rotating left by three bits.
+ 696: 4168+10	031F' 216601  	                ld hl, reg_a
+ 697:				; Load into BCDE rotated by 16.
+ 698: 4178+7	0322' 4E      	                ld c, (hl)              ; LS byte
+ 699: 4185+6	0323' 23      	                inc hl
+ 700: 4191+7	0324' 46      	                ld b, (hl)
+ 701: 4198+6	0325' 23      	                inc hl
+ 702: 4204+7	0326' 5E      	                ld e, (hl)
+ 703: 4211+6	0327' 23      	                inc hl
+ 704: 4217+7	0328' 56      	                ld d, (hl)              ; MS byte
+ 705:				; Rotate left.
+ 706: 4224+4	0329' 78      	                ld a, b
+ 707: 4228+4	032A' 17      	                rla                     ; Put MS bit into carry
+ 708: 4232+8	032B' CB13    	                rl e
+ 709: 4240+8	032D' CB12    	                rl d
+ 710: 4248+8	032F' CB11    	                rl c
+ 711: 4256+8	0331' CB10    	                rl b
+ 712:				; Once more.
+ 713: 4264+4	0333' 78      	                ld a, b
+ 714: 4268+4	0334' 17      	                rla                     ; Put MS bit into carry
+ 715: 4272+8	0335' CB13    	                rl e
+ 716: 4280+8	0337' CB12    	                rl d
+ 717: 4288+8	0339' CB11    	                rl c
+ 718: 4296+8	033B' CB10    	                rl b
+ 719:				; Save a rr 14 for later use.
+ 720: 4304+11	033D' C5      	                push bc
+ 721: 4315+11	033E' D5      	                push de
+ 722:				; Rotate left once more.
+ 723: 4326+4	033F' 78      	                ld a, b
+ 724: 4330+4	0340' 17      	                rla                     ; Put MS bit into carry
+ 725: 4334+8	0341' CB13    	                rl e
+ 726: 4342+8	0343' CB12    	                rl d
+ 727: 4350+8	0345' CB11    	                rl c
+ 728: 4358+8	0347' CB10    	                rl b
+ 729:				; Store the result.
+ 730: 4366+10	0349' 21AE01  	                ld hl, reg_a_rr13
+ 731: 4376+7	034C' 73      	                ld (hl), e
+ 732: 4383+6	034D' 23      	                inc hl
+ 733: 4389+7	034E' 72      	                ld (hl), d
+ 734: 4396+6	034F' 23      	                inc hl
+ 735: 4402+7	0350' 71      	                ld (hl), c
+ 736: 4409+6	0351' 23      	                inc hl
+ 737: 4415+7	0352' 70      	                ld (hl), b
+ 738:				;
+ 739:				; Find reg_a rotated right by 22 (reg_a_rr22). This is achieved by using the
+ 740:				; a rr 14 value calculated earlier and rotating right by a further 8 bits.
+ 741: 4422+10	0353' D1      	                pop de                  ; Recover a rr 14
+ 742: 4432+10	0354' C1      	                pop bc
+ 743:				; Store the result, swapping bytes to achieve the rotate right by 8 bits.
+ 744: 4442+10	0355' 21B201  	                ld hl, reg_a_rr22
+ 745: 4452+7	0358' 72      	                ld (hl), d
+ 746: 4459+6	0359' 23      	                inc hl
+ 747: 4465+7	035A' 71      	                ld (hl), c
+ 748: 4472+6	035B' 23      	                inc hl
+ 749: 4478+7	035C' 70      	                ld (hl), b
+ 750: 4485+6	035D' 23      	                inc hl
+ 751: 4491+7	035E' 73      	                ld (hl), e
+ 752:				;
+ 753:				; Start the processing.
+ 754:				;        S1 := (e rightrotate 6) xor (e rightrotate 11) xor (e rightrotate 25)
+ 755: 4498+10	035F' 219E01  	                ld hl, reg_e_rr6
+ 756: 4508+14	0362' DD21A201	                ld ix, reg_e_rr11
+ 757: 4522+14	0366' FD21A601	                ld iy, reg_e_rr25
+ 758: 4536+10	036A' 11BB01  	                ld de, reg_s1
+ 759: 4546+7	036D' 0604    	                ld b, 4
+ 760: 4553+7	036F' 7E      	s1_xor_loop     ld a, (hl)
+ 761: 4560+19	0370' DDAE00  	                xor (ix)
+ 762: 4579+19	0373' FDAE00  	                xor (iy)
+ 763: 4598+7	0376' 12      	                ld (de), a              ; Save result
+ 764: 4605+6	0377' 23      	                inc hl
+ 765: 4611+10	0378' DD23    	                inc ix
+ 766: 4621+10	037A' FD23    	                inc iy
+ 767: 4631+6	037C' 13      	                inc de
+ 768: 4637+8+5	037D' 10F0    	                djnz s1_xor_loop
+ 769:				;
+ 770:				;        ch := (e and f) xor ((not e) and g)
+ 771: 4645+10	037F' 217601  	                ld hl, reg_e
+ 772: 4655+14	0382' DD217A01	                ld ix, reg_f
+ 773: 4669+14	0386' FD217E01	                ld iy, reg_g
+ 774: 4683+10	038A' 11BF01  	                ld de, reg_ch
+ 775: 4693+7	038D' 0604    	                ld b, 4
+ 776: 4700+7	038F' 7E      	ch_xor_loop     ld a, (hl)
+ 777: 4707+19	0390' DDA600  	                and (ix)
+ 778: 4726+4	0393' 4F      	                ld c, a                 ; Save e and f
+ 779: 4730+7	0394' 7E      	                ld a, (hl)
+ 780: 4737+4	0395' 2F      	                cpl
+ 781: 4741+19	0396' FDA600  	                and (iy)                ; Generate not e
+ 782:				; A - (not e) and g
+ 783:				; C - e and f
+ 784: 4760+4	0399' A9      	                xor c
+ 785: 4764+7	039A' 12      	                ld (de), a              ; Save result
+ 786: 4771+6	039B' 23      	                inc hl
+ 787: 4777+10	039C' DD23    	                inc ix
+ 788: 4787+10	039E' FD23    	                inc iy
+ 789: 4797+6	03A0' 13      	                inc de
+ 790: 4803+8+5	03A1' 10EC    	                djnz ch_xor_loop
+ 791:				;
+ 792:				;        temp1 := h + S1 + ch + k[i] + w[i]
+ 793:				; Set temp1 := h
+ 794: 4811+10	03A3' 218201  	                ld hl, reg_h
+ 795: 4821+10	03A6' 11C701  	                ld de, reg_t1
+ 796: 4831+16	03A9' EDA0    	                ldi
+ 797: 4847+16	03AB' EDA0    	                ldi
+ 798: 4863+16	03AD' EDA0    	                ldi
+ 799: 4879+16	03AF' EDA0    	                ldi
+ 800:				; Add S1
+ 801: 4895+10	03B1' 21C701  	                ld hl, reg_t1
+ 802: 4905+10	03B4' 11BB01  	                ld de, reg_s1
+ 803: 4915+17	03B7' CD0000  	                call madd32             ; 32-bit add (hl) <- (hl) + (de)
+ 804:				; Add ch
+ 805: 4932+10	03BA' 21C701  	                ld hl, reg_t1
+ 806: 4942+10	03BD' 11BF01  	                ld de, reg_ch
+ 807: 4952+17	03C0' CD0000  	                call madd32             ; 32-bit add (hl) <- (hl) + (de)
+ 808:				; Add k[i]
+ 809: 4969+10	03C3' 21C701  	                ld hl, reg_t1
+ 810: 4979+20	03C6' ED5BCB01	                ld de, (k_ptr)          ; Pointer to k[i]
+ 811:				; Force Ken Shirrif worked example constant.
+ 812:				;        ex de, hl
+ 813:				;        ld (hl), 0xf2
+ 814:				;        inc hl
+ 815:				;        ld (hl), 0x78
+ 816:				;        inc hl
+ 817:				;        ld (hl), 0x71
+ 818:				;        inc hl
+ 819:				;        ld (hl), 0xc6
+ 820:				;        ex de, hl
+ 821:				;        ld de, (k_ptr)          ; Pointer to k[i]
+ 822: 4999+17	03CA' CD0000  	                call madd32             ; 32-bit add (hl) <- (hl) + (de)
+ 823:				; Add w[i]
+ 824: 5016+10	03CD' 21C701  	                ld hl, reg_t1
+ 825: 5026+20	03D0' ED5BCD01	                ld de, (w_ptr)          ; Pointer to w[i]
+ 826:				; Force Ken Shirrif worked example constant.
+ 827:				;        ex de, hl
+ 828:				;        ld (hl), 0x14
+ 829:				;        inc hl
+ 830:				;        ld (hl), 0xea
+ 831:				;        inc hl
+ 832:				;        ld (hl), 0x34
+ 833:				;        inc hl
+ 834:				;        ld (hl), 0x65
+ 835:				;        ex de, hl
+ 836:				;        ld de, (w_ptr)          ; Pointer to k[i]
+ 837: 5046+17	03D4' CD0000  	                call madd32             ; 32-bit add (hl) <- (hl) + (de)
+ 838:				;
+ 839:				;        S0 := (a rightrotate 2) xor (a rightrotate 13) xor (a rightrotate 22)
+ 840: 5063+10	03D7' 21AA01  	                ld hl, reg_a_rr2
+ 841: 5073+14	03DA' DD21AE01	                ld ix, reg_a_rr13
+ 842: 5087+14	03DE' FD21B201	                ld iy, reg_a_rr22
+ 843: 5101+10	03E2' 11B701  	                ld de, reg_s0
+ 844: 5111+7	03E5' 0604    	                ld b, 4
+ 845: 5118+7	03E7' 7E      	s0_xor_loop     ld a, (hl)
+ 846: 5125+19	03E8' DDAE00  	                xor (ix)
+ 847: 5144+19	03EB' FDAE00  	                xor (iy)
+ 848: 5163+7	03EE' 12      	                ld (de), a              ; Save result
+ 849: 5170+6	03EF' 23      	                inc hl
+ 850: 5176+10	03F0' DD23    	                inc ix
+ 851: 5186+10	03F2' FD23    	                inc iy
+ 852: 5196+6	03F4' 13      	                inc de
+ 853: 5202+8+5	03F5' 10F0    	                djnz s0_xor_loop
+ 854:				;
+ 855:				;        maj := (a and b) xor (a and c) xor (b and c)
+ 856: 5210+10	03F7' 216601  	                ld hl, reg_a
+ 857: 5220+14	03FA' DD216A01	                ld ix, reg_b
+ 858: 5234+14	03FE' FD216E01	                ld iy, reg_c
+ 859: 5248+10	0402' 11C301  	                ld de, reg_maj
+ 860: 5258+7	0405' 0604    	                ld b, 4
+ 861: 5265+7	0407' 7E      	maj_xor_loop    ld a, (hl)
+ 862: 5272+19	0408' DDA600  	                and (ix)
+ 863: 5291+4	040B' 4F      	                ld c, a                 ; Save a and b
+ 864: 5295+7	040C' 7E      	                ld a, (hl)
+ 865: 5302+19	040D' FDA600  	                and (iy)
+ 866:				; A - a and c
+ 867:				; C - a and b
+ 868: 5321+4	0410' A9      	                xor c
+ 869: 5325+4	0411' 4F      	                ld c, a
+ 870:				; C - (a and b) xor (a and c)
+ 871: 5329+19	0412' DD7E00  	                ld a, (ix)
+ 872: 5348+19	0415' FDA600  	                and (iy)
+ 873:				; A - b and c
+ 874:				; C - (a and b) xor (a and c)
+ 875: 5367+4	0418' A9      	                xor c
+ 876: 5371+7	0419' 12      	                ld (de), a              ; Save result
+ 877: 5378+6	041A' 23      	                inc hl
+ 878: 5384+10	041B' DD23    	                inc ix
+ 879: 5394+10	041D' FD23    	                inc iy
+ 880: 5404+6	041F' 13      	                inc de
+ 881: 5410+8+5	0420' 10E5    	                djnz maj_xor_loop
+ 882:				;
+ 883:				;        temp2 := S0 + maj
+ 884:				; Re-using S0 as temp2 as its value is no longer required.
+ 885: 5418+10	0422' 21B701  	                ld hl, reg_s0
+ 886: 5428+10	0425' 11C301  	                ld de, reg_maj
+ 887: 5438+17	0428' CD0000  	                call madd32             ; 32-bit add (hl) <- (hl) + (de)
+ 888:				;
+ 889:				;        h := g
+ 890: 5455+10	042B' 217E01  	                ld hl, reg_g
+ 891: 5465+10	042E' 118201  	                ld de, reg_h
+ 892: 5475+16	0431' EDA0    	                ldi
+ 893: 5491+16	0433' EDA0    	                ldi
+ 894: 5507+16	0435' EDA0    	                ldi
+ 895: 5523+16	0437' EDA0    	                ldi
+ 896:				;        g := f
+ 897: 5539+10	0439' 217A01  	                ld hl, reg_f
+ 898: 5549+10	043C' 117E01  	                ld de, reg_g
+ 899: 5559+16	043F' EDA0    	                ldi
+ 900: 5575+16	0441' EDA0    	                ldi
+ 901: 5591+16	0443' EDA0    	                ldi
+ 902: 5607+16	0445' EDA0    	                ldi
+ 903:				;        f := e
+ 904: 5623+10	0447' 217601  	                ld hl, reg_e
+ 905: 5633+10	044A' 117A01  	                ld de, reg_f
+ 906: 5643+16	044D' EDA0    	                ldi
+ 907: 5659+16	044F' EDA0    	                ldi
+ 908: 5675+16	0451' EDA0    	                ldi
+ 909: 5691+16	0453' EDA0    	                ldi
+ 910:				;        e := d + temp1
+ 911: 5707+10	0455' 217201  	                ld hl, reg_d
+ 912: 5717+10	0458' 117601  	                ld de, reg_e
+ 913: 5727+16	045B' EDA0    	                ldi
+ 914: 5743+16	045D' EDA0    	                ldi
+ 915: 5759+16	045F' EDA0    	                ldi
+ 916: 5775+16	0461' EDA0    	                ldi
+ 917:				; e = d. Now add temp1
+ 918: 5791+10	0463' 217601  	                ld hl, reg_e
+ 919: 5801+10	0466' 11C701  	                ld de, reg_t1
+ 920: 5811+17	0469' CD0000  	                call madd32             ; 32-bit add (hl) <- (hl) + (de)
+ 921:				;        d := c
+ 922: 5828+10	046C' 216E01  	                ld hl, reg_c
+ 923: 5838+10	046F' 117201  	                ld de, reg_d
+ 924: 5848+16	0472' EDA0    	                ldi
+ 925: 5864+16	0474' EDA0    	                ldi
+ 926: 5880+16	0476' EDA0    	                ldi
+ 927: 5896+16	0478' EDA0    	                ldi
+ 928:				;        c := b
+ 929: 5912+10	047A' 216A01  	                ld hl, reg_b
+ 930: 5922+10	047D' 116E01  	                ld de, reg_c
+ 931: 5932+16	0480' EDA0    	                ldi
+ 932: 5948+16	0482' EDA0    	                ldi
+ 933: 5964+16	0484' EDA0    	                ldi
+ 934: 5980+16	0486' EDA0    	                ldi
+ 935:				;        b := a
+ 936: 5996+10	0488' 216601  	                ld hl, reg_a
+ 937: 6006+10	048B' 116A01  	                ld de, reg_b
+ 938: 6016+16	048E' EDA0    	                ldi
+ 939: 6032+16	0490' EDA0    	                ldi
+ 940: 6048+16	0492' EDA0    	                ldi
+ 941: 6064+16	0494' EDA0    	                ldi
+ 942:				;        a := temp1 + temp2 (S0)
+ 943: 6080+10	0496' 21C701  	                ld hl, reg_t1
+ 944: 6090+10	0499' 116601  	                ld de, reg_a
+ 945: 6100+16	049C' EDA0    	                ldi
+ 946: 6116+16	049E' EDA0    	                ldi
+ 947: 6132+16	04A0' EDA0    	                ldi
+ 948: 6148+16	04A2' EDA0    	                ldi
+ 949:				; a = temp1. Now add temp2 (S0)
+ 950: 6164+10	04A4' 216601  	                ld hl, reg_a
+ 951: 6174+10	04A7' 11B701  	                ld de, reg_s0
+ 952: 6184+17	04AA' CD0000  	                call madd32             ; 32-bit add (hl) <- (hl) + (de)
+ 953:				;
+ 954:				; Compression function main loop end.
+ 955:				;
+ 956:				; Update round constant pointer.
+ 957: 6201+10	04AD' 21CB01  	                ld hl, k_ptr
+ 958: 6211+7	04B0' 3E04    	                ld a, 4
+ 959: 6218+7	04B2' 86      	                add (hl)
+ 960: 6225+7	04B3' 77      	                ld (hl), a
+ 961: 6232+6	04B4' 23      	                inc hl
+ 962: 6238+7	04B5' 3E00    	                ld a, 0
+ 963: 6245+7	04B7' 8E      	                adc (hl)                ; Add carry
+ 964: 6252+7	04B8' 77      	                ld (hl), a
+ 965:				; Update message schedule pointer.
+ 966: 6259+10	04B9' 21CD01  	                ld hl, w_ptr
+ 967: 6269+7	04BC' 3E04    	                ld a, 4
+ 968: 6276+7	04BE' 86      	                add (hl)
+ 969: 6283+7	04BF' 77      	                ld (hl), a
+ 970: 6290+6	04C0' 23      	                inc hl
+ 971: 6296+7	04C1' 3E00    	                ld a, 0
+ 972: 6303+7	04C3' 8E      	                adc (hl)                ; Add carry
+ 973: 6310+7	04C4' 77      	                ld (hl), a
+ 974:				
+ 975:				; Update loop counter.
+ 976: 6317+10	04C5' 21B601  	                ld hl, loop_counter
+ 977: 6327+11	04C8' 34      	                inc (hl)
+ 978: 6338+7	04C9' 3E40    	                ld a, 64
+ 979: 6345+7	04CB' BE      	                cp (hl)
+ 980: 6352+10	04CC' C29502  	                jp nz, comp_loop
+ 981:				
+ 982:				;    Add the compressed chunk to the current hash value:
+ 983:				;    h0 := h0 + a
+ 984:				;    h1 := h1 + b
+ 985:				;    h2 := h2 + c
+ 986:				;    h3 := h3 + d
+ 987:				;    h4 := h4 + e
+ 988:				;    h5 := h5 + f
+ 989:				;    h6 := h6 + g
+ 990:				;    h7 := h7 + h
+ 991: 6362+7	04CF' 0608    	                ld b, 8
+ 992: 6369+10	04D1' 214601  	                ld hl, reg_h0
+ 993: 6379+10	04D4' 116601  	                ld de, reg_a
+ 994: 6389+17	04D7' CD0000  	add_hash_loop   call madd32             ; 32-bit add (hl) <- (hl) + (de)
+ 995: 6406+8+5	04DA' 10FB    	                djnz add_hash_loop
+ 996:				;
+ 997:				;    call sh2dh                         ; Display hash value
+ 998:				;
+ 999: 6414+14	04DC' FDE1    	                pop iy
+1000: 6428+14	04DE' DDE1    	                pop ix
+1001: 6442+10	04E0' D1      	                pop de
+1002: 6452+10	04E1' C1      	                pop bc
+1003: 6462+10	04E2' 214601  	                ld hl, reg_h0           ; Point to hash
+1004: 6472+10	04E5' C9      	                ret
+1005:				;
+1006:				;
+1007:				; Display hash value. The format is:
+1008:				; 1111111122222222333333334444444455555555666666667777777788888888
+1009:				; Values are registers A to H in order. This is in the conventional format.
+1010:				; Call with:
+1011:				; HL - pointer to hash (message digest [h0 to h7])
+1012: 6482+11	04E6' C5      	sh2dh           push bc
+1013:				;
+1014: 6493+7	04E7' 0600    	                ld b, 0                 ; Register number
+1015:     -	04E9'         	dih_reg_loop    ; ld a, b
+1016:				                ; add "A"
+1017:				                ; call conwch             ; Write character to console
+1018:				                ; ld a, ":"
+1019:				                ; call conwch             ; Write character to console
+1020:				                ; call cwpspc             ; Print a space
+1021: 6500+11	04E9' E5      	                push hl
+1022: 6511+17	04EA' CDFA04  	                call disp_hex_32        ; Display register in hex
+1023: 6528+10	04ED' E1      	                pop hl
+1024:				                ; call cwpspc             ; Print a space
+1025: 6538+6	04EE' 23      	                inc hl                  ; Point to next word
+1026: 6544+6	04EF' 23      	                inc hl
+1027: 6550+6	04F0' 23      	                inc hl
+1028: 6556+6	04F1' 23      	                inc hl
+1029: 6562+4	04F2' 04      	                inc b
+1030:				; Start a new line after registers D and H.
+1031:				                ; ld a, b
+1032:				                ; and 3
+1033:				                ; call z, cwnwln          ; Write new line characters to console
+1034: 6566+4	04F3' 78      	                ld a, b
+1035: 6570+7	04F4' FE08    	                cp 8
+1036: 6577+7+5	04F6' 20F1    	                jr nz, dih_reg_loop
+1037:				;
+1038: 6584+10	04F8' C1      	                pop bc
+1039: 6594+10	04F9' C9      	                ret
+1040:				;
+1041:				;
+1042:				; Display 32-bit hexadecimal value in memory. Call with:
+1043:				; HL - pointer to value
+1044: 6604+11	04FA' C5      	disp_hex_32     push bc
+1045:				;
+1046: 6615+6	04FB' 23      	                inc hl                  ; Point to MS byte
+1047: 6621+6	04FC' 23      	                inc hl
+1048: 6627+6	04FD' 23      	                inc hl
+1049: 6633+7	04FE' 0604    	                ld b, 4                 ; Byte counter
+1050: 6640+7	0500' 7E      	dh32_loop       ld a, (hl)
+1051: 6647+17	0501' CD0000  	                call cwphby             ; Print A in hexadecimal
+1052: 6664+6	0504' 2B      	                dec hl
+1053: 6670+8+5	0505' 10F9    	                djnz dh32_loop
+1054:				;
+1055: 6678+10	0507' C1      	                pop bc
+1056: 6688+10	0508' C9      	                ret
+1057:				;
+1058:				;
+1059:				;
+1060:				; *************
+1061:				; * Constants *
+1062:				; *************
+1063:				;
+1064:				; Initial hash values (first 32 bits of the fractional parts of the square
+1065:				; roots of the first 8 primes 2..19).
+1066:     -	0509' 67E6096A	hash_init_data  dword 0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a
+	              85AE67BB
+	              72F36E3C
+	              3AF54FA5
+1067:     -	0519' 7F520E51	                dword 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19
+	              8C68059B
+	              ABD9831F
+	              19CDE05B
+1068:				;
+1069:				; Debugging state to match Ken Shirrif's hand worked example.
+1070:				;hash_init_data  dword 0x87564c0c, 0xf1369725, 0x82e6d493, 0x63a6b509
+1071:				;                dword 0xdd9eff54, 0xe07c2655, 0xa41f32e7, 0xc7d25631
+1072:				;
+1073:				; Round constants (first 32 bits of the fractional parts of the cube roots of
+1074:				; the first 64 primes 2..311). There are 64 of these.
+1075:     -	0529' 982F8A42	round_constants dword 0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5
+	              91443771
+	              CFFBC0B5
+	              A5DBB5E9
+1076:     -	0539' 5BC25639	                dword 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5
+	              F111F159
+	              A4823F92
+	              D55E1CAB
+1077:     -	0549' 98AA07D8	                dword 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3
+	              015B8312
+	              BE853124
+	              C37D0C55
+1078:     -	0559' 745DBE72	                dword 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174
+	              FEB1DE80
+	              A706DC9B
+	              74F19BC1
+1079:     -	0569' C1699BE4	                dword 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc
+	              8647BEEF
+	              C69DC10F
+	              CCA10C24
+1080:     -	0579' 6F2CE92D	                dword 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da
+	              AA84744A
+	              DCA9B05C
+	              DA88F976
+1081:     -	0589' 52513E98	                dword 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7
+	              6DC631A8
+	              C82703B0
+	              C77F59BF
+1082:     -	0599' F30BE0C6	                dword 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967
+	              4791A7D5
+	              5163CA06
+	              67292914
+1083:     -	05A9' 850AB727	                dword 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13
+	              38211B2E
+	              FC6D2C4D
+	              130D3853
+1084:     -	05B9' 54730A65	                dword 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85
+	              BB0A6A76
+	              2EC9C281
+	              852C7292
+1085:     -	05C9' A1E8BFA2	                dword 0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3
+	              4B661AA8
+	              708B4BC2
+	              A3516CC7
+1086:     -	05D9' 19E892D1	                dword 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070
+	              240699D6
+	              85350EF4
+	              70A06A10
+1087:     -	05E9' 16C1A419	                dword 0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5
+	              086C371E
+	              4C774827
+	              B5BCB034
+1088:     -	05F9' B30C1C39	                dword 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3
+	              4AAAD84E
+	              4FCA9C5B
+	              F36F2E68
+1089:     -	0609' EE828F74	                dword 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208
+	              6F63A578
+	              1478C884
+	              0802C78C
+1090:     -	0619' FAFFBE90	                dword 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+	              EB6C50A4
+	              F7A3F9BE
+	              F27871C6
+1091:				;
+1092:     -	0629' 41000000	const_65        dword 65
+1093:     -	062D' 00020000	const_512       dword 512
+1094:				;
+1095:				;
+1096:				;
+1097:				; *************
+1098:				; * Variables *
+1099:				; *************
+1100:				;
+1101:				; Note: linker "-c" option is used, so no data is initialised here.
+1102:				                dseg                ; Data segment
+1103:				;
+1104:     -	0000"         	w_array         defs 4 * 64         ; Message schedule array w[0..63]
+1105:     -	0100"         	message_ptr     defs 2              ; Pointer to message
+1106:     -	0102"         	msg_total_len   defs 2              ; Overall message length in bytes
+1107:     -	0104"         	msg_remain_len  defs 2              ; Remaining message length in bytes
+1108:     -	0106"         	chunk           defs SH2_CHUNK_BYTES    ; Chunk buffer (512 bits)
+1109:				;
+1110:				; Hash registers.
+1111:     -	0146"         	reg_h0          defs 4
+1112:     -	014A"         	reg_h1          defs 4
+1113:     -	014E"         	reg_h2          defs 4
+1114:     -	0152"         	reg_h3          defs 4
+1115:     -	0156"         	reg_h4          defs 4
+1116:     -	015A"         	reg_h5          defs 4
+1117:     -	015E"         	reg_h6          defs 4
+1118:     -	0162"         	reg_h7          defs 4
+1119:				;
+1120:				; Working variables for hash.
+1121:     -	0166"         	reg_a           defs 4
+1122:     -	016A"         	reg_b           defs 4
+1123:     -	016E"         	reg_c           defs 4
+1124:     -	0172"         	reg_d           defs 4
+1125:     -	0176"         	reg_e           defs 4
+1126:     -	017A"         	reg_f           defs 4
+1127:     -	017E"         	reg_g           defs 4
+1128:     -	0182"         	reg_h           defs 4
+1129:				;
+1130:				; Rotated working registers.
+1131:     -	0186"         	wim15_rr7       defs 4
+1132:     -	018A"         	wim15_rr18      defs 4
+1133:     -	018E"         	wim15_rs3       defs 4
+1134:     -	0192"         	wim2_rr17       defs 4
+1135:     -	0196"         	wim2_rr19       defs 4
+1136:     -	019A"         	wim2_rs10       defs 4
+1137:     -	019E"         	reg_e_rr6       defs 4
+1138:     -	01A2"         	reg_e_rr11      defs 4
+1139:     -	01A6"         	reg_e_rr25      defs 4
+1140:     -	01AA"         	reg_a_rr2       defs 4
+1141:     -	01AE"         	reg_a_rr13      defs 4
+1142:     -	01B2"         	reg_a_rr22      defs 4
+1143:				;
+1144:				; Compression loop variables
+1145:     -	01B6"         	loop_counter    defs 1              ; Loop counter
+1146:     -	01B7"         	reg_s0          defs 4              ; Shift 0 (latterly temp2)
+1147:     -	01BB"         	reg_s1          defs 4
+1148:     -	01BF"         	reg_ch          defs 4
+1149:     -	01C3"         	reg_maj         defs 4
+1150:     -	01C7"         	reg_t1          defs 4              ; temp1
+1151:     -	01CB"         	k_ptr           defs 2              ; Round constant pointer
+1152:     -	01CD"         	w_ptr           defs 2              ; Message schedule pointer
+1153:				;
+1154:     -	01CF"         	                end
+
+
+
+Statistics:
+
+     4	passes
+     0	jr promotions
+   136	symbols
+  1585	bytes
+
+    11	macro calls
+  1546	macro bytes
+     0	invented symbols
+
+
+
+Symbol Table:
+
+BH_DIFFICULTY  =48        72
+BH_MERKLE      =24        36
+BH_NONCE       =4C        76
+BH_PREV_HASH   =04        4
+BH_SIZE        =50        80
+BH_TIME_STAMP  =44        68
+BH_VER         =00        0
+BREAK_CHAR     =03        3
+MSG_PERIOD     = 7D0      2000
+MSG_REP_MASK   =1F        31
+MTWDLI_ABBREV_BIT=00        0
+MTWDLI_ABBREV_MASK=01        1
+MTWDLI_ICASE_BIT=01        1
+MTWDLI_ICASE_MASK=02        2
+MTWDLI_TERM_BIT=07        7
+MTWDLI_TERM_MASK=80        128
+SH2_CHUNK_BITS = 200      512
+SH2_CHUNK_BYTES=40        64
+SH2_CHUNK_LONGS=10        16
+SH2_DIGEST_BITS= 100      256
+SH2_DIGEST_BYTES=20        32
+STACK_SIZE     =40        64
+add_hash_loop    4D7'     1239
+cad_new_word     11D'     285
+cbdos           00        0 (extern)
+cbios           00        0 (extern)
+cc_byte_loop    37'       55
+cc_word_loop    31'       49
+ch_xor_loop      38F'     911
+chunk            106"     262
+chunk_adv_de     114'     276
+comp_loop        295'     661
+conrch          00        0 (extern)
+const           00        0 (extern)
+const_512        62D'     1581
+const_65         629'     1577
+conwch          00        0 (extern)
+conwmn          00        0 (extern)
+conwms          00        0 (extern)
+crc16x          00        0 (extern)
+cwnwln          00        0 (extern)
+cwpdby          00        0 (extern)
+cwpdlo          00        0 (extern)
+cwpdwd          00        0 (extern)
+cwphby          00        0 (extern)
+cwphnb          00        0 (extern)
+cwphwd          00        0 (extern)
+cwpspc          00        0 (extern)
+cwvich          00        0 (extern)
+dh32_loop        500'     1280
+dih_reg_loop     4E9'     1257
+disp_hex_32      4FA'     1274
+ext_s0_loop      1B1'     433
+ext_s1_loop      229'     553
+extend_loop      139'     313
+hash_init_data   509'     1289
+k_ptr            1CB"     459
+loop_counter     1B6"     438
+madbbu          00        0 (extern)
+madd32          00        0 (extern)
+madlbu          00        0 (extern)
+madwbu          00        0 (extern)
+maj_xor_loop     407'     1031
+mamlbu          00        0 (extern)
+mamwwu          00        0 (extern)
+mclr32          00        0 (extern)
+mcop32          00        0 (extern)
+mcp32           00        0 (extern)
+message_ptr      100"     256
+minc32          00        0 (extern)
+msg_remain_len   104"     260
+msg_total_len    102"     258
+msub32          00        0 (extern)
+mtwdli          00        0 (extern)
+panic           00        0 (extern)
+pc_byte_loop    71'       113
+pc_cpy_done     80'       128
+pc_word_loop    6B'       107
+rddulo          00        0 (extern)
+rdduwd          00        0 (extern)
+rdhxwd          00        0 (extern)
+reg_a            166"     358
+reg_a_rr13       1AE"     430
+reg_a_rr2        1AA"     426
+reg_a_rr22       1B2"     434
+reg_b            16A"     362
+reg_c            16E"     366
+reg_ch           1BF"     447
+reg_d            172"     370
+reg_e            176"     374
+reg_e_rr11       1A2"     418
+reg_e_rr25       1A6"     422
+reg_e_rr6        19E"     414
+reg_f            17A"     378
+reg_g            17E"     382
+reg_h            182"     386
+reg_h0           146"     326
+reg_h1           14A"     330
+reg_h2           14E"     334
+reg_h3           152"     338
+reg_h4           156"     342
+reg_h5           15A"     346
+reg_h6           15E"     350
+reg_h7           162"     354
+reg_maj          1C3"     451
+reg_s0           1B7"     439
+reg_s1           1BB"     443
+reg_t1           1C7"     455
+round_constants  529'     1321
+s0_xor_loop      3E7'     999
+s1_xor_loop      36F'     879
+sh2_chunk        125'     293
+sh2dh            4E6'     1254 (public)
+sh2ini          00'       0 (public)
+sh2m            12'       18 (public)
+sh2m_chunk_loop 1E'       30
+sh2m_compl_done 5C'       92
+sh2m_exit        10F'     271
+sh2m_length     AF'       175
+sh2m_no_space   F6'       246
+sh2m_pad_exit    102'     258
+sh2m_pad_loop   A2'       162
+skpspc          00        0 (extern)
+str_offset     =50        80
+toloca          00        0 (extern)
+toupca          00        0 (extern)
+w_array         00"       0
+w_ptr            1CD"     461
+wim15_rr18       18A"     394
+wim15_rr7        186"     390
+wim15_rs3        18E"     398
+wim2_rr17        192"     402
+wim2_rr19        196"     406
+wim2_rs10        19A"     410
+z80det          00        0 (extern)
+zrcdet          00        0 (extern)

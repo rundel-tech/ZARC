@@ -1,0 +1,273 @@
+START header
+
+gEDA's netlist format
+(Initially created for testing of gnetlist)
+
+END header
+
+START graphical symbols
+
+Component without refdes: title-A2.sym at (48800 . 52700)
+Component without refdes: busripper-1.sym at (52500 . 59000)
+Component without refdes: busripper-1.sym at (58500 . 59000)
+Component without refdes: busripper-1.sym at (52500 . 59300)
+Component without refdes: busripper-1.sym at (52500 . 59600)
+Component without refdes: busripper-1.sym at (52500 . 59900)
+Component without refdes: busripper-1.sym at (58500 . 59300)
+Component without refdes: busripper-1.sym at (58500 . 59600)
+Component without refdes: busripper-1.sym at (58500 . 59900)
+Component without refdes: busripper-1.sym at (52700 . 57500)
+Component without refdes: busripper-1.sym at (58300 . 57500)
+Component without refdes: busripper-1.sym at (52700 . 57800)
+Component without refdes: busripper-1.sym at (52700 . 58100)
+Component without refdes: busripper-1.sym at (52700 . 58400)
+Component without refdes: busripper-1.sym at (58300 . 57800)
+Component without refdes: busripper-1.sym at (58300 . 58100)
+Component without refdes: busripper-1.sym at (58300 . 58400)
+Component without refdes: title-A2.sym at (48800 . 52700)
+Component without refdes: busripper-1.sym at (53500 . 67000)
+Component without refdes: busripper-1.sym at (53500 . 66700)
+Component without refdes: busripper-1.sym at (53500 . 66400)
+Component without refdes: busripper-1.sym at (53500 . 66100)
+Component without refdes: busripper-1.sym at (53500 . 65800)
+Component without refdes: busripper-1.sym at (53500 . 65500)
+Component without refdes: busripper-1.sym at (53500 . 65200)
+Component without refdes: busripper-1.sym at (53500 . 64900)
+Component without refdes: busripper-1.sym at (56700 . 67000)
+Component without refdes: busripper-1.sym at (56700 . 66700)
+Component without refdes: busripper-1.sym at (56700 . 66400)
+Component without refdes: busripper-1.sym at (56700 . 66100)
+Component without refdes: busripper-1.sym at (56700 . 65800)
+Component without refdes: busripper-1.sym at (56700 . 65500)
+Component without refdes: busripper-1.sym at (56700 . 65200)
+Component without refdes: busripper-1.sym at (56700 . 64900)
+Component without refdes: title-A2.sym at (48800 . 52700)
+Component without refdes: busripper-1.sym at (54800 . 66200)
+Component without refdes: busripper-1.sym at (54800 . 65900)
+Component without refdes: busripper-1.sym at (54800 . 65600)
+Component without refdes: busripper-1.sym at (54800 . 65300)
+Component without refdes: busripper-1.sym at (58700 . 66500)
+Component without refdes: busripper-1.sym at (58700 . 66200)
+Component without refdes: busripper-1.sym at (58700 . 65900)
+Component without refdes: busripper-1.sym at (58700 . 65600)
+Component without refdes: busripper-1.sym at (59300 . 65300)
+Component without refdes: busripper-1.sym at (59300 . 65000)
+Component without refdes: busripper-1.sym at (59300 . 64700)
+Component without refdes: busripper-1.sym at (59300 . 64400)
+Component without refdes: busripper-1.sym at (54200 . 65000)
+Component without refdes: busripper-1.sym at (54200 . 64700)
+Component without refdes: busripper-1.sym at (54200 . 64400)
+Component without refdes: busripper-1.sym at (54200 . 64100)
+Component without refdes: title-A2.sym at (48800 . 52700)
+Component without refdes: title-A2.sym at (48800 . 52700)
+Component without refdes: title-A2.sym at (48800 . 52700)
+
+END graphical symbols
+
+START components
+
+C1 device=POLARIZED_CAPACITOR
+C2 device=POLARIZED_CAPACITOR
+J1 device=HEADER_14x2
+J2 device=HEADER_14x2
+J3 device=HEADER_14x2
+J4 device=HEADER_14x2
+J5 device=CONNECTOR_26
+J6 device=MMC_CARD
+P1 device=DIN41612_64_AB-1
+R5 device=RESISTORPACK_9
+R7 device=RESISTOR
+R8 device=RESISTOR
+R9 device=RESISTOR
+R10 device=RESISTOR
+R11 device=RESISTOR
+R12 device=RESISTOR
+R13 device=RESISTOR
+R14 device=RESISTOR
+R15 device=RESISTOR
+U1 device=74LVC245
+U2 device=74LS05
+U3 device=74LS595
+U4 device=SN75152
+U5 device=SN75152
+U6 device=SN75150
+U7 device=SN75150
+U8 device=DS1672
+U9 device=CRYSTAL
+
+END components
+
+START "no-connect" nets
+
+unnamed_net1
+unnamed_net2
+unnamed_net3
+unnamed_net4
+unnamed_net5
+unnamed_net6
+unnamed_net7
+unnamed_net8
+unnamed_net9
+unnamed_net10
+unnamed_net11
+unnamed_net12
+unnamed_net13
+unnamed_net14
+unnamed_net15
+unnamed_net16
+unnamed_net17
+unnamed_net18
+unnamed_net19
+unnamed_net20
+unnamed_net21
+unnamed_net22
+unnamed_net23
+unnamed_net24
+unnamed_net25
+unnamed_net26
+unnamed_net27
+unnamed_net28
+unnamed_net29
+unnamed_net30
+unnamed_net31
+unnamed_net32
+unnamed_net33
+unnamed_net34
+unnamed_net35
+unnamed_net36
+unnamed_net37
+unnamed_net38
+unnamed_net39
+unnamed_net40
+unnamed_net41
+unnamed_net42
+unnamed_net43
+unnamed_net44
+unnamed_net45
+unnamed_net46
+unnamed_net47
+unnamed_net48
+unnamed_net49
+unnamed_net50
+unnamed_net51
+unnamed_net52
+unnamed_net53
+unnamed_net54
+unnamed_net55
+unnamed_net56
+unnamed_net57
+unnamed_net58
+unnamed_net59
+unnamed_net60
+unnamed_net61
+unnamed_net64
+unnamed_net65
+unnamed_net66
+unnamed_net69
+unnamed_net70
+unnamed_net71
+
+END "no-connect" nets
+
+START renamed-nets
+
+
+END renamed-nets
+
+START nets
+
++3.3V : J1 27, J1 28, J2 28, J3 28, J4 27, J4 28, J6 4, P1 A12, P1 A22, P1 A27, P1 A32, R5 1, R10 2, R11 2, R12 2, R13 2, R14 2, R15 2, U1 20, U8 8
++12V : P1 A1, U4 16, U5 16, U6 8, U7 8
+-12V : P1 B1, U4 9, U5 9, U6 5, U7 5
+ACTS : J5 10, U5 10
+ARTS : J5 8, U7 6
+ARxD : J5 7, U5 7
+ATxD : J5 9, U7 7
+BD0 : P1 A23, U1 2
+BD1 : P1 B23, U1 3
+BD2 : P1 A24, U1 4
+BD3 : P1 B24, U1 5
+BD4 : P1 A25, U1 6
+BD5 : P1 B25, U1 7
+BD6 : P1 A26, U1 8
+BD7 : P1 B26, U1 9
+CCTS : J5 4, U4 10
+CRTS : J5 2, U6 6
+CRxD : J5 1, U4 7
+CTxD : J5 3, U6 7
+GND : C1 N, C2 N, J1 25, J1 26, J2 1, J2 2, J2 26, J2 27, J3 1, J3 2, J3 26, J3 27, J4 1, J4 2, J4 8, J4 9, J4 10, J4 25, J4 26, J5 5, J5 11, J6 3, J6 6, J6 10, P1 B11, P1 B12, P1 B13, P1 B14, P1 B15, P1 B16, P1 B17, P1 B18, P1 B19, P1 B20, P1 B21, P1 B22, P1 B27, P1 B32, R8 1, U1 10, U2 7, U3 8, U3 13, U4 8, U5 8, U6 4, U7 4, U8 4
+IO_BUF_DIR : P1 A20, U1 1
+LV_A0 : J1 11, P1 A28
+LV_A1 : J1 10, P1 B28
+LV_A2 : J1 13, P1 A29
+LV_A3 : J1 12, P1 B29
+LV_A4 : J1 15, P1 A30
+LV_A5 : J1 14, P1 B30
+LV_A6 : J1 17, P1 A31
+LV_A7 : J1 16, P1 B31
+LV_CPU_CLK : J4 11, P1 A11
+LV_D0 : J1 3, U1 18
+LV_D1 : J1 2, U1 17
+LV_D2 : J1 5, U1 16
+LV_D3 : J1 4, U1 15
+LV_D4 : J1 7, U1 14
+LV_D5 : J1 6, U1 13
+LV_D6 : J1 9, U1 12
+LV_D7 : J1 8, U1 11
+LV_INT : J2 18, P1 A6
+LV_NMI : J2 19, P1 B6
+LV_PROT : J1 24, P1 A19
+LV_RESET : J2 7, R5 3, U2 4
+LV_SUPER : J1 23, P1 A18
+NMI_SWITCH : P1 A9, U2 1
+OX_DATA : J2 20, U3 14
+OX_RCLK : J2 22, U3 12
+OX_SRCLK : J2 21, U3 11
+PUP_5V : R9 1, U4 3, U4 14, U5 3, U5 14, U6 1, U7 1
+RTC_SCL : J3 11, R12 1, U8 6
+RTC_SDA : J3 12, R11 1, U8 5
+RX_BIAS : C1 P, R7 1, R8 2, U4 5, U4 6, U4 11, U4 12, U5 5, U5 6, U5 11, U5 12
+SPI_MISO : J3 16, J6 7
+SPI_MOSI : J3 15, J6 2
+SPI_SCLK : J3 14, J6 5
+STBY_3V3 : C2 P, P1 A2, U8 3
+Vcc : P1 A10, P1 B10, R7 2, R9 2, U2 14, U3 16
+\_LV_ACTS\_ : J3 10, R5 7, U2 12
+\_LV_ARTS\_ : J3 9, U7 3
+\_LV_ARxD\_ : J3 8, R5 6, U2 10
+\_LV_ATxD\_ : J3 7, U7 2
+\_LV_CCTS\_ : J3 6, R5 5, U2 8
+\_LV_CRTS\_ : J3 5, U6 3
+\_LV_CRxD\_ : J3 4, R5 4, U2 6
+\_LV_CTxD\_ : J3 3, U6 2
+\_LV_IORQ\_ : J1 19, P1 A15
+\_LV_IOWAIT\_ : J2 10, P1 A8
+\_LV_IO_BUF_EN\_ : P1 A21, U1 19
+\_LV_M1\_ : J1 18, P1 A13
+\_LV_MREQ\_ : J1 20, P1 A14
+\_LV_NMI_SWITCH\_ : J2 5, R5 2, U2 2
+\_LV_PNL_DAT_RD\_ : J2 17, P1 B7
+\_LV_RD\_ : J1 22, P1 A16
+\_LV_WR\_ : J1 21, P1 A17
+\_MMAP_EN\_ : J2 11, P1 B8
+\_MMAP_IO_SEL\_ : J2 16, P1 A7
+\_PNL_ARxD\_ : P1 A5, U3 4
+\_PNL_ATxD\_ : P1 B5, U3 5
+\_PNL_CRxD\_ : P1 B4, U3 3
+\_PNL_CTxD\_ : P1 A4, U3 2
+\_PNL_S0\_ : P1 A3, U3 15
+\_PNL_S1\_ : P1 B3, U3 1
+\_RESET\_ : P1 B9, U2 3, U3 10
+\_SPI_CS\_ : J3 13, J6 1, R14 1
+unnamed_net62 : U2 5, U4 2
+unnamed_net63 : U2 9, U4 15
+unnamed_net67 : U2 11, U5 2
+unnamed_net68 : U2 13, U5 15
+unnamed_net72 : U8 1, U9 2
+unnamed_net73 : U8 2, U9 1
+unnamed_net74 : R10 1, U8 7
+unnamed_net75 : J6 8, R13 1
+unnamed_net76 : J6 9, R15 1
+
+END nets
+

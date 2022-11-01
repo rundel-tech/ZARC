@@ -1,0 +1,71 @@
+Addr  Length Typ Name       Module   File
+=====================================================================
+0100   07ac   P  -          BITCOI   bitcoin.rel
+08ac   0631   P  -          SHA-25   sha-256.rel
+0edd   0387   P  -          CPM_UT   ../shared/cpm_utility.rel
+1264   0116   P  -          CPM_MA   ../shared/cpm_maths.rel
+137a   04e0   P  -          CPM_FI   ../shared/cpm_files.rel
+185a   0187   D  -          BITCOI   bitcoin.rel
+19e1   01cf   D  -          SHA-25   sha-256.rel
+1bb0   000a   D  -          CPM_UT   ../shared/cpm_utility.rel
+
+Symbol   Value Module   File
+======================================================================
+CBDOS    0edd  CPM_UT   ../shared/cpm_utility.rel
+CBIOS    0ee9  CPM_UT   ../shared/cpm_utility.rel
+CONRCH   0f5c  CPM_UT   ../shared/cpm_utility.rel
+CONST    0f73  CPM_UT   ../shared/cpm_utility.rel
+CONWCH   0f4e  CPM_UT   ../shared/cpm_utility.rel
+CONWMN   10d3  CPM_UT   ../shared/cpm_utility.rel
+CONWMS   0f80  CPM_UT   ../shared/cpm_utility.rel
+CRC16X   12f4  CPM_MA   ../shared/cpm_maths.rel
+CWNWLN   0f69  CPM_UT   ../shared/cpm_utility.rel
+CWPDBY   0fef  CPM_UT   ../shared/cpm_utility.rel
+CWPDLO   1036  CPM_UT   ../shared/cpm_utility.rel
+CWPDWD   0ff9  CPM_UT   ../shared/cpm_utility.rel
+CWPHBY   0fdb  CPM_UT   ../shared/cpm_utility.rel
+CWPHNB   0fce  CPM_UT   ../shared/cpm_utility.rel
+CWPHWD   0fe7  CPM_UT   ../shared/cpm_utility.rel
+CWPSPC   0fa9  CPM_UT   ../shared/cpm_utility.rel
+CWVICH   0fae  CPM_UT   ../shared/cpm_utility.rel
+FBFCB    137f  CPM_FI   ../shared/cpm_files.rel
+FCLOSE   1521  CPM_FI   ../shared/cpm_files.rel
+FDEL     139b  CPM_FI   ../shared/cpm_files.rel
+FDFCB    1559  CPM_FI   ../shared/cpm_files.rel
+FDNAM    15f4  CPM_FI   ../shared/cpm_files.rel
+FDSREM   1649  CPM_FI   ../shared/cpm_files.rel
+FDSWEM   1642  CPM_FI   ../shared/cpm_files.rel
+FINIT    137a  CPM_FI   ../shared/cpm_files.rel
+FMAKE    13f0  CPM_FI   ../shared/cpm_files.rel
+FOPEN    13c1  CPM_FI   ../shared/cpm_files.rel
+FRDBLK   150a  CPM_FI   ../shared/cpm_files.rel
+FRDBY    14d0  CPM_FI   ../shared/cpm_files.rel
+FRDREC   14a2  CPM_FI   ../shared/cpm_files.rel
+FSTFRE   1bba  CPM_TO   ../shared/cpm_top.rel
+FWRBLK   1491  CPM_FI   ../shared/cpm_files.rel
+FWRBY    145f  CPM_FI   ../shared/cpm_files.rel
+FWRREC   142d  CPM_FI   ../shared/cpm_files.rel
+MADBBU   128a  CPM_MA   ../shared/cpm_maths.rel
+MADD32   134f  CPM_MA   ../shared/cpm_maths.rel
+MADLBU   1264  CPM_MA   ../shared/cpm_maths.rel
+MADWBU   1279  CPM_MA   ../shared/cpm_maths.rel
+MAMLBU   12b6  CPM_MA   ../shared/cpm_maths.rel
+MAMWWU   129a  CPM_MA   ../shared/cpm_maths.rel
+MCLR32   130f  CPM_MA   ../shared/cpm_maths.rel
+MCOP32   1319  CPM_MA   ../shared/cpm_maths.rel
+MCP32    133d  CPM_MA   ../shared/cpm_maths.rel
+MINC32   1328  CPM_MA   ../shared/cpm_maths.rel
+MSUB32   1364  CPM_MA   ../shared/cpm_maths.rel
+MTWDLI   10f7  CPM_UT   ../shared/cpm_utility.rel
+PANIC    0efd  CPM_UT   ../shared/cpm_utility.rel
+RDDULO   11c7  CPM_UT   ../shared/cpm_utility.rel
+RDDUWD   118f  CPM_UT   ../shared/cpm_utility.rel
+RDHXWD   1151  CPM_UT   ../shared/cpm_utility.rel
+SH2DH    0d92  SHA-25   sha-256.rel
+SH2INI   08ac  SHA-25   sha-256.rel
+SH2M     08be  SHA-25   sha-256.rel
+SKPSPC   0f90  CPM_UT   ../shared/cpm_utility.rel
+TOLOCA   0fa0  CPM_UT   ../shared/cpm_utility.rel
+TOUPCA   0f97  CPM_UT   ../shared/cpm_utility.rel
+Z80DET   0f34  CPM_UT   ../shared/cpm_utility.rel
+ZRCDET   0f10  CPM_UT   ../shared/cpm_utility.rel

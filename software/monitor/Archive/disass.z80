@@ -1,0 +1,938 @@
+; *******************************************************
+; * Disassembly Routines for ZARC Z80 Computer          *
+; * Written by: Merlin Skinner                          *
+; * Date Started: 27/9/2020                             *
+; *******************************************************
+;
+; Routines to disassembly Z80 object codes into something resembling source. This
+; is based on an algorithm by Toni Baker, published in Mastering Machine Code on
+; Your ZX80 / ZX81. It includes some optimisations by "Thunor" from:
+; http://www.users.waitrose.com/~thunor/mmcoyzx81/chapter16.html
+;
+; Routines preserve all registers not required as operands or return values except
+; AF unless otherwise stated below. These routines are normally called through the
+; RST 08 (mcall) mechanism, but may be called directly by the monitor if required.
+;
+;
+monitor         equ 1                   ; Flag part of monitor build
+disass          equ 1                   ; Flag module for includes
+;
+;
+;
+; ************
+; * Includes *
+; ************
+;
+                include "macros.i"
+                include "monitor.i"
+                include "io.i"          ; I/O routines
+                include "disass.i"      ; Z80 disassembler
+;
+;
+; *************
+; * Externals *
+; *************
+;
+; Routines
+                public diproc   ; Disassemble an instruction to intermediate form
+                public diprnt   ; Print the result
+;
+; Variables
+; None
+;
+;
+; *************
+; * Constants *
+; *************
+;
+; None
+;
+;
+; *************
+; * Main Code *
+; *************
+;
+                cseg                ; Code segment
+;
+;
+; Disassemble an instruction into an intermediate format for printing by diprnt.
+; It is also useful on its own as a means of aligning with the instruction stream.
+; Call with:
+; HL - points to first byte of instruction
+; Returns with:
+; HL - points to first byte of next instruction
+;
+; class and index are used internally to keep track of the instruction type. The
+; states are shown in the following table.
+;
+; +-------+------------------------------+
+; |       |           index              |
+; +-------+--------+----------+----------+
+; | class |  0 HL  |   1 IX   |   2 IY   |
+; +-------+--------+----------+----------+
+; |   0   | xx     | DDxx     | FDxx     |
+; |   1   | CBxx   | DDCBddxx | FDCBddxx |
+; |   2   | EDxx   |    --    |    --    |
+; +-------+--------+----------+----------+
+;
+; The intermediate buffer dis_buf contains ASCII text with the following exceptions
+; (all upper-case characters). This prevents having to implement a hexadecimal print
+; for dis_buf.
+; "V" is replaced by the following 8-bit value in hex.
+; "W" is replaced by the following 16-bit value in hex.
+; "O" is replaced by the following 8-bit signed offset in decimal [e.g. (IX + 10)]
+;
+diproc          push bc
+                push de
+                ld (pc), hl         ; Instruction pointer
+                ld (start_pc), hl   ; Remember start
+                xor a
+                ld (db_count), a    ; Reset output buffer (dis_buf)
+; Define two variables, class and Index, and initially let both of them equal zero.
+                xor a
+                ld (class), a
+                ld (index), a
+; Write the byte being disassembled in binary, and split it into three parts; F,
+; G, and H. F consists of bits 7 and 6, G of bits 5, 4, and 3, and H of bits 2,
+; 1, and 0.
+dip_inst        call di_fetch       ; Fetch instruction
+                ld c, a             ; Save it for later
+                ld de, 0            ; Reset F and G
+                rlca                ; Rotate bit 7 into carry
+                rl d                ; Rotate bit 7 into F
+                rlca                ; ... bit 6
+                rl d
+; Perform a similar process for G.
+                rlca                ; ... bit 5
+                rl e
+                rlca                ; ... bit 4
+                rl e
+                rlca                ; ... bit 3
+                rl e                
+; Find H
+                ld a, c
+                and 7               ; Bits 0 to 2
+; A - H
+; C - current instruction
+; DE - F (high) and G (low)
+                ld (inst_h), a
+                ld a, e
+                ld (inst_g), a
+                ld a, d
+                ld (inst_f), a
+; Next, split G into two parts; J and K; with J consisting of bits 2 and 1, and K
+; just bit 0.
+                ld a, e
+                rra
+                and 3
+                ld (inst_j), a
+                ld a, e
+                and 1
+                ld (inst_k), a
+; What we do next depends on CLASS.
+                ld a, (class)
+                and a
+                jr z, di_class_zero
+                dec a
+                jp z, di_class_one
+                dec a
+                jp z, di_class_two
+; If we end up here then something has gone horribly wrong.
+                call panic          ; System panic
+;
+; Class is 0.
+; If the byte is 0xCB then...
+di_class_zero   ld a, c
+                cp 0xcb
+                jr nz, dic0_not_cb
+; Handle CB prefix
+; If INDEX <> zero then point past displacement.
+                ld a, (index)
+                and a
+                jr z, dic0_idx_skip
+                call di_fetch       ; Fetch index offset
+                ld (idx_offset), a
+; Let CLASS equal one and start again.
+dic0_idx_skip   ld a, 1
+                ld (class), a
+                jr dip_inst         ; Process next byte
+; 0xCB processing complete.
+;If INDEX equals zero then...
+dic0_not_cb     ld a, (index)
+                and a
+                jr nz, dic0_pref_dn
+; If the byte is ED then let CLASS equal two and start again.
+                ld a, c
+                cp 0xed
+                jr nz, dic0_not_ed
+                ld a, 2
+                ld (class), a
+                jr dip_inst         ; Process next byte
+; If the byte is DD then let INDEX equal one and start again.
+dic0_not_ed     cp 0xdd
+                jr nz, dic0_not_dd
+                ld a, 1
+                ld (index), a
+                jr dip_inst         ; Process next byte
+; If the byte is FD then let INDEX equal two and start again.
+dic0_not_dd     cp 0xfd
+                jr nz, dic0_pref_dn
+                ld a, 2
+                ld (index), a
+                jp dip_inst         ; Process next byte
+;
+; Prefix processing complete. Since all paths from now on result in a disassembled
+; instruction, we can stack the destination address and just return in each case.
+dic0_pref_dn    ld hl, dip_done
+                push hl
+;
+; What we do next depends on F.
+
+                ld a, (inst_f)
+                and a
+                jr z, dic0f0
+                dec a
+                jp z, dic0f1
+                dec a
+                jp z, dic0f2
+                dec a
+                jp z, dic0f3
+; If we end up here then something has gone horribly wrong.
+                call panic          ; System panic
+;
+; If F equals zero then...
+; What we do next depends on H.
+dic0f0          ld a, (inst_h)
+                and a
+                jr z, dic0f0h0
+                dec a
+                jr z, dic0f0h1
+                dec a
+                jr z, dic0f0h2
+                dec a
+                jp z, dic0f0h3
+                dec a
+                jp z, dic0f0h4
+                dec a
+                jp z, dic0f0h5
+                dec a
+                jp z, dic0f0h6
+                dec a
+                jp z, dic0f0h7
+; If we end up here then something has gone horribly wrong.
+                call panic          ; System panic
+;
+; If H equals zero then...
+; If G greater than three then let DIS equal JR c(G-4),V.
+dic0f0h0        ld a, (inst_g)
+                sub 4
+                jr c, dic0f0h0_njrcc
+                push af
+                ld hl, jr_msg
+                call di_outmsgspc   ; Output instruction
+                pop af
+                call di_out_c
+                call di_comma
+                call di_rel_jmp     ; Write space then destination
+                ret
+; If G less than four choose the Gth item in this list:
+; NOP/EX AF,AF'/DJNZ V/JR V
+dic0f0h0_njrcc  ld hl, c0f0h0g_msg
+                ld a, (inst_g)
+                call di_outmsgn     ; Output message <n>
+                ld a, (inst_g)
+                cp 2
+                ret c               ; Nothing more for nop & ex af, af'
+; Write jump destination for djnz & jr.
+                call di_rel_jmp     ; Write space then destination
+                ret
+;
+; If H equals one then...
+; If K is zero then let DIS equal LD s(J),VV
+dic0f0h1        ld a, (inst_k)
+                and a
+                jr nz, dic0f0h1_add
+; LD s(J),VV
+                ld hl, ld_msg
+                call di_outmsgspc   ; Output instruction followed by a space
+                ld a, (inst_j)
+                call di_out_s       ; Output "s" (bc, de, [HL, IX or IY] or sp)
+                call di_comma_spc
+                call di_out_vv      ; Output 16-bit value
+                ret
+; If K is one then let DIS equal ADD Y,s(J)
+dic0f0h1_add    ld hl, add_msg
+                call di_outmsgspc   ; Output instruction followed by a space
+                call di_out_y       ; Output "Y" (HL, IX or IY)
+                ld a, (inst_j)
+                call di_out_s       ; Output "s" (bc, de, [HL, IX or IY] or sp)
+                ret
+;
+; If H equals two then...
+; Let DIS equal LD plus the Gth item in this list:
+; (BC),A/A,(BC)/(DE),A/A,(DE)/(VV),Y/Y,(VV)/(VV),A/A,(VV).
+dic0f0h2        ld hl, ld_msg
+                call di_outmsgspc   ; Output instruction followed by a space
+                ld a, (inst_g)
+                cp 4
+                jr nc, dic0f0h2_vv
+; Registers only [ (BC),A/A,(BC)/(DE),A/A,(DE) ].
+                ld hl, ld_ptr_msg
+                call di_outmsgn     ; Output message <n>
+                ret
+; Deal with (VV),Y/Y,(VV)/(VV),A/A,(VV).
+dic0f0h2_vv     sub 4
+                jr z, dic0f0h2gg4
+                dec a
+                jr z, dic0f0h2gg5
+                dec a
+                jr z, dic0f0h2gg6
+                dec a
+                jr z, dic0f0h2gg7
+; If we end up here then something has gone horribly wrong.
+                call panic          ; System panic
+; (VV),Y
+dic0f0h2gg4     call di_out_pvv     ; Output 16-bit pointer (VV)
+                call di_comma_spc
+                call di_out_y       ; Output "Y" (HL, IX or IY)
+                ret
+; Y,(VV)
+dic0f0h2gg5     call di_out_y       ; Output "Y" (HL, IX or IY)
+                call di_comma_spc
+                call di_out_pvv     ; Output 16-bit pointer (VV)
+                ret
+; (VV),A
+dic0f0h2gg6     call di_out_pvv     ; Output 16-bit pointer (VV)
+                call di_comma_spc
+                ld a, 'a'
+                call di_outchar
+                ret
+; A,(VV)
+dic0f0h2gg7     ld a, 'a'
+                call di_outchar
+                call di_comma_spc
+                call di_out_pvv     ; Output 16-bit pointer (VV)
+                ret
+;
+; If H equals three then...
+dic0f0h3        ld a, (inst_k)
+                and a
+                jr nz, dic0f0h3_dec
+; If K is zero then let DIS equal INC s(J)
+                ld hl, inc_msg
+                call di_outmsgspc   ; Output instruction followed by a space
+                ld a, (inst_j)
+                call di_out_s       ; Output "s" (bc, de, [HL, IX or IY] or sp)
+                ret
+; If K is one then let DIS equal DEC s(J)
+dic0f0h3_dec    ld hl, dec_msg
+                call di_outmsgspc   ; Output instruction followed by a space
+                ld a, (inst_j)
+                call di_out_s       ; Output "s" (bc, de, [HL, IX or IY] or sp)
+                ret
+;
+; If H equals four then let DIS equal INC r(G)
+dic0f0h4        ld hl, inc_msg
+                call di_outmsgspc   ; Output instruction followed by a space
+                ld a, (inst_g)
+                call di_out_r       ; Output "r" (b, c, d, e, h, l, X or a)
+                ret
+;
+; If H equals five then let DIS equal DEC r(G)
+dic0f0h5        ld hl, dec_msg
+                call di_outmsgspc   ; Output instruction followed by a space
+                ld a, (inst_g)
+                call di_out_r       ; Output "r" (b, c, d, e, h, l, X or a)
+                ret
+;
+; If H equals six then let DIS equal LD r(G),V
+dic0f0h6        ld hl, ld_msg
+                call di_outmsgspc   ; Output instruction followed by a space
+                ld a, (inst_g)
+                call di_out_r       ; Output "r" (b, c, d, e, h, l, X or a)
+                call di_comma_spc
+                call di_out_v       ; Output 8-bit value from instruction stream
+                ret
+;
+; If H equals seven then choose the Gth item from this list:
+; RLCA/RRCA/RLA/RRA/DAA/CPL/SCF/CCF.
+dic0f0h7        ld hl, dic0f0h7_msg
+                ld a, (inst_g)
+                call di_outmsgn     ; Output message <n>
+                ret
+;
+; Class 0: If F equals one then...
+dic0f1          ld a, c
+                cp 0x76
+                jr nz, dic0f1_not_halt
+; If the byte = 76 then let DIS = HALT.
+                ld hl, halt_msg
+                call di_outmsg      ; Output instruction
+                ret
+; If the byte <> 76 then let DIS equal LD r(G),r(H).
+dic0f1_not_halt ld hl, ld_msg
+                call di_outmsgspc   ; Output instruction followed by a space
+                ld a, (inst_g)
+                call di_out_r       ; Output "r" (b, c, d, e, h, l, X or a)
+                call di_comma_spc
+                ld a, (inst_h)
+                call di_out_r       ; Output "r" (b, c, d, e, h, l, X or a)
+                ret
+;
+; Class 0: If F equals two then...
+; If F equals two then let DIS equal x(G) r(H)
+dic0f2          ld a, (inst_g)
+                call di_out_xinst   ; Output "ADD A," ... "CP"
+                call di_spc         ; Write a space
+                ld a, (inst_h)
+                call di_out_r       ; Output "r" (b, c, d, e, h, l, X or a)
+                ret
+;
+; Class 0: If F equals three then...
+; What we do next depends on H.
+dic0f3          ld a, (inst_h)
+                and a
+                jr z, dic0f3h0
+                dec a
+                jr z, dic0f3h1
+                dec a
+                jr z, dic0f3h2
+                dec a
+                jp z, dic0f3h3
+                dec a
+                jp z, dic0f3h4
+                dec a
+                jp z, dic0f3h5
+                dec a
+                jp z, dic0f3h6
+                dec a
+                jp z, dic0f3h7
+; If we end up here then something has gone horribly wrong.
+                call panic          ; System panic
+;
+; If H equals 0 then let DIS equal RET c(G)
+dic0f3h0        ld hl, ret_msg
+                call di_outmsgspc   ; Output instruction
+                ld a, (inst_g)
+                call di_out_c
+                ret
+;
+; If H equals one then...
+dic0f3h1        ld a, (inst_k)
+                and a
+                jr nz, dic0f3h1k1
+; If K is zero then let DIS equal POP q(J)
+                ld hl, pop_msg
+                call di_outmsgspc   ; Output instruction
+                ld a, (inst_j)
+                call di_out_q       ; Output "s" (bc, de, [HL, IX or IY] or af)
+                ret
+; If K is one then choose the Jth item from this list:
+; RET/EXX/JP (Y)/LD SP,Y.
+dic0f3h1k1      ld hl, dic0f3h1k1_msg
+                ld a, (inst_j)
+                call di_outmsgn     ; Output message <n>
+                ld a, (inst_j)
+                cp 2
+                jr z, dic0f3h1k1j2
+                cp 3
+                jr z, dic0f3h1k1j3
+                ret
+;JP (Y)
+dic0f3h1k1j2    ld hl, jp_msg
+                call di_outmsgspc   ; Output instruction
+                ld a, '('
+                call di_outchar
+                call di_out_y       ; Output "Y" (HL, IX or IY)
+                ld a, ')'
+                call di_outchar
+                ret
+;LD SP,Y
+dic0f3h1k1j3    ld hl, ld_sp_msg
+                call di_outmsg      ; Output instruction
+                call di_out_y       ; Output "Y" (HL, IX or IY)
+                ret
+;
+; If H equals two then let DIS equal JP c(G),VV
+dic0f3h2        ld hl, jp_msg
+                call di_outmsgspc   ; Output instruction
+                ld a, (inst_g)
+                call di_out_c
+                call di_comma_spc
+                call di_out_vv      ; Output 16-bit value
+                ret
+;
+; If H equals three then choose the Gth item from this list:
+; JP VV/-/OUT (V),A/IN A,(V)/EX (SP),Y/EX DE,HL/DI/EI.
+dic0f3h3        ld hl, dic0f3h3_msg
+                ld a, (inst_g)
+                call di_outmsgn     ; Output message <n>
+; Deal with operands where necessary.
+                ld a, (inst_g)
+                and a
+                jr z, dic0f3h3g0    ; JP VV
+                cp 2
+                jr z, dic0f3h3g2    ; OUT (V),A
+                cp 3
+                jr z, dic0f3h3g3    ; IN A,(V)
+                cp 4
+                jr z, dic0f3h3g4    ; EX (SP),Y
+                ret
+; JP VV
+dic0f3h3g0      call di_out_vv      ; Output 16-bit value
+                ret
+; OUT (V),A
+dic0f3h3g2      call di_out_v       ; Output 8-bit value from instruction stream
+                ld hl, cpcomma_a_msg    ; "), a"
+                call di_outmsg      ; Output instruction
+                ret
+; IN A,(V)
+dic0f3h3g3      call di_out_v       ; Output 8-bit value from instruction stream
+                ld a, ')'
+                call di_outchar
+                ret
+; EX (SP),Y
+dic0f3h3g4      call di_out_y       ; Output "Y" (HL, IX or IY)
+                ret
+;
+; If H equals four then let DIS equal CALL c(G),VV
+dic0f3h4        ld hl, call_msg
+                call di_outmsgspc   ; Output instruction
+                ld a, (inst_g)
+                call di_out_c
+                call di_comma_spc
+                call di_out_vv      ; Output 16-bit value
+                ret
+;
+; If H equals five then...
+dic0f3h5        ld a, (inst_k)
+                and a
+                jr nz, dic0f3h5k1
+; If K is zero then let DIS equal PUSH q(J).
+                ld hl, push_msg
+                call di_outmsgspc   ; Output instruction
+                ld a, (inst_j)
+                call di_out_q       ; Output "s" (bc, de, [HL, IX or IY] or af)
+                ret
+; If K is one then let DIS equal CALL VV.
+dic0f3h5k1      ld hl, call_msg
+                call di_outmsgspc   ; Output instruction
+                call di_out_vv      ; Output 16-bit value
+                ret
+;
+; If H equals six then let DIS equal x(G) V.
+dic0f3h6        ld a, (inst_g)
+                call di_out_xinst   ; Output "ADD A," ... "CP"
+                call di_spc         ; Write a space
+                call di_out_v       ; Output 8-bit value from instruction stream
+                ret
+;; If H equals seven then let DIS equal RST plus the Gth item
+; in this list: 00/08/10/18/20/28/30/38.
+dic0f3h7        ld hl, rst_msg
+                call di_outmsgspc   ; Output instruction
+                ld a, (inst_g)
+                add a               ; Multiply by 8
+                add a
+                add a
+                call di_out_v       ; Output 8-bit value from instruction stream
+                ret
+;
+; Class is 1.
+di_class_one
+
+
+
+; Class is 2.
+di_class_two
+
+
+; Instruction complete.
+dip_done        pop de
+                pop bc
+                ld hl, (pc)
+                ret
+;
+;
+; Output 16-bit pointer (VV) from instruction stream.
+di_out_pvv      ld a, '('
+                call di_outchar
+                call di_out_vv      ; Output 16-bit value
+                ld a, ')'
+                jp di_outchar
+;
+;
+; Output 8-bit value from instruction stream.
+di_out_v        ld a, 'V'           ; Flag 16-bit value follows
+                call di_outchar
+                call di_fetch       ; Fetch immediate value
+                jp di_outchar
+;
+;
+; Output 16-bit value from instruction stream.
+di_out_vv       ld a, 'W'           ; Flag 16-bit value follows
+                call di_outchar
+                call di_fetch       ; Fetch LSB of immediate value
+                call di_outchar
+                call di_fetch       ; Fetch MSB of immediate value
+                jp di_outchar
+;
+;
+; Fetch a byte from the instruction steam.
+; Returns with:
+; A - instruction byte
+di_fetch        push hl
+                ld hl, (pc)
+                ld a, (hl)          ; Do the fetch
+                inc hl
+                ld (pc), hl
+                pop hl
+; This will need to store the fetched bytes in a buffer for later display.
+                ret
+
+
+; The next byte in the instruction stream is a relative jump. Output this as a
+; 16-bit address.
+di_rel_jmp      call di_spc         ; Write a space
+                call di_fetch       ; Fetch offset
+; Sign extended A into BC.
+                ld b, 0
+                and a
+                jp p, rj_sexdn
+                ld b, 0xff
+rj_sexdn        ld c, a
+                ld hl, (pc)
+                add hl, bc          ; Find jump destination
+                ld a, 'W'           ; Flag 16-bit value follows
+                call di_outchar
+                ld a, l
+                call di_outchar
+                ld a, h
+                jp di_outchar
+;
+;
+
+; Output "x" ("ADD A,", "ADC A,", "SUB", "SBC A,", "AND", "XOR", "OR", "CP")
+; to dis_buf.
+; Call with:
+; A - index
+di_out_xinst    push hl
+; Write instruction name.
+                ld hl, xinst_codes_msg
+                call di_outmsgn     ; Output message <n>
+                pop hl
+                ret
+;
+;
+; Output "r" (b, c, d, e, h, l, X [(HL), (IX+d) or (IY+d)] or a) to dis_buf.
+; Call with:
+; A - index
+di_out_r        cp 6
+                jr z, di_out_x
+                push hl
+; Write register name.
+                ld hl, r_codes_msg
+                call di_outmsgn     ; Output message <n>
+                pop hl
+                ret
+;
+;
+; Write "X" [(HL), (IX+d) or (IY+d) according to class] to dis_buf.
+di_out_x        push hl
+                ld a, (class)
+                ld hl, phlixiy_msg
+                call di_outmsgn     ; Output message <n>
+                pop hl
+                ld a, (class)
+                and a
+                ret z               ; If class is zero (hl), exit
+                ld a, 'O'           ; 8-bit signed offset follows
+                call di_outchar
+                call di_fetch       ; Fetch immediate value
+                call di_outchar
+                ld a, ')'
+                jp di_outchar
+                ret
+;
+;
+; Write "q" (bc, de, Y [HL, IX or IY] or af) to dis_buf.
+; Call with:
+; A - index
+di_out_q        cp 2
+                jr z, di_out_y
+                push hl
+; Write register name.
+                ld hl, q_codes_msg
+                call di_outmsgn     ; Output message <n>
+                pop hl
+                ret
+;
+;
+; Write "s" (bc, de, Y [HL, IX or IY] or sp) to dis_buf.
+; Call with:
+; A - index
+di_out_s        cp 2
+                jr z, di_out_y
+                push hl
+; Write register name.
+                ld hl, s_codes_msg
+                call di_outmsgn     ; Output message <n>
+                pop hl
+                ret
+;
+;
+; Write "Y" (HL, IX or IY according to class) to dis_buf.
+di_out_y        push hl
+                ld a, (class)
+                ld hl, hlixiy_msg
+                call di_outmsgn     ; Output message <n>
+                pop hl
+                ret
+;
+;
+; Write condition code to dis_buf.
+; Call with:
+; A - condition code
+di_out_c        push hl
+                ld hl, con_codes_msg
+                call di_outmsgn     ; Output message <n>
+                pop hl
+                ret
+;
+;
+; Write "," to dis_buf.
+di_comma        ld a, ','
+                jp di_outchar
+;
+;
+; Write ", " or just a space to dis_buf.
+di_comma_spc    ld a, ','
+                call di_outchar
+di_spc          ld a, ' '
+                jp di_outchar
+;
+;
+; Write message <n> in a null terminated list to dis_buf. Nothing is printed if the
+; terminator is encountered before message <n> is found. The message separator is "|".
+; Call with:
+; A - number of message to print (first is zero)
+; HL - pointer to start of message
+; Returns with:
+; HL - points to the separator at the end of the message printed, or the
+; terminator.
+; Carry flag is set if the message was not found (terminator encountered).
+di_outmsgn      push bc
+                ld b, a             ; Message number
+omn_msg_lp      ld a, b
+                and a
+                jr z, omn_found     ; Jump if this is the one
+; Skip to next message.
+omn_sk_lp       ld a, (hl)
+                and a
+                jr z, omn_error     ; Error if terminator
+                inc hl
+                cp '|'
+                jr nz, omn_sk_lp    ; Keep going if not separator or terminator
+; Separator found
+                dec b
+                jr omn_msg_lp
+; HL now points to the requied message. Print it until the separator or
+; terminator is encountered.
+omn_found       ld a, (hl)
+                and a
+                jr z, omn_done      ; Exit if terminator found
+                cp '|'
+                jr z, omn_done      ; Exit if separator found
+                call di_outchar     ; Output character
+                inc hl              ; Increment character pointer
+                jr omn_found        ; Transmit next character
+; Successful completion.
+omn_done        pop bc
+                and a
+                ret                 ; Return with carry reset (no error)
+; Terminator encountered before the message was found
+omn_error       pop bc              ; Restore registers
+                scf
+                ret                 ; Return with carry set (error)
+;
+;
+; As di_outmsg, but follows with a space. This is mainly useful for instructions.
+; Call with:
+; HL - pointer to string
+di_outmsgspc    call di_outmsg
+                jp di_spc           ; Write a space
+;
+;
+; Write a null-terminated string to dis_buf.
+; Call with:
+; HL - pointer to string
+di_outmsg       ld a, (hl)
+                and a
+                ret z               ; Return if terminator found
+                call di_outchar
+                inc hl
+                jr di_outmsg
+;
+;
+; Write character to dis_buf.
+; Call with:
+; A - character
+di_outchar      push hl
+                push af
+                ld a, (db_count)
+                cp DIS_BUF_SIZE
+                jr nc, oc_overflow
+                ld hl, dis_buf      ; Point to output buffer
+; Add offset
+                add a, l
+                ld l, a
+                ld a, h
+                adc 0
+                ld h, a
+                pop af
+                ld (hl), a          ; Store character
+                ld hl, db_count
+                inc (hl)
+                pop hl
+                ret
+;
+; Output buffer is full. Silently discard the new character. This should never
+; occur, but butter this than overwrite innocent memory.
+oc_overflow     pop af
+                pop hl
+                ret
+;
+;
+; Print the instruction in the intermediate buffer to the console, performing
+; translations as required. There are no operands or return values.
+diprnt          push bc
+                push de
+                push hl
+                ld hl, (start_pc)   ; Fetch start address
+                mcall MC_CONW_HNWD  ; Print HL in hexadecimal
+                mcall MC_CONW_SPC   ; Print a space
+;
+; Print data here (up to 4 bytes)
+;
+                ld hl, dis_buf      ; Point to output buffer
+                ld a, (db_count)
+                and a
+                jr z, dipr_done     ; Exit if string is null
+                ld b, a             ; Length of string
+dipr_loop       ld a, (hl)
+                inc hl
+                cp 'V'
+                jr z, dipr_hex8
+                cp 'W'
+                jr z, dipr_hex16
+                cp 'O'
+                jr z, dipr_offset
+                mcall MC_CONW_VIS   ; Print only visible 7-bit characters
+dipr_cont       djnz dipr_loop
+dipr_done       pop hl
+                pop de
+                pop bc
+                ret
+;
+; "V" is replaced by the following 8-bit value in hex.
+dipr_hex8       call hex_pref
+                ld a, (hl)          ; Fetch value
+                inc hl
+                dec b
+                mcall MC_CONW_HNBY  ; Print A in hexadecimal
+                jr dipr_cont
+;
+; "W" is replaced by the following 16-bit value in hex.
+dipr_hex16      call hex_pref
+                ld e, (hl)          ; Fetch LSB
+                inc hl
+                dec b
+                ld d, (hl)          ; Fetch MSB
+                inc hl
+                dec b
+                ex de, hl
+                mcall MC_CONW_HNWD  ; Print HL in hexadecimal
+                ex de, hl
+                jr dipr_cont
+
+; "O" is replaced by the following 8-bit signed offset in decimal [e.g. (IX + 10)]
+dipr_offset     ld a, (hl)          ; Fetch value
+                inc hl
+                dec b
+                ld c, '+'           ; Assume a positive value initially
+                and a
+                jp p, dipro_sign
+; Handle negative values.
+                ld c, '-'           ; Correct sign
+                neg                 ; Make value positive
+dipro_sign      push af             ; Save value
+                ld a, c
+                mcall MC_CONW_CH    ; Write sign to the console
+                mcall MC_CONW_SPC   ; Print a space
+                pop af
+                mcall MC_CONW_DNBY  ; Print A in decimal. Leading zeros are suppressed.
+                jr dipr_cont
+;
+;
+; Print hexadecimal prefix ("0x").
+hex_pref        ld a, '0'
+                mcall MC_CONW_CH    ; Write character in A to the console
+                ld a, 'x'
+                mcall MC_CONW_CH    ; Write character in A to the console
+                ret
+;
+;
+; *************
+; * Constants *
+; *************
+;
+c0f0h0g_msg     byte "nop|ex af, af'|djnz|jr", 0
+dic0f0h7_msg    byte "rlca|rrca|rla|rra|daa|cpl|scf|ccf", 0
+dic0f3h1k1_msg  byte "ret|exx|jp |ld ", 0
+dic0f3h3_msg    byte "jp |illegal|out (|in a, (|ex (sp), |ex de,hl|di|ei", 0
+xinst_codes_msg byte "add a,|adc a,|sub|sbc a,|and|xor|or|cp", 0
+halt_msg        byte "halt", 0
+jr_msg          byte "jr", 0
+ld_msg          byte "ld", 0
+add_msg         byte "add", 0
+inc_msg         byte "inc", 0
+dec_msg         byte "dec", 0
+pop_msg         byte "pop", 0
+ret_msg         byte "ret", 0
+jp_msg          byte "jp", 0
+ld_sp_msg       byte "ld sp,", 0
+call_msg        byte "call", 0
+push_msg        byte "push", 0
+rst_msg         byte "rst", 0
+ld_ptr_msg      byte "(bc), a|a, (bc)|(de), a|a, (de)", 0
+r_codes_msg     byte "b|c|d|e|h|l|x|a", 0       ; Note no. 6 is (HL), (IX+d) or (IY+d)
+con_codes_msg   byte "nz|z|nc|c|po|pe|p|m", 0            
+s_codes_msg     byte "bc|de||sp", 0             ; Note no. 2 is HL, IX or IY
+q_codes_msg     byte "bc|de||af", 0             ; Note no. 2 is HL, IX or IY
+hlixiy_msg      byte "hl|ix|iy", 0
+phlixiy_msg     byte "(hl)|(ix |iy ", 0
+cpcomma_a_msg   byte "), a", 0
+;
+;
+;
+; *************
+; * Variables *
+; *************
+;
+;
+; Note: linker "-c" option is used, so no data is initialised here.
+                dseg                ; Data segment
+pc              defs 2              ; Programme counter
+start_pc        defs 2              ; Instruction start
+class           defs 1              ; Instruction class
+index           defs 1              ; Index type
+inst_f          defs 1              ; Instruction fields
+inst_g          defs 1
+inst_h          defs 1
+inst_j          defs 1
+inst_k          defs 1
+idx_offset      defs 1              ; Offset for indexed instructions
+dis_buf         defs DIS_BUF_SIZE   ; Intermediate disassembly buffer
+db_count        defs 1              ; Number of characters in dis_buf
+;
+                end
+

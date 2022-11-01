@@ -1,0 +1,569 @@
+; *******************************************************
+; * Terminal Control Routines for CP/M Applications     *
+; * Version: V1.0                                       *
+; * Merlin Skinner, 22/3/2021                           *
+; *******************************************************
+;
+; These routines provide more complex control over the terminal than is offered
+; by the simple generic character read / write used by the monitor and CP/M.
+;
+; The ZARC bios translates console input and output sequences to provide a
+; simple interface to CP/M applications while using a widely available ANSI /
+; VT-100 terminal or emulator externally. Unrecognised sequences are sent
+; without modification, so more advanced features may be accessed in this way.
+; See ZARC CP/M Users’ Guide for more information.
+
+; There is useful information about VT102 behaviour at:
+; https://www.vt100.net/docs/vt102-ug/chapter5.html#S5.5.2.4
+;
+; Routines preserve all registers not required as operands or return
+; values except AF unless otherwise stated below.
+;
+;
+                title Terminal
+;
+cpm_terminal    equ 1                   ; Flag module for includes
+DEBUG           equ 1                   ; Define to enable debug messages
+;
+;
+;
+; ************
+; * Includes *
+; ************
+;
+;
+                include "macros.i"
+                include "z80.i"
+                include "terminal.i"    ; Terminal constants
+                include "cpm.i"
+                include "cpm_utility.i" ; CP/M utilities
+                include "cpm_terminal.i"; Terminal constants
+;
+;
+;
+; *************
+; * Externals *
+; *************
+;
+;
+; Variables
+; None.
+;
+; Functions.
+                public concap   ; Console capabilities (CONCAP_xxx)
+                public ccinit   ; Determine terminal capabilities
+                public cldcur   ; Load cursor position
+                public conuln   ; Set underline
+                public conrev   ; Set reverse video
+                public csrvis   ; Show or hide cursor
+                public ccls     ; Clear screen
+                public cscrup   ; Scroll screen up
+;
+;
+;
+; *************
+; * Constants *
+; *************
+;
+;
+CAT_RESP_BUF_LEN    equ 80          ; Terminal response buffer length
+;
+;
+;
+; ********
+; * Code *
+; ********
+;
+;
+                cseg                    ; Code segment
+;
+; Determine terminal capabilities and set concap appropriately. CONCAP_xxx
+; define the bits in concap. Certain codes are sent to the terminal, and any
+; responses examined. If no reasonable responses are received, the terminal is
+; assumed to have no special capabilities.
+ccinit          push bc
+                push de
+                push hl
+;
+                ld hl, cc_start_msg     ; "Determining terminal capabilities:"
+                call conwms             ; Print $-terminated string to console
+;
+                xor a
+                ld (concap), a          ; No capabilities initially
+;
+; Are we running on a ZARC system?
+                call zrcdet             ; Detect ZARC
+                jr c, cc_zdet_done      ; Jump if not found
+                ld hl, concap
+                set CONCAP_ZARC_BIT, (hl)
+                ld hl, cc_zarc_msg      ; " ZARC"
+                call conwms             ; Print $-terminated string to console
+;
+; Read and discard any data in the console input buffer.
+cc_zdet_done    call cat_get_resp       ; Read response
+                jr c, cc_exit           ; Exit if buffer overflowed
+;
+                ld a, ASCII_ENQ         ; Send "ENQ"
+                call conwch             ; Write character to console
+                call cat_get_resp       ; Read response
+                jr c, cc_exit           ; Exit if buffer overflowed
+;
+; Compare the response against the expected options.
+                ld hl, cat_resp
+                ld de, enq_resp_list
+                xor a                   ; Disable options (MTWDLI_xxx)
+                call mtwdli             ; Match against list of options
+                ld (cc_enq_match), a    ; Save option number or zero if no match
+;
+; Report any unrecognised responses to aid debugging, especially for new
+; terminal types.
+                and a
+                jr nz, cc_enq_done
+                ld hl, cc_unr_enq_msg   ; "Unrecognised ENQ response: "
+                call conwms             ; Print $-terminated string to console
+                call cat_disp_resp      ; Display buffer
+;
+; Try requesting the ANSI device attributes.
+cc_enq_done     ld hl, cc_da_req_msg    ; 0x1b, "[c$"
+                call conwms             ; Print $-terminated string to console
+                call cat_get_resp       ; Read response
+                jr c, cc_exit           ; Exit if buffer overflowed
+;
+; The response from ANSI terminals is summarised nicely at:
+; https://stackoverflow.com/questions/18379477/how-to-interpret-response-from-vt-100-vt-102-da-request
+; For our purposes, anything of the form CSI ? ... c is an ANSI terminal.
+; Further examination of the options could be performed for specific
+; applications.
+                ld hl, cat_resp
+                ld a, (hl)
+                cp 0x1b
+                jr nz, cc_da_not_ansi   ; Not Esc
+                inc hl
+                ld a, (hl)
+                cp "["
+                jr nz, cc_da_not_ansi   ; Not "["
+                inc hl
+                ld a, (hl)
+                cp "?"
+                jr nz, cc_da_not_ansi   ; Not "?"
+; The last character should be a "c". First find the terminator.
+cc_da_term_lp   inc hl
+                ld a, (hl)
+                and a
+                jr nz, cc_da_term_lp
+                dec hl
+                ld a, (hl)
+                cp "c"
+                jr nz, cc_da_not_ansi   ; Not "c"
+;
+; We have identified an ANSI terminal, so set the appropriate flag.
+                ld hl, concap
+                set CONCAP_ANSI_BIT, (hl)
+                ld hl, cc_ansi_msg      ; " ANSI "
+                call conwms             ; Print $-terminated string to console
+                jr cc_da_done
+;
+; Report any unrecognised responses to aid debugging, especially for new
+; terminal types.
+cc_da_not_ansi  ld hl, cc_unr_da_msg    ; "Unrecognised DA response: "
+                call conwms             ; Print $-terminated string to console
+                call cat_disp_resp      ; Display buffer
+;
+; Examine the ENQ response.
+cc_da_done      ld a, (cc_enq_match)
+                cp 1
+                jr nz, cc_not_minicom
+; Minicom terminal emulator found. This supports Unicode.
+                ld hl, concap
+                set CONCAP_UNICODE_BIT, (hl)
+                ld hl, cc_unicode_msg   ; " Unicode "
+                call conwms             ; Print $-terminated string to console
+;
+; Insert code for other attributes here.
+cc_not_minicom
+;
+cc_exit         call cwnwln             ; Write new line characters to console
+                pop hl
+                pop de
+                pop bc
+                ret
+;
+;
+; Display the contents of the buffer. Unprintable characters are displayed in
+; hex. No registers are saved.
+cat_disp_resp   ld hl, cat_resp         ; Buffer start
+cdr_loop        ld a, (hl)
+                and a
+                ret z
+                ld c, 0                 ; Print unprintables in hex
+                call cwvich             ; Print only visible 7-bit characters
+                inc hl
+                jr cdr_loop
+;
+;
+; Read any response into the buffer. A null terminator is added. No registers
+; are saved. Timing is very approximate, as there is no way of using hardware
+; timing in CP/M without using extensions. Returns with:
+; carry flag - set if buffer overflows
+cat_get_resp    ld hl, cat_resp         ; Buffer start
+                ld e, 0                 ; Number of characters received
+cgr_wait_char   ld bc, 0x2000           ; Timer
+cgr_wait        call const              ; Fetch console input status
+; A - 0 if no character is ready, 0FFh if one is.
+                and a
+                jr nz, cgr_read
+; No character has arrived.
+                dec bc
+                ld a, b
+                or c
+                jr nz, cgr_wait         ; Keep waiting unless timed out
+; Timed out. Add the terminator and exit.
+                xor a
+                ld (hl), a
+                and a                   ; Flag success
+                ret
+;
+; A character awaits. Ensure there is sufficient space in the buffer, allowing
+; for the terminator.
+cgr_read        inc e
+                ld a, e
+                cp CAT_RESP_BUF_LEN
+                jr nc, gcr_overflow     ; Error if no room in buffer
+                call conrch             ; Read character from the console
+                ld (hl), a
+                inc hl
+                jr cgr_wait_char        ; Wait for another character
+;
+; The response is longer than the buffer.
+gcr_overflow    scf                     ; Flag error
+                ret
+;
+;
+; Load cursor position. ZARC systems and ANSI terminals are supported.
+; Call with:
+; H - row
+; L - column
+; Returns with:
+; Carry set if the operation could not be performed.
+; (0, 0) is the top left-hand corner.
+cldcur          push hl
+;
+                ld hl, concap           ; Terminal capabilities
+                bit CONCAP_ZARC_BIT, (hl)
+                jr nz, cldc_zarc        ; Jump if on ZARC
+                bit CONCAP_ANSI_BIT, (hl)
+                jr nz, cldc_ansi        ; Jump if ANSI
+;
+; Not supported.
+                pop hl
+                scf                     ; Flag error
+                ret
+;
+; The ZARC sequence for load cursor Esc Y <y> <x>
+cldc_zarc       ld a, ASCII_ESC
+                call conwch             ; Write character to console
+                ld a, "Y"
+                call conwch             ; Write character to console
+                pop hl
+                ld a, h                 ; Y (row)
+                add a, 0x20             ; Add offset
+                call conwch             ; Write character to console
+                ld a, l                 ; X (column)
+                add a, 0x20             ; Add offset
+                call conwch             ; Write character to console
+                jr cldc_exit
+;
+; The ANSI sequence for load cursor is CSI n ; m H  where row is n and column
+; is m. (1, 1) is the top left-hand corner. This would actually work on ZARC
+; as well as the sequence would not be translated.
+cldc_ansi       call ansi_csi           ; Send ANSI CSI sequence
+                pop hl
+                ld a, h
+                inc a                   ; Change origin to 1
+                call cwpdby             ; Print A in decimal
+                ld a, ";"
+                call conwch             ; Write character to console
+                ld a, l
+                inc a                   ; Change origin to 1
+                call cwpdby             ; Print A in decimal
+                ld a, "H"
+                call conwch             ; Write character to console
+;
+cldc_exit       and a                   ; Flag success
+                ret
+;
+;
+; Set underline. Call with:
+; A - zero for off, non-zero for on.
+; Returns with:
+; Carry set if the operation could not be performed.
+conuln          push hl
+;
+                ld hl, concap           ; Terminal capabilities
+                bit CONCAP_ZARC_BIT, (hl)
+                jr nz, culn_zarc        ; Jump if on ZARC
+                bit CONCAP_ANSI_BIT, (hl)
+                jr nz, culn_ansi        ; Jump if ANSI
+;
+; Not supported.
+                pop hl
+                scf                     ; Flag error
+                ret
+;
+; Send ZARC sequence.
+culn_zarc       push af
+                ld a, ASCII_ESC
+                call conwch             ; Write character to console
+                pop af
+                ld l, "u"               ; Assume underline off
+                and a
+                jr z, culn_zcmd
+                ld l, "r"               ; Underline on
+culn_zcmd       ld a, l
+                call conwch             ; Write character to console
+;
+culn_exit       pop hl
+                and a                   ; Flag success
+                ret
+;
+; Send ANSI sequence.
+culn_ansi       ld hl, culn_off_seq     ; Assume underline off
+                and a
+                jr z, culn_send_seq
+                ld hl, culn_on_seq      ; Underline on
+culn_send_seq   call conwms             ; Print $-terminated string to console
+                jr culn_exit
+;
+;
+; Set reverse video. Call with:
+; A - zero for off, non-zero for on.
+; Returns with:
+; Carry set if the operation could not be performed.
+conrev          push hl
+;
+                ld hl, concap           ; Terminal capabilities
+                bit CONCAP_ZARC_BIT, (hl)
+                jr nz, crev_zarc        ; Jump if on ZARC
+                bit CONCAP_ANSI_BIT, (hl)
+                jr nz, crev_ansi        ; Jump if ANSI
+;
+; Not supported.
+                pop hl
+                scf                     ; Flag error
+                ret
+;
+; Send ZARC sequence.
+crev_zarc       push af
+                ld a, ASCII_ESC
+                call conwch             ; Write character to console
+                pop af
+                ld l, "q"               ; Assume reverse off
+                and a
+                jr z, crev_zcmd
+                ld l, "p"               ; Reverse on
+crev_zcmd       ld a, l
+                call conwch             ; Write character to console
+;
+crev_exit       pop hl
+                and a                   ; Flag success
+                ret
+;
+; Send ANSI sequence.
+crev_ansi       ld hl, crev_off_seq     ; Assume reverse off
+                and a
+                jr z, crev_send_seq
+                ld hl, crev_on_seq      ; Reverse on
+crev_send_seq   call conwms             ; Print $-terminated string to console
+                jr crev_exit
+;
+;
+; Show or hide the cursor. This assumes an ANSI terminal. Other terminal
+; types could be added if required.
+; Call with:
+; A - zero to hide cursor, any other value enables it.
+; Returns with:
+; Carry set if the operation could not be performed.
+csrvis          push hl
+;
+                ld hl, concap           ; Terminal capabilities
+                bit CONCAP_ANSI_BIT, (hl)
+                jr nz, curv_ansi        ; Jump if ANSI
+;
+; Not supported.
+                pop hl
+                scf                     ; Flag error
+                ret
+;
+; Send appropriate ANSI sequence as follows:
+; CSI ? 25 h     Shows the cursor
+; CSI ? 25 l     Hides the cursor
+curv_ansi       push af
+                ld hl, curv_seq_msg     ; 0x1b, "[?25"
+                call conwms             ; Print $-terminated string to console
+                ld l, "h"               ; Show command
+                pop af
+                and a
+                jr nz, curv_tx_cmd      ; Jump to show cursor
+                ld l, "l"               ; Hide command
+curv_tx_cmd     ld a, l
+                call conwch             ; Write character to console
+;
+curv_exit       pop hl
+                and a                   ; Flag success
+                ret
+;
+;
+; Clear the screen. This assumes an ANSI terminal. Other terminal types could
+; be added if required. Returns with:
+; Carry set if the operation could not be performed.
+ccls            push hl
+;
+                ld hl, concap           ; Terminal capabilities
+                bit CONCAP_ZARC_BIT, (hl)
+                jr nz, ccls_zarc        ; Jump if on ZARC
+                bit CONCAP_ANSI_BIT, (hl)
+                jr nz, ccls_ansi        ; Jump if ANSI
+;
+; Not supported.
+                pop hl
+                scf                     ; Flag error
+                ret
+;
+; Send ZARC sequence.
+ccls_zarc       ld hl, ccls_zseq_msg
+                call conwms             ; Print $-terminated string to console
+;
+ccls_exit       pop hl
+                and a                   ; Flag success
+                ret
+;
+; Send ANSI sequence.
+ccls_ansi       ld hl, ccls_aseq_msg
+                call conwms             ; Print $-terminated string to console
+                jr ccls_exit
+;
+;
+; Scroll screen up. The cursor position on exit is indeterminate. This assumes
+; an ANSI terminal. Other terminal types could be added if required. Call with:
+; H - first display row number (0 to ...)
+; L - last display row number (0 to ...)
+; If HL is 0xffff, the entire display is scrolled.
+; Returns with:
+; Carry set if the operation could not be performed.
+cscrup          push hl
+;
+                ld hl, concap           ; Terminal capabilities
+                bit CONCAP_ANSI_BIT, (hl)
+; For the time being, we can only cope with ANSI-capable terminals.
+                jr nz, scrup_ansi
+;
+; Not supported.
+                pop hl
+                scf                     ; Flag error
+                ret
+;
+scrup_ansi      call ansi_csi           ; Send ANSI CSI sequence
+;
+                pop hl
+                ld a, h
+                and l
+                inc a
+; Result will be zero if HL was 0xffff.
+                jr z, scrup_rgn_done    ; Jump if entire display requested
+;
+; Send first and last line numbers.
+                ld a, h
+                inc a                   ; Make origin 1
+                call cwpdby             ; Print A in decimal
+                ld a, ";"
+                call conwch             ; Write character to console
+                ld a, l
+                inc a                   ; Make origin 1
+                call cwpdby             ; Print A in decimal
+;
+scrup_rgn_done  ld a, "r"
+                call conwch             ; Write character to console
+;
+; Now do the scroll. The "scroll up" ("S") sequence is not recognised, at least
+; by Minicom. We can work around this by moving the cursor to the bottom of the
+; scroll region and sending a CR / LF sequence.
+;                call ansi_csi           ; Send ANSI CSI sequence
+;                ld a, "S"
+;                call conwch             ; Write character to console
+; Set bottom row to 24 if not specified. This is the number of rows for a
+; VT100.
+                ld a, l
+                cp 0xff
+                jr nz, scrup_have_bot   ; Jump if bottom row specified
+                ld l, VT100_ROWS - 1
+scrup_have_bot  ld h, l                 ; Row
+                ld l, 0                 ; Column
+                call cldcur             ; Load cursor position
+; Write a newline to trigger the scroll. A single newline would probably be
+; sufficient.
+                call cwnwln             ; Write new line characters to console
+;
+; Set scroll region back to maximum. This will move the cursor to the top
+; left-hand corner of the screen. Part of the reason for doing this is to
+; minimise the probability of an unexpected exit leaving the display with a
+; reduced scrolling region set.
+                call ansi_csi           ; Send ANSI CSI sequence
+                ld a, "r"
+                call conwch             ; Write character to console
+;
+                and a                   ; Flag success
+                ret
+;
+;
+;
+; ***************
+; * Subroutines *
+; ***************
+;
+;
+; Send ANSI CSI sequence.
+ansi_csi        ld a, ASCII_ESC
+                call conwch             ; Write character to console
+                ld a, "["
+                jp conwch               ; Write character to console
+;
+;
+;
+; *************
+; * Constants *
+; *************
+;
+;
+culn_off_seq    byte 0x1b, "[24m$"      ; Underline off
+culn_on_seq     byte 0x1b, "[4m$"       ; Underline on
+crev_off_seq    byte 0x1b, "[27m$"      ; Reverse off
+crev_on_seq     byte 0x1b, "[7m$"       ; Reverse on
+curv_seq_msg    byte 0x1b, "[?25$"      ; Cursor visibility
+ccls_zseq_msg   byte 0x1b, "H", 0x1b, "J$"      ; ZARC clear screen
+ccls_aseq_msg   byte 0x1b, "[H", 0x1b, "[J$"    ; ANSI clear screen
+cc_start_msg    byte "Determining terminal capabilities:$"
+cc_zarc_msg     byte " ZARC$"
+cc_ansi_msg     byte " ANSI$"
+cc_unicode_msg  byte " Unicode$"
+cc_unr_enq_msg  byte 0x0d, 0x0a, "Unrecognised ENQ response: $"
+cc_unr_da_msg   byte 0x0d, 0x0a, "Unrecognised DA response: $"
+cc_da_req_msg   byte 0x1b, "[c$"        ; Request device attributes
+; List of responses to ENQ.
+enq_resp_list   byte "Minicom2.8"       ; List of responses to ENQ
+                byte 0
+;
+;
+;
+; *************
+; * Variables *
+; *************
+;
+; Note: linker "-c" option is used, so no data is initialised here.
+                dseg                ; Data segment
+;
+cat_resp        defs CAT_RESP_BUF_LEN               ; Terminal response
+cc_enq_match    defs 1              ; ENQ response match number
+concap          defs 1              ; Terminal capabilities
+;
+                end
+

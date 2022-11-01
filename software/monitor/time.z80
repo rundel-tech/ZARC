@@ -1,0 +1,687 @@
+; *******************************************************
+; * Time Routines for ZARC Z80 Computer                 *
+; * Written by: Merlin Skinner                          *
+; * Date Started: 30/7/2020                             *
+; *******************************************************
+;
+; Routines associated with time. The system keeps track of time as a Unix-style
+; 32-bit number. Unlike Unix, this is treated as an unsigned integer and so will
+; not suffer from the Year 2038 problem as it doubles the allowable postive time.
+; It does, however, mean that it is not possible to represent dates before 1970.
+; Leap seconds are ignored. 32-bit time does not include BST adjustment and so
+; always represents GMT. However, the tiitos (convert integer time to structure)
+; and tistoi (convert structure time to integer) add or remove the appropriate
+; offset and so describe "clock time" without further adjustment.
+;
+; Routines preserve all registers not required as operands or return values except
+; AF unless otherwise stated below.
+;
+;
+monitor         equ 1                   ; Flag part of monitor build
+time            equ 1                   ; Flag module for includes
+;
+;
+;
+; ************
+; * Includes *
+; ************
+;
+                include "macros.i"
+                include "z80.i"
+                include "monitor.i"
+                include "zarc.i"        ; Hardware definitions
+                include "io_map.i"      ; I/O addresses mapping
+                include "terminal.i"    ; Terminal constants
+                include "io.i"          ; I/O routines
+                include "maths.i"       ; Mathematical functions
+                include "i2c.i"         ; I2C master interface
+                include "time.i"        ; Routines associated with time
+                include "interrupts.i"  ; Interrupts
+                include "maths.i"       ; Mathematical functions
+                include "utility.i"     ; Utility functions
+;
+;
+; *************
+; * Externals *
+; *************
+;
+; Routines
+                public tird     ; Read current time and date
+                public tiwr     ; Set time and date
+                public tiitos   ; Convert integer time to structure
+                public tistoi   ; Convert structure time to integer
+                public cwptm    ; Print time structure to console
+;
+;
+; *************
+; * Constants *
+; *************
+;
+; None
+;
+;
+; *************
+; * Main Code *
+; *************
+;
+                cseg                    ; Code segment
+;
+;
+; Read time from RTC hardware. The time is read until two consecutive reads provide
+; the same time. This is to ensure that we are not reading during an overflow from one
+; byte to another within the RTC. The read process is quite slow, so it makes sense to
+; call this only during initialisation and rely on time maintained by interrupt for
+; general use.
+; Returns with:
+; A - zero (OK) or I2C error code (I2C_ERR_xxx)
+; DEHL - 32-bit time (if no error).
+tird            push ix
+                push bc
+                ld b, 10                 ; Maximum retry count
+; C is used to indicate buffer status. Bits are as follows:
+; 0 - buffer for new time (0 = primary, 1 = secondary)
+; 1 - at least one valid time has been read (enables comparison)
+                ld c, 0                 ; Use primary buffer and no valid time
+rrtc_rd_loop    push bc
+                ld b, RTC_SIZE          ; Number of data bytes to receive
+                ld d, RTC_I2C_ADDR      ; 7-bit DS1672 slave address
+                ld e, RTC_COUNT0_REG    ; Register address
+                ld hl, rtc_regs_buff1   ; Point to primary register buffer
+                bit 0, c
+                jr z, rrtc_buffset      ; Jump if primary buffer in use
+                ld hl, rtc_regs_buff2   ; Point to secondary register buffer
+rrtc_buffset    push hl                 ; Save buffer address
+                call i2crd              ; Read from I2C device
+                pop ix
+                pop bc                  ; Restore retry counter and buffer flags
+                and a
+                jr nz, rrtc_retry       ; Jump on I2C read error with error code
+; Perform basic checks.
+; IX - points to the buffer in use.
+; B - retry counter
+; C - buffer status flags
+                ld a, (ix + RTC_CTRL_REG)
+                bit 7, a
+                jr nz, rrtc_bad_time    ; Error if oscillator disabled
+                ld a, (ix + RTC_TRICKLE_REG)
+                and a
+                jr nz, rrtc_bad_time    ; Jump if charger enabled
+; We have read a credible time.
+                ld a, 1
+                xor c                   ; Toggle buffer in use bit
+                ld c, a
+                bit 1, c
+                jr nz, rrtc_docompare
+; This is the first valid read, so there is nothing to compare with.
+                set 1, c                ; Set valid flag for future reads
+                jr rrtc_bad_time        ; Do another read
+; We have read a time and have a previously read one to compare it with.
+rrtc_docompare  ld hl, rtc_regs_buff1   ; Point to primary register buffer
+                bit 0, c
+                jr z, rrtc_buffset1     ; Jump if primary buffer in use
+                ld hl, rtc_regs_buff2   ; Point to secondary register buffer
+; Now do the compare.
+rrtc_buffset1   ld a, (ix + RTC_COUNT0_REG)
+                cp (hl)
+                jr nz, rrtc_bad_time
+                inc hl
+                ld a, (ix + RTC_COUNT1_REG)
+                cp (hl)
+                jr nz, rrtc_bad_time
+                inc hl
+                ld a, (ix + RTC_COUNT2_REG)
+                cp (hl)
+                jr nz, rrtc_bad_time
+                inc hl
+                ld a, (ix + RTC_COUNT3_REG)
+                cp (hl)
+                jr nz, rrtc_bad_time
+; This time hasn't changed since the last read, so we have confidence in it. Read
+; time into registers.
+                ld l, (ix + RTC_COUNT0_REG)
+                inc hl
+                ld h, (ix + RTC_COUNT1_REG)
+                inc hl
+                ld e, (ix + RTC_COUNT2_REG)
+                inc hl
+                ld d, (ix + RTC_COUNT3_REG)
+                pop bc
+                pop ix
+                xor a                   ; Set success code
+                ret
+;
+; We don't like the time we read.
+rrtc_bad_time   ld a, I2C_ERR_RTC       ; Set error code
+; Re-read unless out of retries. The error code in A is that returned to the caller
+; if we are out of retries.
+rrtc_retry      djnz rrtc_rd_loop       ; Retry if applicable
+                pop bc
+                pop ix
+                ret                     ; Return with last error code
+;
+;
+; Set time and date. This routine updates both the RTC hardware and the time
+; maintained by the tick interrupt. When writing to the RTC, control registers
+; are set up as well, so this will initialise the RTC from any state.
+; Call with:
+; DEHL - 32-bit time.
+; Returns with:
+; A - zero (OK) or I2C error code (I2C_ERR_xxx)
+tiwr            push ix
+; Update the hardware RTC.
+                ld ix, rtc_regs_buff1   ; Use primary register buffer
+; Build register data in the buffer.
+                ld (ix + RTC_COUNT0_REG), l ; LS byte of counter
+                ld (ix + RTC_COUNT1_REG), h
+                ld (ix + RTC_COUNT2_REG), e
+                ld (ix + RTC_COUNT3_REG), d ; MS byte of counter
+                ld (ix + RTC_CTRL_REG), 0   ; Enable oscillator
+                ld (ix + RTC_TRICKLE_REG), 0    ; Disable trickle charger
+; Write to RTC registers
+                ld b, RTC_SIZE          ; Number of data bytes to write
+                ld d, RTC_I2C_ADDR      ; 7-bit DS1672 slave address
+                ld e, RTC_COUNT0_REG    ; Register address
+                push ix                 ; Point hl to working area
+                pop hl
+                call i2cwr              ; Write to I2C device
+; Return with A - zero (OK) or error code (I2C_ERR_xxx)
+                pop ix
+                ret
+;
+;
+; Convert integer time to structure. Daylight savings is automatically applied if
+; appropriate.
+; Call with:
+; DEHL - 32-bit time.
+; IX - pointer to TM structure to be updated
+; IX is preserved.
+tiitos          push bc
+                ld (int_time), hl       ; Save integer time
+                ld (int_time + 2), de
+                ld (ix + TM_DST), TMDST_UNKNOWN ; Set initial DST state
+; Start the conversion.
+its_start       ld c, 60                ; Divisor
+                call madlbu             ; 32-bit / 8-bit unsigned divide
+                ld (ix + TM_SECS), a    ; Seconds [0,59]
+; DEHL - total minutes
+                ld c, 60                ; Divisor
+                call madlbu             ; 32-bit / 8-bit unsigned divide
+                ld (ix + TM_MINS), a    ; Minutes [0,59]
+; DEHL - total hours
+                ld c, 24                ; Divisor
+                call madlbu             ; 32-bit / 8-bit unsigned divide
+                ld (ix + TM_HOURS), a   ; Hours [0,23]
+; DEHL - total days (0 to 49710, so D should be zero).
+                ld a, d
+                and a
+                call nz, panic          ; System panic if out of range
+; Find day of week.
+                push de
+                push hl
+                ld c, 7                 ; Divisor
+                call madlbu             ; 32-bit / 8-bit unsigned divide
+                add 4                   ; 1/1/1970 was a Thursday
+; Maintain range 0 to 6.
+                cp 7
+                jr c, its_goodday
+                sub 7                   ; Subtract a week
+its_goodday     ld (ix + TM_WDAY), a    ; Day of week [0,6] (Sunday = 0)
+                pop hl
+                pop de
+; Find year. This is tricky as each year may or may not be a leap year.
+; EHL is the time in days.
+                ld c, TIM_EPOCH_YEAR    ; Start with 1970
+its_yearloop    push de                 ; Save time
+                push hl
+; Perform a trial subtraction, assuming a common (not leap) year initially.
+; One common year is 365 (0x16d) days.
+                ld a, l
+                sub 0x6d
+                ld l, a
+                ld a, h
+                sbc 0x01
+                ld h, a
+                ld a, e
+                sbc 0
+                ld e, a
+                jr c, its_yearcarry     ; Time remaining was < one common year
+; Allow for leap years.
+                ld a, c
+                call leap_year
+                jr nc, its_subyok
+; Subtract a further day (the leap day).
+                ld a, l
+                sub 0x01
+                ld l, a
+                ld a, h
+                sbc 0
+                ld h, a
+                ld a, e
+                sbc 0
+                ld e, a
+                jr c, its_yearcarry     ; Time remaining was < one day
+; We have successfully subtracted a year from the total.
+its_subyok      inc c                   ; Update year
+                inc sp                  ; Discard value before subtraction
+                inc sp
+                inc sp
+                inc sp
+                jr its_yearloop         ; Try subtracting another year
+; The trial subtraction failed, so the remaining time is less than one year.
+its_yearcarry   pop hl                  ; Restore time in days before subtraction
+                pop de
+                ld (ix + TM_YEAR), c    ; Years since 1900 [70,255]
+; EHL - days (0 to 365, so E should be zero).
+                ld a, e
+                and a
+                call nz, panic          ; System panic if out of range
+; C - years since 1900 [70,255]
+; HL - day number of the year [0,365]
+                ld (ix + TM_YDAY), l        ; Day of year [0,365]
+                ld (ix + TM_YDAY + 1), h
+;
+; Find month. This is also tricky as each year may or may not be a leap year.
+                ld b, 0                 ; Start with January
+                ex de, hl               ; Move days to DE
+                ld hl, month_days       ; Point to days in month table
+; B - month
+; C - years since 1900 [70,255]
+; DE - day of the year [0,365]
+; HL - pointer to days in month table
+its_monthloop   push de                 ; Save days
+; Perform a trial subtraction.
+                ld a, e
+                sub (hl)                ; Subtract length of month
+                ld e, a
+                ld a, d
+                sbc 0
+                ld d, a
+                jr c, its_monthcarry    ; Time remaining was < month length
+; Allow for leap years.
+                ld a, c
+                call leap_year
+                jr nc, its_submok
+; The current year is a leap year, so we need to subtract an extra day for February.
+                ld a, b
+                cp 1
+                jr nz, its_submok       ; Jump if not February
+; Subtract a further day (the leap day).
+                ld a, e
+                sub 0x01
+                ld e, a
+                ld a, d
+                sbc 0
+                ld d, a
+                jr c, its_monthcarry    ; Time remaining was < one day
+; We have successfully subtracted a month from the total.
+its_submok      inc b                   ; Update month
+                inc hl                  ; Update days in month pointer
+                inc sp                  ; Discard value before subtraction
+                inc sp
+                jr its_monthloop        ; Try subtracting another month
+; The trial subtraction failed, so the remaining time is less than one month.
+its_monthcarry  pop de                  ; Restore time in days before subtraction
+                inc b                   ; Adjust range
+                ld (ix + TM_MON), b     ; Month of year [1,12]
+; DE - days (0 to 31, so D should be zero).
+                ld a, d
+                and a
+                call nz, panic          ; System panic if out of range
+                inc e                   ; Adjust range
+                ld (ix + TM_MDAY), e    ; Day of month [1,31]
+;
+; Correct for DST if required.
+                ld a, TMDST_UNKNOWN
+                cp (ix + TM_DST)
+                jr nz, its_exit         ; Exit if already set
+; DST hasn't already been considered.
+                call check_dst
+                ld (ix + TM_DST), TMDST_GMT
+                jr nc, its_exit
+; DST correction required.
+                ld (ix + TM_DST), TMDST_DST
+; 
+; Add one hour to the integer time and re-convert.
+                ld hl, (int_time)       ; Fetch integer time
+                ld de, (int_time + 2)
+                ld bc, 3600             ; One hour in seconds
+                add hl, bc              ; Add to LSW
+                ld bc, 0
+                ex de, hl
+                adc hl, bc              ; Propagate carry to DE
+                ex de, hl
+; Restart the conversion.
+                jp its_start            ; Restart the conversion
+;
+its_exit        pop bc
+                ret
+;
+;
+; Determine whether or not the year supplied is a leap year using the algorithm:
+; if (year is not divisible by 4) then (it is a common year)
+; else if (year is not divisible by 100) then (it is a leap year)
+; else if (year is not divisible by 400) then (it is a common year)
+; else (it is a leap year)
+; From https://en.wikipedia.org/wiki/Leap_year#Algorithm
+; Call with:
+; A - Years since 1900 [70,255].
+; Returns with:
+; C flag - set to indicate a leap year.
+leap_year       push af
+                and 3
+                jr nz, ly_common
+; Year is divisible by 4, so it is probably a leap year.
+                pop af
+; We have a leap year if it is not divisible by 100. If it is divisible by 100 and
+; by 400 then it is a common year. Only years 1970 to 2155 are applicable, so we
+; have only 2000 and 2100 to test.
+                cp 200
+                jr z, ly_common1        ; 2100 is a common year
+; 2000 is a normal leap year as it is divisible by 400.
+                scf                     ; Indicate leap year
+                ret
+;
+ly_common       pop af
+ly_common1      and a                   ; Indicate common (not leap) year
+                ret
+;
+;
+; Convert structure time to integer. No validation is performed, so out of range
+; values will result in an odd time being returned. Daylight savings time is
+; handled according to the TM_DST value.
+; Call with:
+; IX - pointer to TM structure
+; Returns with:
+; DEHL - 32-bit time.
+; IX is preserved.
+tistoi          push bc
+; The first part of the calculation is in days. The maximum value is approximately
+; (256-70) * 365.25 = 67936.5, irritatingly just too big for 16 bits. Loop for
+; each year, accumulating the number of days as we go.
+                ld c, 0
+                ld hl, 0
+; CHL - days since epoch.
+                ld b, TIM_EPOCH_YEAR    ; Start at epoch year
+sti_year_lp     ld a, (ix + TM_YEAR)    ; Years since 1900 [70,255]
+                cp b
+                jr z, sti_year_dn       ; Exit if years complete
+; Add a common year in days
+                ld de, 365
+                add hl, de
+                ld a, 0
+                adc c                   ; Propagate any carry
+                ld c, a
+                ld a, b
+                call leap_year
+                jr nc, sti_year_next
+; Add a day for leap years
+                ld de, 1
+                add hl, de
+                ld a, 0
+                adc c                   ; Propagate any carry
+                ld c, a
+sti_year_next   inc b                   ; Next year
+                jr sti_year_lp
+; CHL - days since epoch.
+; Loop for each month, accumulating the number of days as we go.
+sti_year_dn     ld b, 0                 ; Start at January
+sti_mon_lp      ld a, b
+                inc a                   ; Adjust range to 1 to 12
+                cp (ix + TM_MON)        ; Month of year [1,12]
+                jr z, sti_mon_dn        ; Exit if months complete
+                push hl
+; Calculate address in table.
+                ld hl, month_days
+                ld a, l
+                add b
+                ld l, a
+                ld a, h
+                adc 0
+                ld h, a
+                ld e, (hl)              ; Find number of days
+                pop hl
+; In leap years, February has 29 days.
+                ld a, 1
+                cp b
+                jr nz, sti_mon_add      ; Jump if not February
+                ld a, (ix + TM_YEAR)    ; Years since 1900 [70,255]
+                call leap_year
+                jr nc, sti_mon_add      ; Jump if not a leap year
+                inc e                   ; Add a day
+; Add E to the number of days so far.
+sti_mon_add     ld d, 0
+                add hl, de
+                ld a, 0
+                adc c                   ; Propagate any carry
+                ld c, a
+sti_mon_next    inc b                   ; Next month
+                jr sti_mon_lp
+; CHL - days since epoch.
+; Now add the number of days in this month.
+sti_mon_dn      ld d, 0
+                ld e, (ix + TM_MDAY)    ; Day of month [1,31]
+                dec e                   ; Adjust range to 0 to 30                
+                add hl, de
+                ld a, 0
+                adc c                   ; Propagate any carry
+                ld e, a                 ; and move result to DE
+                ld d, 0
+; DEHL - days since epoch (we will need the extra bits now).
+; Multiply by 24 to find hours since epoch.
+                ld c, 24
+                call mamlbu             ; 32-bit * 8-bit unsigned multiply
+; Result is in CDEHL, but we can ignore the top 8 bits.
+; Add hours.
+                ld b, 0
+                ld c, (ix + TM_HOURS)   ; Hours [0,23]
+                add hl, bc
+                ld c, 0                 ; Now BC = 0
+                ex de, hl
+                adc hl, bc              ; Propagate any carry to DE
+                ex de, hl
+; DEHL - hours since epoch.
+; Multiply by 60 to find minutes since epoch.
+                ld c, 60
+                call mamlbu             ; 32-bit * 8-bit unsigned multiply
+; Add minutes.
+                ld b, 0
+                ld c, (ix + TM_MINS)    ; Minutes [0,59]
+                add hl, bc
+                ld c, 0                 ; Now BC = 0
+                ex de, hl
+                adc hl, bc              ; Propagate any carry to DE
+                ex de, hl
+; DEHL - minutes since epoch.
+; Multiply by 60 to find seconds since epoch.
+                ld c, 60
+                call mamlbu             ; 32-bit * 8-bit unsigned multiply
+; Add seconds.
+                ld b, 0
+                ld c, (ix + TM_SECS)    ; Seconds [0,59]
+                add hl, bc
+                ld c, 0                 ; Now BC = 0
+                ex de, hl
+                adc hl, bc              ; Propagate any carry to DE
+                ex de, hl
+; DEHL - seconds since epoch.
+; If the time in the structure is DST, we need to subtract an hour (integer time
+; is always GMT). Unknown DST status is treated as GMT.
+                ld a, (ix + TM_DST)     ; Daylight savings status
+                cp TMDST_DST
+                jr nz, sti_done
+; Subtract an hour.
+                ld bc, 3600             ; One hour in seconds
+                and a
+                sbc hl, bc              ; Subtract from LSW
+                ld bc, 0
+                ex de, hl
+                sbc hl, bc              ; Propagate carry to DE
+                ex de, hl
+sti_done        pop bc
+                ret
+;
+;
+; Display the structure in the form:
+; <hours>:<minutes>:<seconds> [<GMT> Z <BST>] <day of week> <day>/<month>/<year>
+; Call with:
+; IX - pointer to TM structure
+; IX is preserved.
+cwptm           push bc
+                push de
+                push hl
+                ld a, (ix + TM_HOURS)
+                call cwpdby             ; Print hours in decimal
+                ld a, ':'
+                call conwch 
+;
+                ld a, (ix + TM_MINS)
+                call cwpdby             ; Print minutes in decimal
+                ld a, ':'
+                call conwch 
+;
+                ld a, (ix + TM_SECS)
+                call cwpdby             ; Print seconds in decimal
+                call cwpspc             ; Print a space
+;
+                ld a, (ix + TM_WDAY)
+                ld hl, tim_weekdays
+                ld c, "|"               ; Separator
+                call conwmn             ; Print message <n> in a list
+; Note - errors are ignored
+                call cwpspc             ; Print a space
+;
+                ld a, (ix + TM_MDAY)
+                call cwpdby             ; Print day of month in decimal
+                ld a, '/'
+                call conwch 
+;
+                ld a, (ix + TM_MON)
+                call cwpdby             ; Print month in decimal
+                ld a, '/'
+                call conwch
+;
+                ld de, 1900
+                ld h, 0
+                ld l, (ix + TM_YEAR)    ; Years since 1900
+                add hl, de              ; Add year offset
+                call cwpdwd             ; Print year in decimal
+;
+; Display "GMT" or "BST" as appropriate. DST status should always be known when
+; this routine is called, so users should never see the error state.
+                call cwpspc             ; Print a space
+                ld a, (ix + TM_DST)     ; Daylight savings status
+                ld hl, dst_msgs
+                ld c, "|"               ; Separator
+                call conwmn             ; Print message <n> in a list
+;
+                pop hl
+                pop de
+                pop bc
+                ret
+;
+;
+; Determine whether or not the time and date described should have daylight
+; savings applied. From https://www.gov.uk/when-do-the-clocks-change
+; "In the UK the clocks go forward 1 hour at 1am on the last Sunday in March, and
+; back 1 hour at 2am on the last Sunday in October."
+; Note that this routine requires that TM_WDAY is correct.
+; Call with:
+; IX - pointer to TM structure
+; Returns with:
+; C flag - set to indicate that daylight saving is active.
+check_dst       push bc
+                ld a, (ix + TM_MON)     ; Month of year [1,12]
+                cp 3
+                jr c, cdst_not_dst      ; No DST in January or February
+                jr nz, cdst_apr_dec     ; Jump if April to December
+; March
+                ld a, (ix + TM_MDAY)    ; Day of month [1,31]
+                sub 25
+                jr c, cdst_not_dst      ; No DST if not the last week
+; Last week in March
+; Clocks go forward 1 hour at 1am on the last Sunday in March.
+                ld c, a
+; C - day in last week in March (0 to 6)
+                ld a, (ix + TM_WDAY)    ; Day of week [0,6] (Sunday = 0)
+                sub c
+                jr nc, cdst_mar_nc
+                add 7                   ; Maintain range (0 to 6)
+; A - day of week of the 25th day of the month.
+cdst_mar_nc     and a
+                jr z, cdst_mar_idn      ; Jump if the 25th is a Sunday
+                xor 7                   ; Invert, so Sat gives 1, Mon gives 6 etc.
+; Now a gives number of days from the 25 to the first Sunday.
+cdst_mar_idn    cp c
+                jr c, cdst_dst
+                jr nz, cdst_not_dst
+; We are on the day of the change. DST begins at 1 AM.
+                ld a, (ix + TM_HOURS)   ; Hours [0,23]
+                and a
+                jr z, cdst_not_dst      ; Jump if not time yet
+; DST is active.
+cdst_dst        pop bc
+                ld (ix + TM_DST), TMDST_DST  ; Daylight savings flag
+                scf                     ; Indicate leap year
+                ret
+;
+; April to December
+cdst_apr_dec    cp 10
+                jr c, cdst_dst          ; DST if April to September
+                jr nz, cdst_not_dst     ; No DST in November or December
+; October
+; Clocks go back 1 hour at 2am on the last Sunday in October.
+                ld a, (ix + TM_MDAY)    ; Day of month [1,31]
+                sub 25
+                jr c, cdst_dst          ; DST if not the last week
+; Last week in October
+                ld c, a
+; C - day in last week in October (0 to 6)
+                ld a, (ix + TM_WDAY)    ; Day of week [0,6] (Sunday = 0)
+                sub c
+                jr nc, cdst_oct_nc
+                add 7                   ; Maintain range (0 to 6)
+; A - day of week of the 25th day of the month.
+cdst_oct_nc     and a
+                jr z, cdst_oct_idn      ; Jump if the 25th is a Sunday
+                xor 7                   ; Invert, so Sat gives 1, Mon gives 6 etc.
+; Now a gives number of days from the 25 to the first Sunday.
+cdst_oct_idn    cp c
+                jr c, cdst_not_dst
+                jr nz, cdst_dst
+; We are on the day of the change. DST ends at 2 AM.
+                ld a, (ix + TM_HOURS)   ; Hours [0,23]
+                cp 2
+                jr c, cdst_dst          ; Jump if not time yet
+; DST is not active.
+cdst_not_dst    pop bc
+                ld (ix + TM_DST), TMDST_GMT ; Daylight savings flag
+                and a                   ; Indicate no DST
+                ret
+;
+;
+; *************
+; * Constants *
+; *************
+;
+; Days in each month. In leap years, February has 29 days.
+month_days      byte 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31
+tim_weekdays    byte "Sunday|Monday|Tuesday|Wednesday|"
+                byte "Thursday|Friday|Saturday", 0
+dst_msgs        byte "DST?|GMT|BST",0
+;
+;
+;
+; *************
+; * Variables *
+; *************
+;
+;
+; Note: linker "-c" option is used, so no data is initialised here.
+                dseg                ; Data segment
+;
+rtc_regs_buff1  defs RTC_SIZE       ; Primary RTC registers working area
+rtc_regs_buff2  defs RTC_SIZE       ; Secondary RTC registers working area
+int_time        defs 4              ; Temporary store for integer time
+;
+                end
+

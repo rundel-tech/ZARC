@@ -1,0 +1,375 @@
+; *******************************************************
+; * Memory Allocation Routines for ZARC Z80 Computer    *
+; * Written by: Merlin Skinner                          *
+; * Date Started: 24/11/2021                            *
+; *******************************************************
+;
+; Routines associated with the monitor's memory page allocation mechanism.
+;
+; Memory is allocated in units of one page. A four-character ASCII owner name
+; identifies the owner and usage of each page. Each name must be unique.
+;
+;
+monitor         equ 1                   ; Flag part of monitor build
+memory          equ 1                   ; Flag module for includes
+;
+;
+;
+; ************
+; * Includes *
+; ************
+;
+                include "macros.i"
+                include "z80.i"
+                include "io_map.i"      ; I/O addresses mapping
+                include "zarc.i"        ; Hardware definitions
+                include "monitor.i"
+                include "utility.i"     ; Utility functions
+                include "memory.i"
+;
+;
+;
+; *************
+; * Externals *
+; *************
+;
+; Routines
+                public mpinit       ; Initialise page map
+                public mprpt        ; Report status to console
+                public mpall        ; Allocate new page
+                public mpfree       ; Free allocated page
+                public mpstat       ; Allocation status
+                public mppnam       ; Print entry name
+;
+; Variables
+; (None).
+;
+;
+;
+; *************
+; * Constants *
+; *************
+;
+; (None)
+;
+;
+;
+; *************
+; * Main Code *
+; *************
+;
+                cseg                    ; Code segment
+;
+; Some of this code assumes that the name length is four, so error if not.
+                assert MPA_NAME_LEN = 4
+;
+;
+; Initialise page map. All pages are declared free, apart from those used by
+; the monitor.
+mpinit          push bc
+                push de
+                push hl
+                ld hl, page_map
+                ld b, MMAP_PAGES
+mpi_loop        set 7, (hl)             ; Mark page as free
+                inc hl
+                inc hl
+                inc hl
+                inc hl
+                djnz mpi_loop
+;
+; Mark the monitor's pages as allocated.
+                ld de, page_map + (4 * MMAP_MON_B0_PAGE)
+                ld hl, mon_pgm_name
+                ld bc, MPA_NAME_LEN
+                ldir
+                ld de, page_map + (4 * MMAP_MON_B1_PAGE)
+                ld hl, mon_data_name
+                ld bc, MPA_NAME_LEN
+                ldir
+                pop hl
+                pop de
+                pop bc
+                ret
+;
+;
+; Report page allocation status to the console. The report is of the form:
+;   <page no.> - <name>
+; for each page. Unallocated pages are not listed.
+; <name> is the four character name in page_map.
+; The last line is a summary:
+;   <n> pages free.
+mprpt           push bc
+                push de
+                push hl
+;
+                ld hl, rpt_title_msg    ; "Page Allocation Status:"
+                call conwms             ; Print message
+; Loop through each page entry.
+                ld hl, page_map         ; Point to first entry
+                ld b, 0                 ; Page number
+                ld c, 0                 ; Number of pages used
+;
+rpt_page_loop   bit 7, (hl)
+                jr nz, rpt_page_done    ; Jump if unallocated
+; Page is in use.
+                ld a, b
+                call cwpdby             ; Print page number in decimal
+                push hl
+                ld hl, rpt_sep_msg      ; " - "
+                call conwms             ; Print message
+                pop hl
+                push hl
+; Print the name.
+                push bc
+                ld b, MPA_NAME_LEN
+rpt_pr_name_lp  ld a, (hl)
+                push bc                 ; Save counters
+                ld c, '?'               ; Substitution character
+                call cwvich             ; Print visible characters only
+                pop bc                  ; Restore counters
+                inc hl
+                djnz rpt_pr_name_lp
+                call cwnwln             ; Write new line characters to console
+                pop bc
+                pop hl
+                inc c                   ; Count pages in use
+rpt_page_done   inc hl                  ; Point to next entry
+                inc hl
+                inc hl
+                inc hl
+; Loop if there are more page entries
+                inc b
+                ld a, b
+                cp MMAP_PAGES
+                jr c, rpt_page_loop
+;
+; Print number of free pages.
+                ld a, MMAP_PAGES        ; Calculate free pages
+                sub c
+                call cwpdby             ; Print number in decimal
+                ld hl, rpt_free_msg     ; " pages free."
+                call conwms             ; Print message
+;
+                pop hl
+                pop de
+                pop bc
+                ret
+;
+;
+; Allocate a page. If a page of that name is already allocated, that page is
+; returned. Otherwise, return the first (lowest) free page. Call with:
+; HL - four character ASCII owner name
+; Returns with:
+; A - page number 
+; carry - set on error (out of memory)
+mpall           push bc
+                push de
+;
+; Bit 7 of the first byte is used to indicate a free entry in page_map, so if
+; the supplied name has this we will have strange effects.
+                bit 7, (hl)
+                call nz, panic
+;
+                ex de, hl               ; Move name to DE
+; Loop through each page entry.
+                ld hl, page_map         ; Point to first entry
+                ld b, 0                 ; Page number
+                ld c, 0xff              ; Flag no free page found
+;
+all_page_loop   bit 7, (hl)
+                jr z, all_used          ; Jump if allocated
+; The page is free. Save it for later if we haven't found one already.
+                ld a, 0xff
+                cp c
+                jr nz, all_page_done
+; This is the first free page we have found, so save it.
+                ld c, b
+                jr all_page_done
+;
+; Page is in use. Match the name against the supplied one.
+all_used        push bc
+                push de
+                push hl
+                ld bc, MPA_NAME_LEN
+all_match_loop  ld a, (de)
+                inc de
+                cpi
+                jr nz, all_match_bad
+                jp pe, all_match_loop
+                pop hl
+                pop de
+                pop bc
+; Name found!
+                ld a, b                 ; Page number
+                and a                   ; Flag success
+                jr all_exit             ; Exit with page number
+;
+; The name doesn't match the one supplied.
+all_match_bad   pop hl
+                pop de
+                pop bc
+;
+all_page_done   inc hl                  ; Point to next entry
+                inc hl
+                inc hl
+                inc hl
+; Loop if there are more page entries
+                inc b
+                ld a, b
+                cp MMAP_PAGES
+                jr c, all_page_loop
+;
+; All entries have been searched, but no match was found.
+                ld a, c
+                cp 0xff
+                jr z, all_error
+; A free page was found during the search. We need to allocate it.
+; C - page number
+; DE - four character ASCII owner name
+                ld a, c
+                call entry_addr         ; Find page_map entry
+                ex de, hl
+                ld bc, MPA_NAME_LEN
+                ldir
+                and a                   ; Flag success
+                jr all_exit
+;
+; No free page found during the search.
+all_error       scf                     ; Flag error
+;
+; Restore registers and exit.
+all_exit        pop de
+                pop bc
+                ret
+;
+;
+; Free allocated page. Call with:
+; A - page number 
+; Returns with:
+; carry - set on error (page was already free)
+mpfree          push hl
+;
+                call entry_addr         ; Find page_map entry
+;
+                scf                     ; Flag error
+                bit 7, (hl)
+; If already unallocated, exit with the carry flag set.
+                jr nz, free_exit        ; Jump if already unallocated
+                set 7, (hl)             ; Mark the entry free
+                and a                   ; Flag success
+;
+; Restore registers and exit.
+free_exit       pop hl
+                ret
+;
+;
+; Return status (number of free pages). 
+; Returns with:
+; A - number of free pages
+mpstat          push bc
+                push de
+                push hl
+;
+; Loop through each page entry.
+                ld hl, page_map         ; Point to first entry
+                ld b, MMAP_PAGES        ; Page count
+                ld c, 0                 ; Number of free pages
+;
+stat_page_loop  bit 7, (hl)
+                jr z, stat_page_done    ; Jump if allocated
+; Page is unallocated.
+                inc c                   ; Update counter
+; Processing is complete for this entry.
+stat_page_done  inc hl                  ; Point to next entry
+                inc hl
+                inc hl
+                inc hl
+; Loop if there are more page entries
+                djnz stat_page_loop
+;
+                ld a, c                 ; Return with free page count
+                pop hl
+                pop de
+                pop bc
+                ret
+;
+;
+; Print entry name to the console. If the page is allocated, the name is
+; written with no prefix or suffix. If the entry is free, nothing is written.
+; Call with:
+; A - page number
+; Returns with:
+; carry - set if page was free
+mppnam          push bc
+                push hl
+;
+                call entry_addr         ; Find page_map entry
+;
+                scf                     ; Flag error
+                bit 7, (hl)
+; If unallocated, exit with the carry flag set.
+                jr nz, pnam_exit        ; Jump if unallocated
+;
+; Print the name.
+                ld b, MPA_NAME_LEN
+pnam_loop       ld a, (hl)
+                ld c, '?'               ; Substitution character
+                call cwvich             ; Print visible characters only
+                inc hl
+                djnz pnam_loop
+                and a                   ; Flag success
+;
+; Restore registers and exit.
+pnam_exit       pop hl
+                pop bc
+                ret
+;
+;
+; Calculate address of page_map entry. Call with:
+; A - page number 
+; Returns with:
+; hl - page_map entry address
+entry_addr      push bc
+;
+                cp MMAP_PAGES
+                call nc, panic          ; Panic if out of range
+;
+                ld h, 0
+                ld l, a
+                add hl, hl
+                add hl, hl
+                ld bc, page_map
+                add hl, bc
+;
+                pop bc
+                ret
+;
+;
+;
+; *************
+; * Constants *
+; *************
+;
+mon_pgm_name    byte "MONP"
+mon_data_name   byte "MOND"
+rpt_title_msg   byte "Page Allocation Status:", 0x0d, 0x0a, 0
+rpt_sep_msg     byte " - ", 0
+rpt_free_msg    byte " pages free.", 0x0d, 0x0a, 0
+;
+;
+;
+; *************
+; * Variables *
+; *************
+;
+;
+; Note: linker "-c" option is used, so no data is initialised here.
+                dseg                ; Data segment
+;
+; The page map is a four character entry (owner name) per page. If bit 7 of the
+; first byte is set, the page is unallocated (free).
+page_map        defs MMAP_PAGES * MPA_NAME_LEN  ; Page owner names
+;
+                end
+

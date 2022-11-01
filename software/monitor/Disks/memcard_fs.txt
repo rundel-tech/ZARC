@@ -1,0 +1,192 @@
+10/11/2020 (Tuesday)
+
+Modified cmd_readsec to scan for non-blank sectors on an SD card. This is so I could try to make sense of an example setup, which does appear to have a single large partition.
+
+
+Sector 0:
+
+Zeroes until:
+
+D1B8  00 00 00 00 00 00 00 02  |........|
+D1C0  0A 00 06 3F FF BC 87 00  |...?....|
+D1C8  00 00 39 E0 3A 00 00 00  |..9.:...|
+D1D0  00 00 00 00 00 00 00 00  |........|
+D1D8  00 00 00 00 00 00 00 00  |........|
+D1E0  00 00 00 00 00 00 00 00  |........|
+D1E8  00 00 00 00 00 00 00 00  |........|
+D1F0  00 00 00 00 00 00 00 00  |........|
+D1F8  00 00 00 00 00 00 55 AA  |......U.|
+
+0x01BE (446) 	Partition entry №1
+00 - Status or physical drive (bit 7 set is for active or bootable, old MBRs only accept 0x80, 0x00 means inactive, and 0x01–0x7F stand for invalid)
+First absolute sector in partition:
+02 - H 
+0A - S
+00 - C
+06 - Partition type (FAT16B with 65536 or more sectors [or other FAT cases])
+Last absolute sector in partition:
+3F - H
+FF - S
+BC - C
+87 00 00 00 - LBA of first absolute sector in the partition
+39 E0 3A 00 - Number of sectors in partition
+
+1st sector = 135 (corresponds nicely with blank scan results below)
+Sectors = 3858489 or 1929244.5 KB or 1884.02783203125 MB
+
+
+Scanning for non-blank (all zero) sectors. These are indicated by a "*" suffix.
+
+> readsec 0 1 0
+Reading sector: 0*
+Reading sector: 1
+All zeros until
+Reading sector: 134
+Reading sector: 135*
+Reading sector: 136*
+Reading sector: 137*
+Reading sector: 138*
+Reading sector: 139*
+Reading sector: 140*
+Reading sector: 141*
+Reading sector: 142*
+Reading sector: 143*
+Reading sector: 144*
+
+
+
+12/11/2020 (Thursday)
+
+Looking at a 32 MB MMC.
+
+C800  FA B8 00 10 8E D0 BC 00  |........|
+C808  B0 B8 00 00 8E D8 8E C0  |........|
+C810  FB BE 00 7C BF 00 06 B9  |...|....|
+C818  00 02 F3 A4 EA 21 06 00  |.....!..|
+C820  00 BE BE 07 38 04 75 0B  |....8.u.|
+C828  83 C6 10 81 FE FE 07 75  |.......u|
+C830  F3 EB 16 B4 02 B0 01 BB  |........|
+C838  00 7C B2 80 8A 74 01 8B  |.|...t..|
+C840  4C 02 CD 13 EA 00 7C 00  |L.....|.|
+C848  00 EB FE 00 00 00 00 00  |........|
+C850  00 00 00 00 00 00 00 00  |........|
+...
+C9B0  00 00 00 00 00 00 00 00  |........|
+C9B8  81 1B 9B 7F 00 00 00 04  |........|
+C9C0  01 04 83 23 02 24 00 08  |...#.$..|
+C9C8  00 00 00 40 00 00 00 00  |...@....|
+C9D0  00 00 00 00 00 00 00 00  |........|
+...
+C9F0  00 00 00 00 00 00 00 00  |........|
+C9F8  00 00 00 00 00 00 55 AA  |......U.|
+
+I created an 8 MB partition for CP/M. This is the maximum disk size that CP/M 2.2 can handle. Later versions manage much larger sizes.
+
+00 04  |........|
+C9C0  01 04 83 23 02 24 00 08  |...#.$..|
+C9C8  00 00 00 40 00 00 
+
+
+0x01BE (446) 	Partition entry №1
+00 - Status or physical drive (bit 7 set is for active or bootable, old MBRs only accept 0x80, 0x00 means inactive, and 0x01–0x7F stand for invalid)
+First absolute sector in partition:
+04 - H 
+01 - S
+04 - C
+83 - Partition type (Any native Linux file system)
+Last absolute sector in partition:
+23 - H
+02 - S
+24 - C
+00 08 00 00 - LBA of first absolute sector in the partition
+00 40 00 00 - Number of sectors in partition
+
+1st sector = 2048 (1 MB in, assuming 512-byte sectors).
+Length in sectors = 16384 or 8192 KB or 8 MB
+
+
+1 MB Offset before first sector is discussed here:
+https://superuser.com/questions/1483928/why-do-windows-and-linux-leave-1mib-unused-before-first-partition
+It would appear that I could change it, but not (at least readily) with Windows or Linux tools.
+
+
+A good choice of partition type might be 7Fh - "Alternative OS Development Partition Standard - Reserved for individual or local use and temporary or experimental projects"
+
+
+
+13/11/2020 (Friday)
+
+Trying to make sense of the above.
+
+"1st sector = 2048". Scanning the disk for data I wrote to the partition (using "dd") finds data at 0x00100000 (1 MB).
+
+Useful commands for manipulating disks:
+
+Find MMC card devices: find /dev -iname "*MMC*"
+
+/dev/mmcblk0p1
+/dev/mmcblk0
+/dev/disk/by-path/pci-0000:00:1d.0-usb-0:1.7:1.0-platform-rtsx_usb_sdmmc.2.auto-part1
+/dev/disk/by-path/pci-0000:00:1d.0-usb-0:1.7:1.0-platform-rtsx_usb_sdmmc.2.auto
+/dev/disk/by-id/mmc-000000_0xb1000091-part1
+/dev/disk/by-id/mmc-000000_0xb1000091
+
+Read start of disk: sudo xxd /dev/mmcblk0 |head -30
+Read start of partition 1: sudo xxd /dev/mmcblk0p1 |head -30
+
+Write message to start of partition 1: sudo dd of=/dev/mmcblk0p1 <<< "Test message 12/11/2020
+
+Search entire card for message: sudo xxd /dev/mmcblk0 |grep "message"
+
+
+14/11/2020 (Saturday)
+
+Modifying the boot sector. CHS addressing seems to be ignored in any broadly recent application. I found a blog post with someone complaining that two major Linux partition managers use different assumptions for CHS addressing and produce different results! I propose setting CHS to all 0xff in the hope that it will be ignored. Certainly ZARC can simply use the LBA parameters.
+
+I moved the first partition to sector 4 to avoid the 1 MB of wasted space conventional partition managers all seem to implement. Partition type is set to 0x7f (experimental) as there is no CP/M 2.2 type coded.
+
+
+Editing the boot sector:
+
+> readsec 0 1 c800
+> dump c800 200 - view entire sector
+> dump c9be - view partition 1 10
+C9BE  00 04 01 04 83 23 02 24  |.....#.$|
+C9C6  00 08 00 00 00 40 00 00  |.....@..|
+
+Notes:          C  H  S typ C  H  S <-start--> <-sects-->
+> write c9be 0 ff ff ff 7f ff ff ff 4 00 00 00 00 40 00 0
+
+> writesec 0 1 c800
+
+"Disks" and "gparted" don't like this, and both ignore the resulting partition. gparted reports the following disk information:
+
+Heads: 255
+SPT: 2
+Cylinders: 122
+Total sectors: 62720
+Sector size: 512
+
+Creating an 8 MB partition with gparted results in this partition table entry:
+
+000001b0: 0000 0000 0000 0000 811b 9b7f 0000 0004  ................
+000001c0: 0104 8323 0224 0008 0000 0040 0000 0000  ...#.$.....@....
+
+It also wastes 1 MB of space before the partition. Information on the partition:
+First sector: 2048
+Last sector: 18431
+Total sectors: 16384
+
+It's probably best to accept the wasted 1 MB and live with this. Changing the partition type only:
+
+> readsec 0 1 c800
+> dump c9be 10 - view partition
+C9BE  00 04 01 04 83 23 02 24  |.....#.$|
+C9C6  00 08 00 00 00 40 00 00  |.....@..|
+
+> write c9c2 7f
+> dump c9be 10 - view partition
+C9BE  00 04 01 04 7F 23 02 24  |.......$|
+C9C6  00 08 00 00 00 40 00 00  |.....@..|
+> writesec 0 1 c800
+

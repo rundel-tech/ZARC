@@ -1,0 +1,43 @@
+; *******************************************************
+; * Dummy Module to find the Last Location in Use.      *
+; * Version: V1.0                                       *
+; * Merlin Skinner, 15/12/2021                          *
+; *******************************************************
+;
+; Make sure this is loaded last by the linker. The fstfre symbol is the first
+; unused location after the end the data segment.
+;
+                title Top
+;
+;
+;
+; *************
+; * Externals *
+; *************
+;
+;
+; Variables
+                public fstfre       ; First location after end of data segment
+;
+;
+;
+; *************
+; * Main Code *
+; *************
+;
+;
+; None.
+;
+;
+; *************
+; * Variables *
+; *************
+;
+;
+; Note: linker "-c" option is used, so no data is initialised here.
+                dseg                ; Data segment
+;
+fstfre                              ; First location after end of data segment
+;
+                end
+

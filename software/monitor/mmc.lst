@@ -1,0 +1,2663 @@
+   1:				; *******************************************************
+   2:				; * Memory Card Routines for ZARC Z80 Computer          *
+   3:				; * Written by: Merlin Skinner                          *
+   4:				; * Date Started: 7/8/2020                              *
+   5:				; *******************************************************
+   6:				;
+   7:				; Routines associated with the MMC memory card.
+   8:				;
+   9:				; The interface uses the SPI mode of communication described in these references:
+  10:				; 1) file:///tmp/mozilla_merlin0/MMC-System-Spec-v3.31.pdf
+  11:				; 2) http://alumni.cs.ucr.edu/~amitra/sdcard/Additional/sdcard_appnote_foust.pdf
+  12:				; 3) https://openlabpro.com/guide/interfacing-microcontrollers-with-sd-card/
+  13:				;
+  14:				; Routines preserve all registers not required as operands or return values except
+  15:				; AF unless otherwise stated below.
+  16:				;
+  17:				;
+  18:     -	0001'         	monitor         equ 1                   ; Flag part of monitor build
+  19:     -	0001'         	mmc             equ 1                   ; Flag module for includes
+  20:				;
+  21:				; Set the following to one to enable the corresponding optimisation.
+  22:     -	0001'         	hw_crc          equ 1                   ; Use hardware CRC
+  23:				;
+  24:				;
+  25:				;
+  26:				; ************
+  27:				; * Includes *
+  28:				; ************
+  29:				;
+  30:				                include "macros.i"
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//macros.i ****
+   1:				; ***********************************
+   2:				; * ZARC Macro Definitions          *
+   3:				; * Written by: Merlin Skinner      *
+   4:				; * Date Started: 30/7/2020         *
+   5:				; ***********************************
+   6:				;
+   7:				;
+   8:				;
+   9:				; **********
+  10:				; * Macros *
+  11:				; **********
+  12:				;
+  13:				;
+  14:				; Initialise enumeration.
+  15:				; The absolute segment is used so the offsets are not marked as relocatable. This
+  16:				; avoids "Not relocatable" errors.
+  17:				ENUM_START      macro
+  18:				                .aseg
+  19:				enum_counter    set 0
+  20:				                endm
+  21:				;
+  22:				; Invoke for each item.
+  23:				ENUM            macro x
+  24:				x               equ enum_counter
+  25:				enum_counter    set enum_counter + 1
+  26:				                endm
+  27:				;
+  28:				ENUM_END        macro x
+  29:				x               set enum_counter    ; Set label to count of items
+  30:				                .cseg
+  31:				                endm
+  32:				;
+  33:				;
+  34:				; Initialise a structure. This is used to generate offsets for data structures.
+  35:				; The absolute segment is used so the offsets are not marked as relocatable. This
+  36:				; avoids "Not relocatable" errors.
+  37:				STRUCT          macro
+  38:				                .aseg
+  39:				str_offset      set 0
+  40:				                endm
+  41:				;
+  42:				; Add a byte entry.
+  43:				STR_BYTE        macro x
+  44:				x               equ str_offset
+  45:				str_offset      set str_offset + 1
+  46:				                endm
+  47:				;
+  48:				; Add a word (16-bit) entry.
+  49:				STR_WORD        macro x
+  50:				x               equ str_offset
+  51:				str_offset      set str_offset + 2
+  52:				                endm
+  53:				;
+  54:				; Add a 3 byte (24-bit) entry.
+  55:				STR_24BIT       macro x
+  56:				x               equ str_offset
+  57:				str_offset      set str_offset + 3
+  58:				                endm
+  59:				;
+  60:				; Add a long (32-bit) entry.
+  61:				STR_LONG        macro x
+  62:				x               equ str_offset
+  63:				str_offset      set str_offset + 4
+  64:				                endm
+  65:				;
+  66:				; Add an arbitrary length entry.
+  67:				STR_BLOCK       macro x, size   ; <name>, <size>
+  68:				x               equ str_offset
+  69:				str_offset      set str_offset + size
+  70:				                endm
+  71:				;
+  72:				; End of structure (used to set size)
+  73:				STR_END         macro x
+  74:				x               equ str_offset
+  75:				                .cseg
+  76:				                endm
+  77:				;
+  78:				;
+  79:				; Calculate offsets into jump tables.
+  80:				; The absolute segment is used so the offsets are not marked as relocatable. This
+  81:				; avoids "Not relocatable" errors.
+  82:				JPTBL_START     macro x
+  83:				                .aseg
+  84:				jptbl_addr      set x               ; Set start address
+  85:				                endm
+  86:				;
+  87:				; Invoke for each item.
+  88:				JPTBL_ENTRY     macro x
+  89:				x               equ jptbl_addr
+  90:				jptbl_addr      set jptbl_addr + 3
+  91:				                endm
+  92:				;
+  93:				; Invoke for a data block in the jump table
+  94:				JPTBL_BLOCK     macro x, size   ; <name>, <size>
+  95:				x               equ jptbl_addr
+  96:				jptbl_addr      set jptbl_addr + size
+  97:				                endm
+  98:				;
+  99:				JPTBL_END       macro x
+ 100:				x               set jptbl_addr      ; Set label to next address
+ 101:				                .cseg
+ 102:				                endm
+ 103:				;
+ 104:				;
+ 105:				; Define bits and masks. This is inspired by the Commodore Amiga BITDEF mechanism.
+ 106:				; Given:
+ 107:				; BITDEF I2C_CSR_STOP, 2
+ 108:				; Yields:
+ 109:				; I2C_CSR_STOP_BIT  EQU 2       ; Bit number
+ 110:				; I2C_CSR_STOP_MASK EQU 1<<2    ; Bit mask
+ 111:				BITDEF          macro n, b      ; <Name>, <bit>
+ 112:				n`_BIT          equ b
+ 113:				n`_MASK         equ 1 << b
+ 114:				                endm
+ 115:				
+**** mmc.z80 ****
+  31:				                include "z80.i"
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//z80.i ****
+   1:				; ***********************************
+   2:				; * ZARC Z80 Definitions            *
+   3:				; * Written by: Merlin Skinner      *
+   4:				; * Date Started: 28/5/2020         *
+   5:				; ***********************************
+   6:				;
+   7:				; Definitions related to the Z80 itself.
+   8:				;
+   9:				; Z80 Vectors
+  10:     -	0000'         	Z80_RST00_VEC   equ 0x0000      ; RST instruction vectors
+  11:     -	0008'         	Z80_RST08_VEC   equ 0x0008
+  12:     -	0010'         	Z80_RST10_VEC   equ 0x0010
+  13:     -	0018'         	Z80_RST18_VEC   equ 0x0018
+  14:     -	0020'         	Z80_RST20_VEC   equ 0x0020
+  15:     -	0028'         	Z80_RST28_VEC   equ 0x0028
+  16:     -	0030'         	Z80_RST30_VEC   equ 0x0030
+  17:     -	0038'         	Z80_RST38_VEC   equ 0x0038
+  18:     -	0066'         	Z80_NMI_VEC     equ 0x0066      ; NMI vectors
+  19:				
+**** mmc.z80 ****
+  32:				                include "monitor.i"
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//monitor.i ****
+   1:				; *******************************************************
+   2:				; * ZARC Monitor Definitions                            *
+   3:				; * Written by: Merlin Skinner                          *
+   4:				; * Date Started: 26/5/2020                             *
+   5:				; *******************************************************
+   6:				;
+   7:				; Definitions related to the monitor programme.
+   8:				;
+   9:				; Note that ld80 only considers the first six characters of labels significant.
+  10:				;
+  11:				;
+  12:				; The following conditionals are intended to allow the same include file to be
+  13:				; used in the defining module and elsewhere as required. Some includes are used
+  14:				; for other applications than the monitor, such as the CP/M BIOS. In these cases,
+  15:				; the extern and public statements are not desirable.
+  16:				;
+  17:     -	0001'         	            ifdef monitor           ; Meaningful for monitor build only
+  18:     -	0001'         	                ifndef main         ; Inhibit for this module
+  19:				; Constants
+  20:				;
+  21:				; Variables 
+  22:				                extern tikcnt       ; Tick counter
+  23:				;
+  24:				; Functions
+  25:				                extern panic        ; System error exception
+  26:				                extern rusby        ; Read byte from user space
+  27:				                extern ruswd        ; Read 16-bit word from user space
+  28:				                extern wusby        ; Write byte to user space
+  29:				                extern wuswd        ; Write 16-bit word to user space
+  30:				;
+  31:				                endif
+  32:				            endif
+  33:				;
+  34:				;
+  35:				;
+  36:				; *****************
+  37:				; * Monitor Calls *
+  38:				; *****************
+  39:				;
+  40:				;
+  41:				; Calculate offsets into jump tables. Entries here must match the jump table in
+  42:				; monitor.z80.
+  43:     -	        	    JPTBL_START %(Z80_NMI_VEC + 3)   ; Start after NMI vector
+  44:				;
+  45:				; From monitor.z80
+  46:     -	        	    JPTBL_ENTRY MCALL_MON_ENTRY     ; Normal monitor entry
+  47:     -	        	    JPTBL_ENTRY MCALL_PANIC         ; System error monitor entry
+  48:				; From io.z80
+  49:     -	        	    JPTBL_ENTRY MCALL_CONWCH        ; Write character to the console port
+  50:     -	        	    JPTBL_ENTRY MCALL_CONRCH        ; Read character from the console port
+  51:     -	        	    JPTBL_ENTRY MCALL_CONSTA        ; Fetch console port status
+  52:     -	        	    JPTBL_ENTRY MCALL_S1WCH         ; Write character to serial port 1
+  53:     -	        	    JPTBL_ENTRY MCALL_S1RCH         ; Read character from serial port 1
+  54:     -	        	    JPTBL_ENTRY MCALL_S1STA         ; Fetch serial port 1 status
+  55:     -	        	    JPTBL_ENTRY MCALL_S2WCH         ; Write character to serial port 2
+  56:     -	        	    JPTBL_ENTRY MCALL_S2RCH         ; Read character from serial port 2
+  57:     -	        	    JPTBL_ENTRY MCALL_S2STA         ; Fetch serial port 2 status
+  58:				; From utility.z80
+  59:     -	        	    JPTBL_ENTRY MCALL_CWNWLN        ; Write new line characters to console
+  60:     -	        	    JPTBL_ENTRY MCALL_CONWMS        ; Print null-terminated string to the console
+  61:     -	        	    JPTBL_ENTRY MCALL_CONWMN        ; Print message <n> in a list
+  62:     -	        	    JPTBL_ENTRY MCALL_SKPSPC        ; Step hl past spaces
+  63:     -	        	    JPTBL_ENTRY MCALL_TOUPCA        ; Convert character in A to upper case
+  64:     -	        	    JPTBL_ENTRY MCALL_TOLOCA        ; Convert character in A to lower case
+  65:     -	        	    JPTBL_ENTRY MCALL_CWVICH        ; Print only visible 7-bit characters
+  66:     -	        	    JPTBL_ENTRY MCALL_CWPSPC        ; Print a space
+  67:     -	        	    JPTBL_ENTRY MCALL_MTWDLI        ; Match word in a string against list of options
+  68:     -	        	    JPTBL_ENTRY MCALL_CWPHNB        ; Print least-significant nibble in A in hexadecimal
+  69:     -	        	    JPTBL_ENTRY MCALL_CWPHBY        ; Print A in hexadecimal
+  70:     -	        	    JPTBL_ENTRY MCALL_CWPHWD        ; Print HL in hexadecimal
+  71:     -	        	    JPTBL_ENTRY MCALL_CWPDBY        ; Print A in decimal. Leading zeros are suppressed.
+  72:     -	        	    JPTBL_ENTRY MCALL_CWPDWD        ; Print HL in decimal. Leading zeros are suppressed.
+  73:     -	        	    JPTBL_ENTRY MCALL_CWPDLO        ; Print DEHL in decimal. Leading zeros are suppressed
+  74:     -	        	    JPTBL_ENTRY MCALL_RDHXWD        ; Read a 16-bit hexadecimal number from a string
+  75:     -	        	    JPTBL_ENTRY MCALL_RDDUWD        ; Read a 16-bit unsigned decimal number from a string
+  76:     -	        	    JPTBL_ENTRY MCALL_RDDULO        ; Read a 32-bit unsigned decimal number from a string
+  77:				; From maths.z80
+  78:     -	        	    JPTBL_ENTRY MCALL_MADLBU        ; 32-bit / 8-bit unsigned divide
+  79:     -	        	    JPTBL_ENTRY MCALL_MADWBU        ; 16-bit / 8-bit unsigned divide
+  80:     -	        	    JPTBL_ENTRY MCALL_MADBBU        ; 8-bit / 8-bit unsigned divide
+  81:     -	        	    JPTBL_ENTRY MCALL_MAMWWU        ; 16-bit * 16-bit unsigned multiply
+  82:     -	        	    JPTBL_ENTRY MCALL_MAMLBU        ; 32-bit * 8-bit unsigned multiply
+  83:     -	        	    JPTBL_ENTRY MCALL_CRC16X        ; CRC-16 (XMODEM)
+  84:				; From time.z80
+  85:     -	        	    JPTBL_ENTRY MCALL_TIRD          ; Read current time and date
+  86:     -	        	    JPTBL_ENTRY MCALL_TIWR          ; Set time and date
+  87:     -	        	    JPTBL_ENTRY MCALL_TIITOS        ; Convert integer time to structure
+  88:     -	        	    JPTBL_ENTRY MCALL_TISTOI        ; Convert structure time to integer
+  89:     -	        	    JPTBL_ENTRY MCALL_CWPTM         ; Print time structure to console
+  90:				; From mmc.z80
+  91:     -	        	    JPTBL_ENTRY MCALL_MCPRER        ; Print memory card error text
+  92:				; From cache.z80
+  93:     -	        	    JPTBL_ENTRY MCALL_CACRS         ; CP/M read sector
+  94:     -	        	    JPTBL_ENTRY MCALL_CACWS         ; CP/M write sector
+  95:     -	        	    JPTBL_ENTRY MCALL_CAFLUS        ; Flush cache (write dirty buffers)
+  96:				; From memory.z80
+  97:     -	        	    JPTBL_ENTRY MCALL_MPALL         ; Allocate new page
+  98:     -	        	    JPTBL_ENTRY MCALL_MPFREE        ; Free allocated page
+  99:     -	        	    JPTBL_ENTRY MCALL_MPSTAT        ; Allocation status
+ 100:				;
+ 101:     -	        	    JPTBL_END MCALL_JPTBL_NEXT
+ 102:				;
+ 103:				;
+ 104:				;
+ 105:				; **************
+ 106:				; * Structures *
+ 107:				; **************
+ 108:				;
+ 109:				;
+ 110:				; Machine state structure.
+ 111:     -	        	                STRUCT
+ 112:     -	        	                STR_BYTE MST_IEN        ; Non-zero if interrupts enabled
+ 113:     -	        	                STR_BYTE MST_MMAP_EN    ; Non-zero if memory mapping enabled
+ 114:     -	        	                STR_BYTE MST_MMAP0      ; Memory mapping registers
+ 115:     -	        	                STR_BYTE MST_MMAP1
+ 116:     -	        	                STR_BYTE MST_MMAP2
+ 117:     -	        	                STR_BYTE MST_MMAP3
+ 118:     -	        	                STR_WORD MST_SP
+ 119:     -	        	                STR_WORD MST_PC
+ 120:				; The sequence of the following entries must match those in the state save and
+ 121:				; load routines.
+ 122:     -	        	                STR_WORD MST_IY
+ 123:     -	        	                STR_WORD MST_IX
+ 124:     -	        	                STR_WORD MST_HL_P
+ 125:     -	        	                STR_WORD MST_DE_P
+ 126:     -	        	                STR_WORD MST_BC_P
+ 127:     -	        	                STR_WORD MST_AF_P       ; Alternate ("prime") registers
+ 128:     -	        	                STR_WORD MST_HL
+ 129:     -	        	                STR_WORD MST_DE
+ 130:     -	        	                STR_WORD MST_BC
+ 131:     -	        	                STR_WORD MST_AF
+ 132:				; End of sequence critical entries.
+ 133:     -	        	                STR_BYTE MST_I
+ 134:     -	        	                STR_BYTE MST_R
+ 135:     -	        	                STR_END MST_SIZE
+ 136:				;
+ 137:				;
+ 138:				;
+ 139:				; *************
+ 140:				; * Constants *
+ 141:				; *************
+ 142:				;
+ 143:				;
+ 144:				; Trace mode states for trace_mode.
+ 145:     -	        	                ENUM_START
+ 146:     -	        	                ENUM TRM_NONE
+ 147:     -	        	                ENUM TRM_SINGLE
+ 148:     -	        	                ENUM TRM_TO_ADDR        ; Trace to address
+ 149:     -	        	                ENUM TRM_XPT            ; Exception - start running normally
+ 150:     -	        	                ENUM_END TRM_STATES     ; Number of states
+ 151:				
+**** mmc.z80 ****
+  33:				                include "zarc.i"        ; Hardware definitions
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//zarc.i ****
+   1:				; ***********************************
+   2:				; * ZARC Definitions                *
+   3:				; * Written by: Merlin Skinner      *
+   4:				; * Date Started: 26/5/2020         *
+   5:				; ***********************************
+   6:				;
+   7:				; Definitions related to the ZARC system.
+   8:				;
+   9:				;
+  10:				; ************
+  11:				; * Hardware *
+  12:				; ************
+  13:				;
+  14:				; Interrupt vector numbers in INT_VEC_TABLE.
+  15:				; Address is INT_VEC_TABLE + 2 * vector number).
+  16:     -	0000'         	INT_SER1_TX_VEC     equ INT_SER1_TX_BIT ; Serial port 1 transmitter buffer is half full or less
+  17:     -	0001'         	INT_SER1_RX_VEC     equ INT_SER1_RX_BIT ; Serial port 1 receiver has data
+  18:     -	0002'         	INT_SER2_TX_VEC     equ INT_SER2_TX_BIT ; Serial port 2 transmitter buffer is half full or less
+  19:     -	0003'         	INT_SER2_RX_VEC     equ INT_SER2_RX_BIT ; Serial port 2 receiver has data
+  20:     -	0004'         	INT_TICK_VEC        equ INT_TICK_BIT    ; Regular timekeeping
+  21:				;
+  22:     -	0064'         	MS_PER_TICK         equ 100             ; ms per tick
+  23:     -	000A'         	TICK_FREQ           equ 10              ; Tick rate in Hz
+  24:				;
+  25:				
+**** mmc.z80 ****
+  34:				                include "io_map.i"      ; I/O addresses mapping
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//io_map.i ****
+   1:				; ***********************************
+   2:				; * ZARC I/O Definitions            *
+   3:				; * Written by: Merlin Skinner      *
+   4:				; * Date Started: 3/9/2019          *
+   5:				; ***********************************
+   6:				
+   7:				; *** I/O register address mapping ***
+   8:				
+   9:				; This should be kept in sync with the Definitions.vhd package file.
+  10:     -	0000'         	IOA_FPGA_MAJREV equ 0x00        ; FPGA major revision
+  11:     -	0001'         	IOA_FPGA_MINREV equ 0x01        ; FPGA minor revision
+  12:     -	0002'         	IOA_CONTROL     equ 0x02        ; System control register
+  13:     -	0003'         	IOA_FP_SW       equ 0x03        ; Front panel data switches
+  14:				
+  15:				; Paging
+  16:     -	0004'         	IOA_MMAP_0      equ 0x04        ; Page, supervisor and protection for bank 0 (0x0000 to 0x3fff)
+  17:     -	0005'         	IOA_MMAP_1      equ 0x05        ; Page, supervisor and protection for bank 1 (0x4000 to 0x7fff)
+  18:     -	0006'         	IOA_MMAP_2      equ 0x06        ; Page, supervisor and protection for bank 2 (0x8000 to 0xbfff)
+  19:     -	0007'         	IOA_MMAP_3      equ 0x07        ; Page, supervisor and protection for bank 3 (0xc000 to 0xffff)
+  20:				
+  21:				; Interrupts
+  22:				; Note: Up to eight interrupts are supported. IM 2 is anticipated, and the
+  23:				; fixed vector associated with each interrupt is supplied when the interrupt
+  24:				; is serviced. Routine address is “I*256+databus”. Vector supplied is
+  25:				; 0xe0 + 2 * interrupt number (0 to 7).
+  26:				; Note: addresses 0x09 and 0x0b reserved for use if more than eight interrupt
+  27:				; sources are required.
+  28:     -	0008'         	IOA_INT_EN      equ 0x08        ; Enables
+  29:     -	000A'         	IOA_INT_PEND    equ 0x0a        ; Pending interrupts
+  30:				;
+  31:				;NMI
+  32:     -	000C'         	IOA_NMI_REASONS equ 0x0c        ; NMI reasons flags
+  33:				;
+  34:				; Serial.
+  35:     -	0010'         	IOA_SER1_CSR    equ 0x10        ; Port 1 control / status
+  36:     -	0011'         	IOA_SER1_DATA   equ 0x11        ; Port 1 data
+  37:     -	0012'         	IOA_SER2_CSR    equ 0x12        ; Port 2 serial control / status
+  38:     -	0013'         	IOA_SER2_DATA   equ 0x13        ; Port 2 serial data
+  39:				
+  40:				; RTC (DS1672)
+  41:				; I2C, implemented using a byte interface to the CPU. Writing to the data port
+  42:				; shifts out a byte. Input puts are shifted into the “other end” of the same
+  43:				; register.
+  44:     -	0018'         	IOA_I2C_CSR     equ 0x18        ; Control
+  45:     -	0019'         	IOA_I2C_DATA    equ 0x19        ; Data
+  46:				;
+  47:				; SD Card
+  48:				; Uses SPI mode, with a generally similar interface to that of the I2C.
+  49:     -	0020'         	IOA_SPI_CSR     equ 0x20        ; Control
+  50:     -	0021'         	IOA_SPI_DATA    equ 0x21        ; Data
+  51:				
+  52:				; CRC16 / XMODEM and MultiMediaCard CRC16
+  53:				; Write to the CRC register to set the initial value. Writing to the input
+  54:				; data register updates the CRC.
+  55:     -	0024'         	IOA_CRC_0       equ 0x24        ; CRC register (low)
+  56:     -	0025'         	IOA_CRC_1       equ 0x25        ; CRC register (high)
+  57:     -	0026'         	IOA_CRC_DATA    equ 0x26        ; Input data
+  58:				
+  59:				; *** Proposed features ***
+  60:				; Video
+  61:				;IOA_VID_CTRL    equ 0x30;       ; Control (cursor on/off ...)
+  62:				;IOA_VID_DATA    equ 0x31;       ; Data
+  63:				;IOA_VID_CUR_X   equ 0x32;       ; Cursor X (0 to 127)
+  64:				;IOA_VID_CUR_Y   equ 0x33;       ; Cursor Y (0 to 63)
+  65:				;IOA_VID_START_L equ 0x34        ; Display start address (low byte)
+  66:				;IOA_VID_START_H equ 0x35        ; Display start address (high byte)
+  67:				
+  68:				; Video palette
+  69:				; Each entry consists of 6 bits of colour data. Foreground and background
+  70:				; colour pairs are selected from the above palette using eight of the 22
+  71:				; control codes in the display character set. This leaves codes for
+  72:				; double-height, double-width etc.
+  73:				;IOA_VID_PALBG0  equ 0x40        ; Background colour 0
+  74:				;IOA_VID_PALFG0  equ 0x41        ; Foreground colour 0
+  75:				;IOA_VID_PALBG1  equ 0x42        ; Background colour 1
+  76:				;IOA_VID_PALFG1  equ 0x43        ; Foreground colour 1
+  77:				;IOA_VID_PALBG2  equ 0x44        ; Background colour 2
+  78:				;IOA_VID_PALFG2  equ 0x45        ; Foreground colour 2
+  79:				;IOA_VID_PALBG3  equ 0x46        ; Background colour 3
+  80:				;IOA_VID_PALFG3  equ 0x47        ; Foreground colour 3
+  81:				;IOA_VID_PALBG4  equ 0x48        ; Background colour 4
+  82:				;IOA_VID_PALFG4  equ 0x49        ; Foreground colour 4
+  83:				;IOA_VID_PALBG5  equ 0x4a        ; Background colour 5
+  84:				;IOA_VID_PALFG5  equ 0x4b        ; Foreground colour 5
+  85:				;IOA_VID_PALBG6  equ 0x4c        ; Background colour 6
+  86:				;IOA_VID_PALFG6  equ 0x4d        ; Foreground colour 6
+  87:				;IOA_VID_PALBG7  equ 0x4e        ; Background colour 7
+  88:				;IOA_VID_PALFG7  equ 0x4f        ; Foreground colour 7
+  89:				
+  90:				; Arithmetic
+  91:				; Multiply, divide … based on 68000 DIV, DIVU, MUL, MULU.
+  92:				; Multiply does A[16] * B[16] => C[32].
+  93:				; Divide does A[32] / B[16] => C[32] (16-bit remainder [high bits] and
+  94:				; 16-bit quotient [low bits]).
+  95:				; Status bits include “complete” and “overflow”.
+  96:				;IOA_ARITH_A_L   equ 0x50        ; A register (low)
+  97:				;IOA_ARITH_A_H   equ 0x51        ; A register (high)
+  98:				;IOA_ARITH_B_L   equ 0x54        ; B register (low)
+  99:				;IOA_ARITH_B_H   equ 0x57        ; B register (high)
+ 100:				;IOA_ARITH_C_0   equ 0x58        ; C register (low)
+ 101:				;IOA_ARITH_C_1   equ 0x59 
+ 102:				;IOA_ARITH_C_2   equ 0x5a
+ 103:				;IOA_ARITH_C_3   equ 0x5b        ; C register (high)
+ 104:				;IOA_ARITH_CSR   equ 0x5c        ; Command / status
+ 105:				
+ 106:				
+ 107:				; *** Register bits allocation ***
+ 108:				
+ 109:				; IOA_CONTROL register
+ 110:     -	        	BITDEF SYSCTRL_TRARM, 0         ; 1 arms the trace interrupt
+ 111:     -	        	BITDEF SYSCTRL_MMAP, 1          ; 1 enables memory mapping
+ 112:     -	        	BITDEF SYSCTRL_NMCLR, 2         ; NMI mapping clear
+ 113:     -	        	BITDEF SYSCTRL_MAPARM, 3        ; NMI out arm
+ 114:     -	        	BITDEF SYSCTRL_MMAPN, 4         ; State of MMAP when an NMI occurred
+ 115:     -	        	BITDEF SYSCTRL_TRPRE0, 5        ; Number of prefixes for trace
+ 116:     -	        	BITDEF SYSCTRL_TRPRE1, 6
+ 117:     -	        	BITDEF SYSCTRL_RESERVED, 7      ; Unused bit
+ 118:				;
+ 119:				; MMAP page registers
+ 120:     -	        	BITDEF MMAP_PROT, 7             ; Write protection
+ 121:     -	        	BITDEF MMAP_SUPER, 6            ; I/O enable
+ 122:     -	003F'         	MMAP_PAGE_MASK  equ 0x3f        ; RAM page number bits
+ 123:				;
+ 124:				; IOA_INT_EN and IOA_INT_PEND registers.
+ 125:     -	0008'         	INTS_NUM        equ 8           ; Number of possible interrupt sources
+ 126:     -	        	BITDEF INT_SER1_TX, 0           ; Serial port 1 transmitter buffer is half full or less
+ 127:     -	        	BITDEF INT_SER1_RX, 1           ; Serial port 1 receiver has data
+ 128:     -	        	BITDEF INT_SER2_TX, 2           ; Serial port 2 transmitter buffer is half full or less
+ 129:     -	        	BITDEF INT_SER2_RX, 3           ; Serial port 2 receiver has data
+ 130:     -	        	BITDEF INT_TICK, 4              ; Regular timekeeping
+ 131:				;
+ 132:				; IOA_NMI_REASONS register.
+ 133:     -	0004'         	NMI_REASONS_NUM equ 4           ; Number of reasons for an NMI
+ 134:     -	        	BITDEF NMI_SWITCH, 0;           ; Front panel switch
+ 135:     -	        	BITDEF NMI_PROT_VIOL, 1;        ; Write protection violation
+ 136:     -	        	BITDEF NMI_SUPER_VIOL, 2;       ; Supervisor violation
+ 137:     -	        	BITDEF NMI_TRACE, 3;            ; Debugger trace (single step)
+ 138:     -	000F'         	NMI_REASONS_ALL equ NMI_SWITCH_MASK + NMI_PROT_VIOL_MASK + NMI_SUPER_VIOL_MASK + NMI_TRACE_MASK
+ 139:				;
+ 140:				; Serial CSRs (IOA_SER1_CSR and IOA_SER2_CSR).
+ 141:     -	        	BITDEF SER_CSR_RX_EMPTY, 0      ; Receiver buffer is empty
+ 142:     -	        	BITDEF SER_CSR_RX_ALHALF, 1     ; Receiver buffer is at least half full
+ 143:     -	        	BITDEF SER_CSR_RX_FULL, 2       ; Receiver buffer is full
+ 144:     -	        	BITDEF SER_CSR_FRAME_ERR, 3     ; Framing error in last character
+ 145:     -	        	BITDEF SER_CSR_TX_EMPTY, 4      ; Transmitter buffer is empty
+ 146:     -	        	BITDEF SER_CSR_TX_ALHALF, 5     ; Transmitter buffer is at least half full
+ 147:     -	        	BITDEF SER_CSR_TX_FULL, 6       ; Transmitter buffer is full
+ 148:				; Bit 7 is not used.
+ 149:				;
+ 150:				; I2C (Inter-Integrated Circuit) master interface. Used for RTC (DS1672).
+ 151:				; Bits in IOA_I2C_CSR
+ 152:     -	        	BITDEF I2C_CSR_ACKN, 0          ; (Read / write) acknowledge from receiving device
+ 153:     -	        	BITDEF I2C_CSR_START, 1         ; (Write only) trigger start sequence
+ 154:     -	        	BITDEF I2C_CSR_STOP, 2          ; (Write only) trigger stop sequence
+ 155:     -	        	BITDEF I2C_CSR_BUSY, 7          ; (Read only) transceiver busy
+ 156:				;
+ 157:				; SPI (Serial Peripheral Interface) master interface. Used for memory card.
+ 158:				; Bits in IOA_SPI_CSR
+ 159:     -	        	BITDEF SPI_CSR_FAST, 0          ; (Read / write) SPI speed select
+ 160:     -	        	BITDEF SPI_CSR_MC_SS, 1         ; (Read / write) memory card slave select
+ 161:     -	        	BITDEF SPI_CSR_BUSY, 7          ; (Read only) transceiver busy
+ 162:				
+**** mmc.z80 ****
+  35:				                include "terminal.i"    ; Terminal constants
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//terminal.i ****
+   1:				; ***********************************
+   2:				; * ZARC Terminal Definitions       *
+   3:				; * Written by: Merlin Skinner      *
+   4:				; * Date Started: 16/5/2020         *
+   5:				; ***********************************
+   6:				;
+   7:				; Definitions associated with terminals connected to an RS-232 port.
+   8:				;
+   9:     -	0005'         	ASCII_ENQ           equ 0x05        ; Enquiry
+  10:     -	0008'         	ASCII_BS            equ 0x08        ; Backspace
+  11:     -	0009'         	ASCII_HT            equ 0x09
+  12:     -	000A'         	ASCII_LF            equ 0x0a        ; Line feed
+  13:     -	000B'         	ASCII_VT            equ 0x0b        ; Upline (ADM-3A)
+  14:     -	000C'         	ASCII_FF            equ 0x0c        ; Forward space (ADM-3A)
+  15:     -	000D'         	ASCII_CR            equ 0x0d        ; Carriage return
+  16:     -	0016'         	ASCII_SYN           equ 0x16        ; Synchronous idle
+  17:     -	001A'         	ASCII_SUB           equ 0x1a        ; Clear screen (ADM-3A)
+  18:     -	001B'         	ASCII_ESC           equ 0x1b        ; Escape
+  19:     -	001E'         	ASCII_RS            equ 0x1e        ; Home cursor (ADM-3A)
+  20:     -	007F'         	ASCII_DEL           equ 0x7f        ; Delete
+  21:				;
+  22:				; ZARC CP/M terminal input key codes. Some are copied from Amstrad PCW and
+  23:				; Spectrum +3, others are unique to ZARC. Delete seems very common.
+  24:     -	001F'         	ZKEY_CSR_UP         equ 0x1f        ; Cursor up
+  25:     -	001E'         	ZKEY_CSR_DOWN       equ 0x1e        ; Cursor down
+  26:     -	0006'         	ZKEY_CSR_RIGHT      equ 0x06        ; Cursor right
+  27:     -	0001'         	ZKEY_CSR_LEFT       equ 0x01        ; Cursor left
+  28:     -	0002'         	ZKEY_HOME           equ 0x02
+  29:     -	0016'         	ZKEY_INSERT         equ 0x16
+  30:     -	007F'         	ZKEY_DELETE         equ 0x7f
+  31:     -	0004'         	ZKEY_END            equ 0x04
+  32:     -	001D'         	ZKEY_PAGE_UP        equ 0x1d
+  33:     -	001C'         	ZKEY_PAGE_DOWN      equ 0x1c
+  34:				
+**** mmc.z80 ****
+  36:				                include "io.i"          ; I/O routines
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//io.i ****
+   1:				; ***********************************
+   2:				; * ZARC Basic I/O Extern Symbols   *
+   3:				; * Written by: Merlin Skinner      *
+   4:				; * Date Started: 16/5/2020         *
+   5:				; ***********************************
+   6:				;
+   7:				; Note that ld80 only considers the first six characters of labels significant.
+   8:				
+   9:				; The following conditionals are intended to allow the same include file to be
+  10:				; used in the defining module and elsewhere as required. Some includes are used
+  11:				; for other applications than the monitor, such as the CP/M BIOS. In these cases,
+  12:				; the extern and extern statements are not desirable.
+  13:				;
+  14:     -	0001'         	            ifdef monitor           ; Meaningful for monitor build only
+  15:     -	0001'         	                ifndef io           ; Inhibit for this module
+  16:				;
+  17:				                ; Variables
+  18:				                extern coport   ; Current console port (PRT_xxx)
+  19:				                extern trport   ; Current data transfer port (PRT_xxx)
+  20:				;
+  21:				                ; Routines
+  22:				                extern conwch   ; Write character to the console
+  23:				                extern conrch   ; Read character from the console
+  24:				                extern consta   ; Fetch console port status
+  25:				                extern trawch   ; Write character to the data transfer port
+  26:				                extern trarch   ; Read character from the data transfer port
+  27:				                extern s1wch    ; Write character to serial port 1
+  28:				                extern s1rch    ; Read character from serial port 1
+  29:				                extern s1sta    ; Fetch serial port 1 status
+  30:				                extern s2wch    ; Write character to serial port 2
+  31:				                extern s2rch    ; Read character from serial port 2
+  32:				                extern s2sta    ; Fetch serial port 2 status
+  33:				                extern i2cwr    ; Write to I2C device
+  34:				                extern i2crd    ; Read from I2C device
+  35:				                extern spiini   ; Initialise SPI interface and set speed
+  36:				                extern spiss    ; Set SPI slave select(s)
+  37:				                extern spitr    ; Transfer byte to / from SPI device
+  38:				;
+  39:				                endif
+  40:				            endif
+  41:				;
+  42:				;
+  43:				; Port enumeration. Used for console and transfer port selection. Definitions must
+  44:				; match names in prt_name_list (monitor.z80).
+  45:     -	        	                ENUM_START
+  46:     -	        	                ENUM PORT_SER1          ; Serial port 1
+  47:     -	        	                ENUM PORT_SER2          ; Serial port 2
+  48:     -	        	                ENUM_END PORT_STATES    ; Number of states
+  49:				;
+  50:				
+**** mmc.z80 ****
+  37:				                include "maths.i"       ; Mathematical functions
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//maths.i ****
+   1:				; *******************************************************
+   2:				; * Mathematical Routines for ZARC Z80 Computer         *
+   3:				; * Written by: Merlin Skinner                          *
+   4:				; * Date Started: 29/5/2020                             *
+   5:				; *******************************************************
+   6:				;
+   7:				; Note that ld80 only considers the first six characters of labels significant.
+   8:				;
+   9:				; The following conditionals are intended to allow the same include file to be
+  10:				; used in the defining module and elsewhere as required. Some includes are used
+  11:				; for other applications than the monitor, such as the CP/M BIOS. In these cases,
+  12:				; the extern and public statements are not desirable.
+  13:				;
+  14:     -	0001'         	            ifdef monitor           ; Meaningful for monitor build only
+  15:     -	0001'         	                ifndef maths        ; Inhibit for this module
+  16:				;
+  17:				                extern madlbu       ; 32-bit / 8-bit unsigned divide
+  18:				                extern madwbu       ; 16-bit / 8-bit unsigned divide
+  19:				                extern madbbu       ; 8-bit / 8-bit unsigned divide
+  20:				                extern mamwwu       ; 16-bit * 16-bit unsigned multiply
+  21:				                extern mamlbu       ; 32-bit * 8-bit unsigned multiply
+  22:				                extern crc16x       ; Software CRC-16 (XMODEM)
+  23:				;
+  24:				                endif
+  25:				            endif
+  26:				
+**** mmc.z80 ****
+  38:				                include "spi.i"         ; SPI master interface
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//spi.i ****
+   1:				; ***********************************
+   2:				; * ZARC SPI Definitions            *
+   3:				; * Written by: Merlin Skinner      *
+   4:				; * Date Started: 7/8/2020          *
+   5:				; ***********************************
+   6:				;
+   7:				; Definitions associated with the SPI (Inter-Integrated Circuit) master interface.
+   8:				; Used for the memory card initially, but it may turn out to have other uses.
+   9:				;
+  10:				;
+  11:				; Memory card command structure
+  12:     -	        	                STRUCT
+  13:     -	        	                STR_BYTE MMC_CMD    ; Command including start bits
+  14:     -	        	                STR_BYTE MMC_ARG1   ; Arguments
+  15:     -	        	                STR_BYTE MMC_ARG2   ; Arguments
+  16:     -	        	                STR_BYTE MMC_ARG3   ; Arguments
+  17:     -	        	                STR_BYTE MMC_ARG4   ; Arguments
+  18:     -	        	                STR_BYTE MMC_CRC    ; CRC and stop bit
+  19:     -	        	                STR_END MMC_SIZE
+  20:				
+  21:				; SPI error codes. This should be maintained in sync with err_msgs in mmc_card.z80.
+  22:     -	        	                ENUM_START
+  23:     -	        	                ENUM SPI_ERR_OK         ; No error
+  24:     -	        	                ENUM SPI_ERR_BUSY       ; Master interface stuck busy
+  25:				; Memory card error codes.
+  26:     -	        	                ENUM SPI_ERR_NORESP     ; No response received from card
+  27:     -	        	                ENUM SPI_ERR_BADINIT    ; Initialisation failed
+  28:     -	        	                ENUM SPI_ERR_BADCRC     ; CRC error
+  29:     -	        	                ENUM SPI_ERR_BADSEC     ; Bad sector size
+  30:     -	        	                ENUM SPI_ERR_RANGE      ; Parameter out of range
+  31:     -	        	                ENUM SPI_ERR_DATAERR    ; Data error token received
+  32:     -	        	                ENUM SPI_ERR_BAD_R1     ; Card reported error in R1 response
+  33:     -	        	                ENUM SPI_ERR_BAD_R2     ; Card reported error in R2 response
+  34:     -	        	                ENUM SPI_ERR_HEAP       ; Out of heap space
+  35:     -	        	                ENUM SPI_ERR_TIMEOUT    ; Busy timeout
+  36:     -	        	                ENUM SPI_ERR_WRITE      ; Write error
+  37:     -	        	                ENUM SPI_ERR_UNKN       ; Unknown error
+  38:     -	        	                ENUM_END SPI_ERR_NUM    ; Number of errors
+**** mmc.z80 ****
+  39:				                include "mmc.i"         ; Memory card
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//mmc.i ****
+   1:				; *******************************************
+   2:				; * ZARC Monitor Memory Card Include File   *
+   3:				; * Written by: Merlin Skinner              *
+   4:				; * Date Started: 7/8/2020                  *
+   5:				; *******************************************
+   6:				;
+   7:				;
+   8:				; Note that ld80 only considers the first six characters of labels significant.
+   9:				;
+  10:				; The following conditionals are intended to allow the same include file to be
+  11:				; used in the defining module and elsewhere as required. Some includes are used
+  12:				; for other applications than the monitor, such as the CP/M BIOS. In these cases,
+  13:				; the extern and public statements are not desirable.
+  14:				;
+  15:     -	0001'         	            ifdef monitor           ; Meaningful for monitor build only
+  16:     -	0000'         	                ifndef mmc          ; Inhibit for this module
+  25:				                endif
+  26:				            endif
+  27:				;
+  28:				;
+  29:     -	0200'         	MMC_SECTOR_SIZE             equ 512     ; Sector size
+  30:     -	0009'         	MMC_LOG2_SEC_SIZE           equ 9       ; Save number of shifts for above
+  31:     -	0040'         	MMC_CMD_START               equ 0x40    ; Command start bits (01b) shifted for
+  32:				                                        ; command byte
+  33:     -	0001'         	MMC_CMD_STOP                equ 0x01    ; Stop bit (in CRC byte)
+  34:				;
+  35:				;
+  36:				; Card state (mcstat) states.
+  37:     -	        	                ENUM_START
+  38:     -	        	                ENUM MMC_STAT_IDLE      ; Not initialised
+  39:     -	        	                ENUM MMC_STAT_INIT      ; Initialised (can do raw read / writes)
+  40:				
+  41:     -	        	                ENUM_END MC_STATES  ; Number of states
+  42:				;
+  43:				;
+  44:				; Memory card command structure
+  45:     -	        	                STRUCT
+  46:     -	        	                STR_BYTE MMC_CMD    ; Command including start bits
+  47:     -	        	                STR_BYTE MMC_ARG1   ; Arguments
+  48:     -	        	                STR_BYTE MMC_ARG2   ; Arguments
+  49:     -	        	                STR_BYTE MMC_ARG3   ; Arguments
+  50:     -	        	                STR_BYTE MMC_ARG4   ; Arguments
+  51:     -	        	                STR_BYTE MMC_CRC    ; CRC and stop bit
+  52:     -	        	                STR_END MMC_SIZE
+  53:				;
+  54:				;
+  55:				; SPI mode commands (CMDn from MMC-System-Spec-v3.31.pdf chapter 4.9).
+  56:     -	0000'         	MMC_CMD_GO_IDLE_STATE       equ 0   ; Resets the memory card
+  57:     -	0001'         	MMC_CMD_SEND_OP_COND        equ 1   ; Sends host capacity support information and init.
+  58:     -	0009'         	MMC_CMD_SEND_CSD            equ 9   ; Read card specific data
+  59:     -	000A'         	MMC_CMD_SEND_CID            equ 10  ; Read card identification
+  60:     -	000D'         	MMC_CMD_SEND_STATUS         equ 13  ; Read card status register
+  61:     -	0010'         	MMC_CMD_SET_BLOCKLEN        equ 16  ; Set block length (in bytes)
+  62:     -	0011'         	MMC_CMD_READ_SINGLE_BLOCK   equ 17  ; Reads a block
+  63:     -	0018'         	MMC_CMD_WRITE_BLOCK         equ 24  ; Writes a block
+  64:     -	0037'         	MMC_CMD_APP_CMD             equ 55  ; Next command is an application specific command
+  65:     -	003B'         	MMC_CMD_CRC_ON_OFF          equ 59  ; Turns the CRC option on or off
+  66:				;
+  67:				; The list describes all the application specific commands supported/reserved by the 
+  68:				; memory card. All the following commands shall be preceded with APP_CMD (CMD55).
+  69:     -	0029'         	MMC_ACMD_MC_SEND_OP_COND    equ 41  ; Sends host capacity support information and init
+  70:				;
+  71:				; R1 response bits
+  72:     -	        	BITDEF MMC_R1_IDLE, 0           ; In idle state
+  73:     -	        	BITDEF MMC_R1_ERA_RST, 1        ; Erase reset
+  74:     -	        	BITDEF MMC_R1_ILL_CMD, 2        ; Illegal command
+  75:     -	        	BITDEF MMC_R1_CMD_CRC_ERR, 3    ; Command CRC error
+  76:     -	        	BITDEF MMC_R1_ERA_SEQ_ERR, 4    ; Erase sequence error
+  77:     -	        	BITDEF MMC_R1_ADDR_ERR, 5       ; Address error
+  78:     -	        	BITDEF MMC_R1_PAR_ERR, 6        ; Parameter error
+  79:     -	        	BITDEF MMC_R1_START, 7          ; Zero identifies an R1 response
+  80:				;
+  81:				;
+  82:     -	0006'         	MMC_CID_PNM_SIZE      equ 6   ; Product name length (bytes)
+  83:				;
+  84:				; Card IDentification (CID) register (128 bits)
+  85:     -	        	                STRUCT
+  86:     -	        	                STR_BYTE MMC_CID_MID    ; Manufacturer ID
+  87:     -	        	                STR_WORD MMC_CID_OID    ; OEM/Application ID
+  88:     -	        	                STR_BLOCK MMC_CID_PNM, MMC_CID_PNM_SIZE ; Product name
+  89:     -	        	                STR_BYTE MMC_CID_PRV    ; Product revision
+  90:     -	        	                STR_LONG MMC_CID_PSN    ; Product serial number
+  91:     -	        	                STR_BYTE MMC_CID_MDT    ; Manufacturing date
+  92:     -	        	                STR_BYTE MMC_CID_CRC    ; CRC7 checksum and "1"
+  93:     -	        	                STR_END MMC_CID_SIZE
+  94:				;
+  95:				;
+  96:				; Card-Specific Data (CSD) register (128 bits). It contains a number of bit fields
+  97:				; that aren't necessarily byte aligned. In these cases, the entries simply identify
+  98:				; the bit numbers contained.
+  99:     -	        	                STRUCT
+ 100:     -	        	                STR_BYTE MMC_CSD_VERSION    ; (127-120) CSD version, spec version
+ 101:     -	        	                STR_BYTE MMC_CSD_TAAC       ; (119-112) data read access-time-1
+ 102:     -	        	                STR_BYTE MMC_CSD_NSAC       ; (111-104) data read access-time-2
+ 103:     -	        	                STR_BYTE MMC_CSD_TR_SPD     ; (103-96) max. data transfer rate
+ 104:     -	        	                STR_BYTE MMC_CSD_95_88      ; Card command classes (MS 8 bits)
+ 105:     -	        	                STR_BYTE MMC_CSD_87_80      ; CCC (LS bits) and max. read data length
+ 106:     -	        	                STR_BYTE MMC_CSD_79_72      ; Flags and C_SIZE bits 10 and 11
+ 107:     -	        	                STR_BYTE MMC_CSD_71_64      ; C_SIZE bits 2 to 9
+ 108:     -	        	                STR_BYTE MMC_CSD_63_56      ; C_SIZE bits 1 to 0 and some currents
+ 109:     -	        	                STR_BYTE MMC_CSD_55_48      ; Currents & C_SIZE_MULT (MS 2 bits)
+ 110:     -	        	                STR_BYTE MMC_CSD_47_40      ; C_SIZE_MULT (LS bit) and erase size (part)
+ 111:     -	        	                STR_BYTE MMC_CSD_39_32      ; Erase size (part) and WP group size
+ 112:     -	        	                STR_BYTE MMC_CSD_31_24      ; WP group enable, ECC and write parameters (part)
+ 113:     -	        	                STR_BYTE MMC_CSD_23_16      ; Write block lenth (part) and reserved
+ 114:     -	        	                STR_BYTE MMC_CSD_15_8       ; Flags
+ 115:     -	        	                STR_BYTE MMC_CSD_CRC        ; CRC7 checksum and "1"
+ 116:     -	        	                STR_END MMC_CSD_SIZE
+ 117:				
+**** mmc.z80 ****
+  40:				                include "heap.i"
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//heap.i ****
+   1:				; *******************************************
+   2:				; * ZARC Monitor Heap Incude File           *
+   3:				; * Written by: Merlin Skinner              *
+   4:				; * Date Started: 7/8/2020                  *
+   5:				; *******************************************
+   6:				;
+   7:				;
+   8:				; Note that ld80 only considers the first six characters of labels significant.
+   9:				;
+  10:				; The following conditionals are intended to allow the same include file to be
+  11:				; used in the defining module and elsewhere as required. Some includes are used
+  12:				; for other applications than the monitor, such as the CP/M BIOS. In these cases,
+  13:				; the extern and public statements are not desirable.
+  14:				;
+  15:     -	0001'         	            ifdef monitor           ; Meaningful for monitor build only
+  16:     -	0001'         	                ifndef heap         ; Inhibit for this module
+  17:				;
+  18:				                extern hinit        ; Initialise
+  19:				                extern halloc       ; Allocate memory
+  20:				;
+  21:				                endif
+  22:				            endif
+  23:				
+**** mmc.z80 ****
+  41:				                include "utility.i"     ; Utility functions
+**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//utility.i ****
+   1:				; ***********************************
+   2:				; * ZARC Monitor Utility Routines   *
+   3:				; * Written by: Merlin Skinner      *
+   4:				; * Date Started: 16/5/2020         *
+   5:				; ***********************************
+   6:				;
+   7:				; Note that ld80 only considers the first six characters of labels significant
+   8:				;
+   9:				; The following conditionals are intended to allow the same include file to be
+  10:				; used in the defining module and elsewhere as required. Some includes are used
+  11:				; for other applications than the monitor, such as the CP/M BIOS. In these cases,
+  12:				; the extern and public statements are not desirable.
+  13:				;
+  14:     -	0001'         	            ifdef monitor           ; Meaningful for monitor build only
+  15:     -	0001'         	                ifndef utility      ; Inhibit for this module
+  16:				;
+  17:				                extern cwnwln       ; Write new line characters to console.
+  18:				                extern conwms       ; Print null-terminated string to the console
+  19:				                extern conwmn       ; Print message <n> in a list
+  20:				                extern skpspc       ; Step hl past spaces
+  21:				                extern toupca       ; Convert character in A to upper case
+  22:				                extern toloca       ; Convert character in A to lower case
+  23:				                extern cwvich       ; Print only visible 7-bit characters
+  24:				                extern cwpspc       ; Print a space
+  25:				                extern mtwdli       ; Match word in a string against list of options
+  26:				                extern cwphnb       ; Print least-significant nibble in A in hexadecimal
+  27:				                extern cwphby       ; Print A in hexadecimal
+  28:				                extern cwphwd       ; Print HL in hexadecimal
+  29:				                extern cwpdby       ; Print A in decimal. Leading zeros are suppressed
+  30:				                extern cwpdwd       ; Print HL in decimal. Leading zeros are suppressed
+  31:				                extern cwpdlo       ; Print DEHL in decimal. Leading zeros are suppressed
+  32:				                extern rdhxwd       ; Read a 16-bit hexadecimal number from a string
+  33:				                extern rdduwd       ; Read a 16-bit unsigned decimal number from a string
+  34:				                extern rddulo       ; Read a 32-bit unsigned decimal number from a string
+  35:				;
+  36:				                endif
+  37:				            endif
+  38:				;
+  39:				;
+  40:				; mtwdli (match word in a string against list of options) option bits. Each bit
+  41:				; has the described effect if set.
+  42:     -	        	BITDEF MTWDLI_ABBREV, 0                 ; Enable "." abbreviation
+  43:     -	        	BITDEF MTWDLI_ICASE, 1                  ; Ignore case when matching
+  44:     -	        	BITDEF MTWDLI_TERM, 7                   ; Terminator found (internal use only)
+  45:				
+**** mmc.z80 ****
+  42:				;
+  43:				;
+  44:				; *************
+  45:				; * Externals *
+  46:				; *************
+  47:				;
+  48:				; Routines
+  49:				                public mcinit       ; Initialise memory card
+  50:				                public mcprer       ; Print memory card error text
+  51:				                public mcrrs        ; Raw read sector
+  52:				                public mcrws        ; Raw write sector
+  53:				;
+  54:				; Variables
+  55:				;
+  56:				                public mcstat       ; Card state (MMC_STAT_xxx)
+  57:				;
+  58:				;
+  59:				; *************
+  60:				; * Constants *
+  61:				; *************
+  62:				;
+  63:				; (None)
+  64:				;
+  65:				;
+  66:				; *************
+  67:				; * Main Code *
+  68:				; *************
+  69:				;
+  70:				                cseg                    ; Code segment
+  71:				;
+  72:				;
+  73:				; Initialise card.
+  74:				; Returns with:
+  75:				; A - zero (OK) or SPI error code (SPI_ERR_xxx)
+  76:    0+11	0000' C5      	mcinit          push bc
+  77:   11+11	0001' D5      	                push de
+  78:   22+11	0002' E5      	                push hl
+  79:   33+10	0003' 21A905  	                ld hl, init_msg
+  80:   43+17	0006' CD0000  	                call conwms       ; Print message
+  81:				; Clock speed is limited to 400 KHz in Identification Mode.
+  82:				; At least 74 clocks must be issued (with SS inactive) by the master before any
+  83:				; attempt is made to communicate with the card (reference 1 section 6.4.1.1).
+  84:   60+4	0009' AF      	                xor a                   ; Set slow mode
+  85:   64+17	000A' CD0000  	                call spiini             ; Initialise SPI interface and set speed
+  86:   81+7	000D' 060A    	                ld b, 10                ; 10 bytes generate 80 clocks
+  87:   88+7	000F' 3EFF    	init_clk_loop   ld a, 0xff
+  88:   95+17	0011' CD0000  	                call spitr              ; Send / receive byte
+  89:  112+4	0014' A7      	                and a
+  90:  116+10	0015' C29C02  	                jp nz, init_exit        ; Jump on error
+  91:  126+8+5	0018' 10F5    	                djnz init_clk_loop
+  92:				;
+  93:  134+17	001A' CDD904  	                call select             ; Set slave select
+  94:				; Send a reset command (CMD0)
+  95:  151+14	001D' DD210000	                ld ix, cmd_buff         ; Point to command buffer
+  96:  165+17	0021' CDCA04  	                call clr_cmd_buff       ; Clear command buffer
+  97:  182+19	0024' DD360000	                ld (ix + MMC_CMD), MMC_CMD_GO_IDLE_STATE
+  98:  201+17	0028' CD7B03  	                call command
+  99:  218+4	002B' A7      	                and a
+ 100:  222+10	002C' C29C02  	                jp nz, init_exit        ; Jump on error
+ 101:				;
+ 102:  232+17	002F' CDB203  	                call wait_r1_resp       ; Await R1 response.
+ 103:  249+4	0032' A7      	                and a
+ 104:  253+10	0033' C29C02  	                jp nz, init_exit        ; Jump on error
+ 105:  263+17	0036' CDDF04  	                call deselect           ; Remove slave select
+ 106:  280+4	0039' 79      	                ld a, c
+ 107:  284+7	003A' FE01    	                cp MMC_R1_IDLE_MASK     ; We should have only idle set
+ 108:  291+10	003C' C29A02  	                jp nz, init_fail        ; Initialisation failure if not
+ 109:				;
+ 110:				; The card is continuously polled with the commands CMD55 and ACMD41 until the idle
+ 111:				; bit becomes clear, indicating that the card is fully initialized and ready to
+ 112:				; respond to general commands.
+ 113:  301+7	003F' 0600    	                ld b, 0                 ; Try up to 256 times
+ 114:  308+17	0041' CDD904  	init_acmd41_lp  call select             ; Set slave select
+ 115:  325+19	0044' DD360037	                ld (ix + MMC_CMD), MMC_CMD_APP_CMD   ; ACMD follows
+ 116:  344+17	0048' CD7B03  	                call command
+ 117:  361+4	004B' A7      	                and a
+ 118:  365+10	004C' C29C02  	                jp nz, init_exit        ; Jump on error
+ 119:  375+17	004F' CDB203  	                call wait_r1_resp
+ 120:  392+4	0052' A7      	                and a
+ 121:  396+10	0053' C29C02  	                jp nz, init_exit        ; Jump on error
+ 122:  406+17	0056' CDDF04  	                call deselect           ; Remove slave select
+ 123:				; C - received byte
+ 124:  423+8	0059' CB51    	                bit MMC_R1_ILL_CMD_BIT, c    ; Illegal command
+ 125:  431+7+5	005B' 2032    	                jr nz, init_mmc_init    ; Try alternate init if bad command
+ 126:  438+4	005D' 79      	                ld a, c
+ 127:  442+13	005E' 322E00  	                ld (r1_err_resp), a
+ 128:  455+17	0061' CD0905  	                call mcperr             ; Display any errors
+ 129:  472+4	0064' 79      	                ld a, c
+ 130:				; We may or may not be in the idle state at this point, but any other bits indicate
+ 131:				; an error.
+ 132:  476+7	0065' E6FE    	                and not (MMC_R1_IDLE_MASK)
+ 133:  483+10	0067' C29A02  	                jp nz, init_fail
+ 134:				;
+ 135:  493+17	006A' CDD904  	                call select             ; Set slave select
+ 136:  510+19	006D' DD360029	                ld (ix + MMC_CMD), MMC_ACMD_MC_SEND_OP_COND   ; Send details & init
+ 137:  529+17	0071' CD7B03  	                call command
+ 138:  546+4	0074' A7      	                and a
+ 139:  550+10	0075' C29C02  	                jp nz, init_exit        ; Jump on error
+ 140:  560+17	0078' CDB203  	                call wait_r1_resp       ; Await R1 response.
+ 141:  577+4	007B' A7      	                and a
+ 142:  581+10	007C' C29C02  	                jp nz, init_exit        ; Jump on error
+ 143:				; There is no further response in SPI mode.
+ 144:  591+17	007F' CDDF04  	                call deselect           ; Remove slave select
+ 145:				; C - received byte
+ 146:  608+8	0082' CB51    	                bit MMC_R1_ILL_CMD_BIT, c    ; Illegal command
+ 147:  616+7+5	0084' 2009    	                jr nz, init_mmc_init    ; Try alternate init if bad command
+ 148:  623+4	0086' 79      	                ld a, c
+ 149:  627+4	0087' A7      	                and a
+ 150:  631+7+5	0088' 2828    	                jr z, init_ok_fast      ; OK if response is zero
+ 151:  638+8+5	008A' 10B5    	                djnz init_acmd41_lp
+ 152:				; Too many retries.
+ 153:  646+10	008C' C39A02  	                jp init_fail
+ 154:				;
+ 155:				; Alternate initialisation for use if ACMD_MC_SEND_OP_COND is not recognised. The
+ 156:				; card is continuously polled with the command CMD1 until the idle bit becomes
+ 157:				; clear, indicating that the card is fully initialised.
+ 158:  656+7	008F' 0600    	init_mmc_init   ld b, 0                 ; Try up to 256 times
+ 159:  663+17	0091' CDD904  	init_cmd1_lp    call select             ; Set slave select
+ 160:  680+19	0094' DD360001	                ld (ix + MMC_CMD), MMC_CMD_SEND_OP_COND  ; Send details & init
+ 161:  699+17	0098' CD7B03  	                call command
+ 162:  716+4	009B' A7      	                and a
+ 163:  720+10	009C' C29C02  	                jp nz, init_exit        ; Jump on error
+ 164:  730+17	009F' CDB203  	                call wait_r1_resp       ; Await R1 response.
+ 165:  747+4	00A2' A7      	                and a
+ 166:  751+10	00A3' C29C02  	                jp nz, init_exit        ; Jump on error
+ 167:  761+17	00A6' CDDF04  	                call deselect           ; Remove slave select
+ 168:				; C - received byte
+ 169:  778+4	00A9' 79      	                ld a, c
+ 170:  782+4	00AA' A7      	                and a
+ 171:  786+7+5	00AB' 280A    	                jr z, init_ok_slow      ; OK if response is zero
+ 172:  793+8+5	00AD' 10E2    	                djnz init_cmd1_lp
+ 173:				; Too many retries.
+ 174:  801+10	00AF' C39A02  	                jp init_fail
+ 175:				;
+ 176:				; Card initialisation is complete.
+ 177:				; The maximum clock speed in this state is 20 MHz. Set clock speed to normal
+ 178:				; (CPU clock / 2 = 4 MHz).
+ 179:  811+7	00B2' 3E01    	init_ok_fast    ld a, SPI_CSR_FAST_MASK ; Set fast mode
+ 180:  818+17	00B4' CD0000  	                call spiini             ; Initialise SPI interface and set speed
+ 181:				; Entry point for MMC cards as we need to remain at low clock speed.
+ 182:				; Enable CRC (disabled by default in SPI mode).
+ 183:  835+17	00B7' CDD904  	init_ok_slow    call select             ; Set slave select
+ 184:  852+19	00BA' DD36003B	                ld (ix + MMC_CMD), MMC_CMD_CRC_ON_OFF   ; CMD59 CRC_ON_OFF
+ 185:  871+19	00BE' DD360401	                ld (ix + MMC_ARG4), 1   ; Enable CRC
+ 186:  890+17	00C2' CD7B03  	                call command
+ 187:  907+4	00C5' A7      	                and a
+ 188:  911+10	00C6' C29C02  	                jp nz, init_exit        ; Jump on error
+ 189:  921+17	00C9' CDB203  	                call wait_r1_resp       ; Await R1 response.
+ 190:  938+4	00CC' A7      	                and a
+ 191:  942+10	00CD' C29C02  	                jp nz, init_exit        ; Jump on error
+ 192:  952+17	00D0' CDDF04  	                call deselect           ; Remove slave select
+ 193:				; Check the response itself.
+ 194:  969+4	00D3' 79      	                ld a, c
+ 195:  973+4	00D4' A7      	                and a
+ 196:  977+10	00D5' C29402  	                jp nz, init_bad_r1      ; Initialisation failure if not
+ 197:  987+17	00D8' CDCA04  	                call clr_cmd_buff       ; Clear command buffer (remove arguments)
+ 198:				;
+ 199:				; Read Card Specific Data (CSD)
+ 200: 1004+17	00DB' CDD904  	                call select             ; Set slave select
+ 201: 1021+19	00DE' DD360009	                ld (ix + MMC_CMD), MMC_CMD_SEND_CSD   ; CMD9 Read card specific data (CSD)
+ 202: 1040+17	00E2' CD7B03  	                call command
+ 203: 1057+4	00E5' A7      	                and a
+ 204: 1061+10	00E6' C29C02  	                jp nz, init_exit        ; Jump on error
+ 205: 1071+17	00E9' CDB203  	                call wait_r1_resp       ; Await R1 response.
+ 206: 1088+4	00EC' A7      	                and a
+ 207: 1092+10	00ED' C29C02  	                jp nz, init_exit        ; Jump on error
+ 208:				; Check the response itself.
+ 209: 1102+4	00F0' 79      	                ld a, c
+ 210: 1106+4	00F1' A7      	                and a
+ 211: 1110+10	00F2' C29402  	                jp nz, init_bad_r1      ; Initialisation failure if not
+ 212:				;
+ 213: 1120+10	00F5' 210600  	                ld hl, csd              ; Point to buffer
+ 214: 1130+10	00F8' 011000  	                ld bc, MMC_CSD_SIZE
+ 215: 1140+17	00FB' CDCB03  	                call read_block         ; Read a block of data
+ 216: 1157+4	00FE' A7      	                and a
+ 217: 1161+10	00FF' C29C02  	                jp nz, init_exit        ; Jump on error
+ 218: 1171+17	0102' CDDF04  	                call deselect           ; Remove slave select
+ 219:				; CSD read complete.
+ 220:				;
+ 221:				; Read Card IDentification number
+ 222: 1188+17	0105' CDD904  	                call select             ; Set slave select
+ 223: 1205+19	0108' DD36000A	                ld (ix + MMC_CMD), MMC_CMD_SEND_CID ; CMD10 Read card identification (CID)
+ 224: 1224+17	010C' CD7B03  	                call command
+ 225: 1241+4	010F' A7      	                and a
+ 226: 1245+10	0110' C29C02  	                jp nz, init_exit        ; Jump on error
+ 227: 1255+17	0113' CDB203  	                call wait_r1_resp       ; Await R1 response.
+ 228: 1272+4	0116' A7      	                and a
+ 229: 1276+10	0117' C29C02  	                jp nz, init_exit        ; Jump on error
+ 230:				; Check the response itself.
+ 231: 1286+4	011A' 79      	                ld a, c
+ 232: 1290+4	011B' A7      	                and a
+ 233: 1294+10	011C' C29402  	                jp nz, init_bad_r1      ; Initialisation failure if not
+ 234:				;
+ 235: 1304+10	011F' 211600  	                ld hl, cid              ; Point to buffer
+ 236: 1314+10	0122' 011000  	                ld bc, MMC_CID_SIZE
+ 237: 1324+17	0125' CDCB03  	                call read_block         ; Read a block of data
+ 238: 1341+4	0128' A7      	                and a
+ 239: 1345+10	0129' C29C02  	                jp nz, init_exit        ; Jump on error
+ 240: 1355+17	012C' CDDF04  	                call deselect           ; Remove slave select
+ 241:				;
+ 242:				; Display some of this information.
+ 243: 1372+10	012F' 21C507  	                ld hl, prod_name_msg    ; "Product name: "
+ 244: 1382+17	0132' CD0000  	                call conwms             ; Print message
+ 245: 1399+10	0135' 211900  	                ld hl, cid + MMC_CID_PNM
+ 246: 1409+7	0138' 0606    	                ld b, MMC_CID_PNM_SIZE
+ 247: 1416+7	013A' 7E      	init_prn_loop   ld a, (hl)
+ 248: 1423+7	013B' 0E2E    	                ld c, '.'               ; Substitution character
+ 249: 1430+17	013D' CD0000  	                call cwvich             ; Print visible characters only
+ 250: 1447+6	0140' 23      	                inc hl
+ 251: 1453+8+5	0141' 10F7    	                djnz init_prn_loop
+ 252: 1461+17	0143' CD0000  	                call cwnwln             ; Write new line characters to console
+ 253:				;
+ 254:				; Product serial number.
+ 255: 1478+10	0146' 21D407  	                ld hl, prod_serial_msg  ; "Serial number: "
+ 256: 1488+17	0149' CD0000  	                call conwms             ; Print message
+ 257:				; Display as a 32-bit hexadecimal number, as Linux "disk" does.
+ 258: 1505+10	014C' 212000  	                ld hl, cid + MMC_CID_PSN ; Product serial number
+ 259: 1515+7	014F' 0604    	                ld b, 4
+ 260: 1522+7	0151' 7E      	init_psn_loop   ld a, (hl)
+ 261: 1529+17	0152' CD0000  	                call cwphby             ; Print byte
+ 262: 1546+6	0155' 23      	                inc hl
+ 263: 1552+8+5	0156' 10F9    	                djnz init_psn_loop
+ 264: 1560+17	0158' CD0000  	                call cwnwln             ; Write new line characters to console
+ 265:				;
+ 266:				; Manufacturing date.
+ 267: 1577+10	015B' 21E407  	                ld hl, man_date_msg     ; "Manufactured: "
+ 268: 1587+17	015E' CD0000  	                call conwms             ; Print message
+ 269: 1604+13	0161' 3A2400  	                ld a, (cid + MMC_CID_MDT) ; Fetch manufacturing date byte
+ 270: 1617+4	0164' 4F      	                ld c, a
+ 271:				; Month
+ 272: 1621+4	0165' 0F      	                rrca                    ; Move month to MSN
+ 273: 1625+4	0166' 0F      	                rrca
+ 274: 1629+4	0167' 0F      	                rrca
+ 275: 1633+4	0168' 0F      	                rrca
+ 276: 1637+7	0169' E60F    	                and 0x0f
+ 277:				; Result should be 1 to 12.
+ 278: 1644+7+5	016B' 2808    	                jr z, init_mdt_year     ; Skip month if zero
+ 279: 1651+17	016D' CD0000  	                call cwpdby             ; Print A in decimal
+ 280: 1668+7	0170' 3E2F    	                ld a, '/'
+ 281: 1675+17	0172' CD0000  	                call conwch             ; Print separator
+ 282:				; Year
+ 283: 1692+10	0175' 21CD07  	init_mdt_year   ld hl, 1997             ; Year zero
+ 284: 1702+4	0178' 79      	                ld a, c
+ 285: 1706+7	0179' E60F    	                and 0x0f                ; Isolate year offset
+ 286: 1713+4	017B' 85      	                add a, l
+ 287: 1717+4	017C' 6F      	                ld l, a
+ 288: 1721+4	017D' 7C      	                ld a, h
+ 289: 1725+7	017E' CE00    	                adc 0                   ; Propagate carry
+ 290: 1732+4	0180' 67      	                ld h, a
+ 291: 1736+17	0181' CD0000  	                call cwpdwd             ; Print year in decimal
+ 292: 1753+17	0184' CD0000  	                call cwnwln             ; Write new line characters to console
+ 293:				;
+ 294:				; Calculate overall capacity. This is calculated from C_SIZE, C_SIZE_MULT and
+ 295:				; READ_BL_LEN.
+ 296:				; memory capacity = BLOCKNR * BLOCK_LEN
+ 297:				; BLOCKNR = (C_SIZE + 1) * MULT
+ 298:				; MULT = 2 ^ (C_SIZE_MULT + 2), (C_SIZE_MULT < 8)
+ 299:				; BLOCK_LEN = 2 ^ READ_BL_LEN, (READ_BL_LEN < 12)
+ 300: 1770+14	0187' FD210600	                ld iy, csd
+ 301:				; Read C_SIZE ("device size", bits [73:62]), which inconveniently spans three
+ 302:				; bytes.
+ 303: 1784+19	018B' FD7E06  	                ld a, (iy + MMC_CSD_79_72)    ; Flags and C_SIZE bits 10 and 11
+ 304: 1803+7	018E' E603    	                and 0x03
+ 305: 1810+4	0190' 57      	                ld d, a                 ; Build result in DE
+ 306: 1814+19	0191' FD5E07  	                ld e, (iy + MMC_CSD_71_64)    ; C_SIZE bits 2 to 9
+ 307: 1833+19	0194' FD7E08  	                ld a, (iy + MMC_CSD_63_56)    ; C_SIZE bits 1 to 0
+ 308: 1852+4	0197' 0F      	                rrca                    ; Move C_SIZE bit 1 into carry
+ 309: 1856+4	0198' 0F      	                rrca
+ 310:				; A bit 7 = C_SIZE bit 0
+ 311: 1860+8	0199' CB13    	                rl e                    ; Rotate into DE
+ 312: 1868+8	019B' CB12    	                rl d
+ 313: 1876+4	019D' 07      	                rlca                    ; Move C_SIZE bit 0 into carry
+ 314: 1880+8	019E' CB13    	                rl e                    ; Rotate into DE
+ 315: 1888+8	01A0' CB12    	                rl d
+ 316:				; DE = C_SIZE
+ 317:				; Read C_SIZE_MULT ("device size multiplier", bits [49:47]), which inconveniently
+ 318:				; spans two bytes.
+ 319: 1896+19	01A2' FD7E09  	                ld a, (iy + MMC_CSD_55_48)  ; Currents & C_SIZE_MULT (MS 2 bits)
+ 320: 1915+7	01A5' E603    	                and 0x03
+ 321: 1922+4	01A7' 47      	                ld b, a
+ 322: 1926+19	01A8' FD7E0A  	                ld a, (iy + MMC_CSD_47_40)  ; C_SIZE_MULT (LS bit) and erase size (part)
+ 323: 1945+4	01AB' 07      	                rlca                    ; Move C_SIZE_MULT bit 0 into carry
+ 324: 1949+8	01AC' CB10    	                rl b
+ 325: 1957+4	01AE' 04      	                inc b
+ 326: 1961+4	01AF' 04      	                inc b
+ 327: 1965+6	01B0' 13      	                inc de
+ 328:				; B = C_SIZE_MULT + 2 (4 bits)
+ 329:				; DE = C_SIZE + 1 (13 bits)
+ 330:				; Calculate BLOCKNR = (C_SIZE + 1) * 2 ^ (C_SIZE_MULT+2)
+ 331:				; Another way of saying this is to shift C_SIZE + 1 left (C_SIZE_MULT + 2) times.
+ 332:				; 24 bits is sufficient for BLOCKNR (up to 8 GB with 512-byte blocks).
+ 333: 1971+7	01B1' 2E00    	                ld l, 0                 ; MS 8 bits
+ 334: 1978+8	01B3' CB23    	init_cm_loop    sla e                   ; Shift LDE left
+ 335: 1986+8	01B5' CB12    	                rl d
+ 336: 1994+8	01B7' CB15    	                rl l
+ 337: 2002+10	01B9' DA8802  	                jp c, init_range
+ 338: 2012+8+5	01BC' 10F5    	                djnz init_cm_loop
+ 339: 2020+20	01BE' ED532700	                ld (blknr), de          ; Save BLOCKNR
+ 340: 2040+4	01C2' 7D      	                ld a, l
+ 341: 2044+13	01C3' 322900  	                ld (blknr + 2), a
+ 342:				; LDE = BLOCKNR
+ 343:				; BLOCK_LEN = 2 ^ READ_BL_LEN, (READ_BL_LEN < 12)
+ 344:				; memory capacity = BLOCKNR * BLOCK_LEN
+ 345:				; Another way of saying this is to shift DEHL left READ_BL_LEN times.
+ 346: 2057+19	01C6' FD7E05  	                ld a, (iy + MMC_CSD_87_80)
+ 347: 2076+7	01C9' E60F    	                and 0x0f                ; Isolate READ_BL_LEN
+ 348: 2083+4	01CB' 3C      	                inc a                   ; Allow for initial jump
+ 349: 2087+4	01CC' 47      	                ld b, a
+ 350: 2091+4	01CD' 4F      	                ld c, a                 ; Save for later
+ 351: 2095+7	01CE' 2600    	                ld h, 0                 ; Extend to 32 bits
+ 352: 2102+12	01D0' 180B    	                jr init_calc_blne
+ 353:				; Perform 0 to 15 shifts as required.
+ 354: 2114+8	01D2' CB23    	init_calc_bln   sla e                   ; Shift HLDE left
+ 355: 2122+8	01D4' CB12    	                rl d
+ 356: 2130+8	01D6' CB15    	                rl l
+ 357: 2138+8	01D8' CB14    	                rl h
+ 358: 2146+10	01DA' DA8802  	                jp c, init_range
+ 359: 2156+8+5	01DD' 10F3    	init_calc_blne  djnz init_calc_bln
+ 360:				; HLDE - capacity in bytes
+ 361: 2164+7	01DF' 0614    	                ld b, 20                ; Scale to MB
+ 362: 2171+8	01E1' CB3C    	init_calc_mb    srl h
+ 363: 2179+8	01E3' CB1D    	                rr l
+ 364: 2187+8	01E5' CB1A    	                rr d
+ 365: 2195+8	01E7' CB1B    	                rr e
+ 366: 2203+8+5	01E9' 10F6    	                djnz init_calc_mb
+ 367:				; C - READ_BL_LEN + 1 (for later)
+ 368:				; DE - capacity in MB
+ 369: 2211+10	01EB' 21F307  	                ld hl, capacity_msg     ; "Total capacity: "
+ 370: 2221+17	01EE' CD0000  	                call conwms             ; Print message
+ 371: 2238+4	01F1' EB      	                ex de, hl
+ 372: 2242+17	01F2' CD0000  	                call cwpdwd             ; Print HL in decimal
+ 373: 2259+10	01F5' 210408  	                ld hl, mb_msg           ; " MB"
+ 374: 2269+17	01F8' CD0000  	                call conwms             ; Print message
+ 375:				;
+ 376:				; Find block size in bytes. The data block length is computed as 2 READ_BL_LEN.
+ 377:				; C - READ_BL_LEN + 1
+ 378: 2286+10	01FB' 110100  	                ld de, 1                ; 2 ^ 0
+ 379: 2296+4	01FE' 41      	                ld b, c
+ 380: 2300+12	01FF' 1804    	                jr init_calc_secse
+ 381:				; Perform 0 to 15 shifts as required.
+ 382: 2312+8	0201' CB23    	init_calc_secs  sla e                   ; Shift DE left (multiply by 2)
+ 383: 2320+8	0203' CB12    	                rl d
+ 384: 2328+8+5	0205' 10FA    	init_calc_secse djnz init_calc_secs
+ 385:				; DE - block size in bytes
+ 386: 2336+10	0207' 210A08  	                ld hl, block_size_msg   ; "Block size: "
+ 387: 2346+17	020A' CD0000  	                call conwms             ; Print message
+ 388: 2363+4	020D' EB      	                ex de, hl
+ 389: 2367+17	020E' CD0000  	                call cwpdwd      ; Print size in decimal
+ 390: 2384+10	0211' 211708  	                ld hl, bytes_msg        ; " bytes"
+ 391: 2394+17	0214' CD0000  	                call conwms             ; Print message
+ 392:				;
+ 393:				; Complain if READ_BL_LEN <> WRITE_BL_LEN.
+ 394:				; C - READ_BL_LEN + 1
+ 395: 2411+4	0217' 0D      	                dec c                   ; Remove loop offset
+ 396:				; Read WRITE_BL_LEN ([25:22]).
+ 397: 2415+19	0218' FD460C  	                ld b, (iy + MMC_CSD_31_24)  ; WRITE_BL_LEN bits 3 and 2
+ 398: 2434+19	021B' FD7E0D  	                ld a, (iy + MMC_CSD_23_16)  ; WRITE_BL_LEN bits 1 and 0
+ 399: 2453+4	021E' 07      	                rlca                    ; Move WRITE_BL_LEN bit 1 into carry
+ 400: 2457+8	021F' CB10    	                rl b                    ; Rotate into B
+ 401: 2465+4	0221' 07      	                rlca                    ; Move WRITE_BL_LEN bit 0 into carry
+ 402: 2469+8	0222' CB10    	                rl b                    ; Rotate into B
+ 403:				; B = WRITE_BL_LEN
+ 404:				; C - READ_BL_LEN
+ 405: 2477+4	0224' 78      	                ld a, b
+ 406: 2481+7	0225' E60F    	                and 0x0f                ; Isolate WRITE_BL_LEN bits
+ 407: 2488+13	0227' 322600  	                ld (log2_blk_size), a   ; Save number of shifts
+ 408: 2501+4	022A' B9      	                cp c
+ 409: 2505+7+5	022B' 205F    	                jr nz, init_bad_sec_sz
+ 410:				;
+ 411:				; Find total number of sectors on device. We know the number of blocks (blknr),
+ 412:				; so can scale from this.
+ 413: 2512+13	022D' 3A2600  	                ld a, (log2_blk_size)
+ 414: 2525+7	0230' D609    	                sub MMC_LOG2_SEC_SIZE
+ 415: 2532+10+7	0232' FC0000  	                call m, panic           ; Panic if block < sector
+ 416:				; [log(x/y) = log(x) - log(y)], so we have the (log of the number of sectors per
+ 417:				; block. We can shift blknr accordingly to find the number of sectors.
+ 418: 2542+4	0235' 47      	                ld b, a
+ 419: 2546+4	0236' 04      	                inc b                   ; Allow for initial pass
+ 420: 2550+20	0237' ED5B2700	                ld de, (blknr)
+ 421: 2570+13	023B' 3A2900  	                ld a, (blknr + 2)
+ 422: 2583+4	023E' 6F      	                ld l, a
+ 423:				; B - shifts required + 1
+ 424:				; LDE - BLOCKNR
+ 425: 2587+12	023F' 1809    	                jr init_secs_lpend
+ 426: 2599+8	0241' CB23    	init_secs_loop  sla e                   ; Shift LDE left
+ 427: 2607+8	0243' CB12    	                rl d
+ 428: 2615+8	0245' CB15    	                rl l
+ 429: 2623+10	0247' DA8802  	                jp c, init_range
+ 430: 2633+8+5	024A' 10F5    	init_secs_lpend djnz init_secs_loop
+ 431:				; LDE = sectors
+ 432: 2641+20	024C' ED532A00	                ld (sectors), de        ; Save BLOCKNR
+ 433: 2661+4	0250' 7D      	                ld a, l
+ 434: 2665+13	0251' 322C00  	                ld (sectors + 2), a
+ 435:				;
+ 436:				; Set block length (sector size). This appears to be the default length anyway,
+ 437:				; despite what is reported above. In any case, it is better to be explicit. Values
+ 438:				; larger than 512 seem to cause an argument error. Having a fixed sector size is
+ 439:				; much more convenient for us.
+ 440: 2678+17	0254' CDD904  	                call select             ; Set slave select
+ 441: 2695+19	0257' DD360010	                ld (ix + MMC_CMD), MMC_CMD_SET_BLOCKLEN   ; CMD16 Set block length
+ 442: 2714+19	025B' DD360400	                ld (ix + MMC_ARG4), low (MMC_SECTOR_SIZE)
+ 443: 2733+19	025F' DD360302	                ld (ix + MMC_ARG3), high (MMC_SECTOR_SIZE)
+ 444: 2752+17	0263' CD7B03  	                call command
+ 445: 2769+4	0266' A7      	                and a
+ 446: 2773+10	0267' C29C02  	                jp nz, init_exit        ; Jump on error
+ 447: 2783+17	026A' CDB203  	                call wait_r1_resp       ; Await R1 response.
+ 448: 2800+4	026D' A7      	                and a
+ 449: 2804+10	026E' C29C02  	                jp nz, init_exit        ; Jump on error
+ 450: 2814+17	0271' CDDF04  	                call deselect           ; Remove slave select
+ 451: 2831+4	0274' 79      	                ld a, c
+ 452: 2835+4	0275' A7      	                and a
+ 453: 2839+10	0276' C29402  	                jp nz, init_bad_r1      ; Initialisation failure if not
+ 454: 2849+17	0279' CDCA04  	                call clr_cmd_buff       ; Clear command buffer (remove arguments)
+ 455:				;
+ 456:				; Set memory card state to initialised.
+ 457: 2866+7	027C' 3E01    	                ld a, MMC_STAT_INIT
+ 458: 2873+13	027E' 323000  	                ld (mcstat), a
+ 459:				;
+ 460: 2886+4	0281' AF      	                xor a                   ; Flag success!
+ 461: 2890+12	0282' 1818    	                jr init_exit
+ 462:				
+ 463:				;
+ 464:				; Can't allocate heap space.
+ 465: 2902+7	0284' 3E0A    	init_heap_err   ld a, SPI_ERR_HEAP
+ 466: 2909+12	0286' 1814    	                jr init_exit
+ 467:				;
+ 468:				; Parameter out of range
+ 469: 2921+7	0288' 3E06    	init_range      ld a, SPI_ERR_RANGE
+ 470: 2928+12	028A' 1810    	                jr init_exit
+ 471:				;
+ 472:				; Bad sector size.
+ 473: 2940+7	028C' 3E05    	init_bad_sec_sz ld a, SPI_ERR_BADSEC
+ 474: 2947+12	028E' 180C    	                jr init_exit
+ 475:				;
+ 476:				; Initialisation failures.
+ 477: 2959+7	0290' 3E04    	init_badcrc     ld a, SPI_ERR_BADCRC
+ 478: 2966+12	0292' 1808    	                jr init_exit
+ 479:				;
+ 480:				; Go here with R1 response in A.
+ 481: 2978+13	0294' 322E00  	init_bad_r1     ld (r1_err_resp), a
+ 482: 2991+17	0297' CD0905  	                call mcperr             ; Display any errors
+ 483: 3008+7	029A' 3E03    	init_fail       ld a, SPI_ERR_BADINIT
+ 484:				;
+ 485:				; Exit with error code or zero in A.
+ 486: 3015+11	029C' F5      	init_exit       push af                 ; Save error code
+ 487: 3026+17	029D' CDDF04  	                call deselect           ; Remove slave select
+ 488: 3043+10	02A0' F1      	                pop af
+ 489: 3053+10	02A1' E1      	                pop hl
+ 490: 3063+10	02A2' D1      	                pop de
+ 491: 3073+10	02A3' C1      	                pop bc
+ 492: 3083+10	02A4' C9      	                ret                     ; Return with code in A
+ 493:				;
+ 494:				;
+ 495:				; Read a sector (CMD17 - READ_SINGLE_BLOCK)
+ 496:				; Length is MMC_SECTOR_SIZE bytes
+ 497:				; Call with:
+ 498:				; CDE - sector number (0 to (sectors - 1))
+ 499:				; HL - buffer start address
+ 500:				; Returns with:
+ 501:				; A - zero (OK) or error code (SPI_ERR_xxx)
+ 502:				; HL - updated pointer to buffer (points to location after last written)
+ 503: 3093+11	02A5' C5      	mcrrs           push bc
+ 504: 3104+15	02A6' DDE5    	                push ix
+ 505: 3119+14	02A8' DD210000	                ld ix, cmd_buff         ; Point to command buffer
+ 506: 3133+17	02AC' CDD904  	                call select             ; Set slave select
+ 507:				; CMD17 - READ_SINGLE_BLOCK
+ 508: 3150+19	02AF' DD360011	                ld (ix + MMC_CMD), MMC_CMD_READ_SINGLE_BLOCK
+ 509: 3169+17	02B3' CD4603  	                call set_addr_arg       ; Set start address
+ 510: 3186+17	02B6' CD7B03  	                call command
+ 511: 3203+4	02B9' A7      	                and a
+ 512: 3207+10	02BA' C29C02  	                jp nz, init_exit        ; Jump on error
+ 513: 3217+17	02BD' CDB203  	                call wait_r1_resp       ; Await R1 response.
+ 514: 3234+4	02C0' A7      	                and a
+ 515: 3238+7+5	02C1' 2012    	                jr nz, rrs_exit         ; Jump on error
+ 516:				; Check the response itself.
+ 517: 3245+4	02C3' 79      	                ld a, c
+ 518: 3249+4	02C4' A7      	                and a
+ 519: 3253+10	02C5' C2D002  	                jp nz, rrs_r1_err       ; Jump on error
+ 520: 3263+10	02C8' 010002  	                ld bc, MMC_SECTOR_SIZE
+ 521: 3273+17	02CB' CDCB03  	                call read_block
+ 522: 3290+12	02CE' 1805    	                jr rrs_exit
+ 523:				;
+ 524:				; R1 response contained an error. The saved response can be displayed with mcperr.
+ 525: 3302+13	02D0' 322E00  	rrs_r1_err      ld (r1_err_resp), a     ; Save response
+ 526: 3315+7	02D3' 3E08    	                ld a, SPI_ERR_BAD_R1
+ 527:				;
+ 528:				; Exit with return code in A.
+ 529: 3322+4	02D5' 4F      	rrs_exit        ld c, a                 ; Save return code
+ 530: 3326+17	02D6' CDDF04  	                call deselect           ; Remove slave select
+ 531: 3343+4	02D9' 79      	                ld a, c
+ 532: 3347+14	02DA' DDE1    	                pop ix
+ 533: 3361+10	02DC' C1      	                pop bc
+ 534: 3371+10	02DD' C9      	                ret
+ 535:				;
+ 536:				;
+ 537:				; Write a sector (CMD24 - WRITE_BLOCK)
+ 538:				; Length is defined by CMD16 - SET_BLOCKLEN
+ 539:				; Length is MMC_SECTOR_SIZE bytes
+ 540:				; Call with:
+ 541:				; CDE - sector number (0 to (sectors - 1))
+ 542:				; HL - buffer start address
+ 543:				; Returns with:
+ 544:				; A - zero (OK) or error code (SPI_ERR_xxx)
+ 545: 3381+11	02DE' C5      	mcrws           push bc
+ 546: 3392+15	02DF' DDE5    	                push ix
+ 547: 3407+14	02E1' DD210000	                ld ix, cmd_buff         ; Point to command buffer
+ 548: 3421+17	02E5' CDD904  	                call select             ; Set slave select
+ 549:				; CMD24 - WRITE_BLOCK
+ 550: 3438+19	02E8' DD360018	                ld (ix + MMC_CMD), MMC_CMD_WRITE_BLOCK
+ 551: 3457+17	02EC' CD4603  	                call set_addr_arg       ; Set start address
+ 552: 3474+17	02EF' CD7B03  	                call command
+ 553: 3491+4	02F2' A7      	                and a
+ 554: 3495+7+5	02F3' 2048    	                jr nz, rws_exit         ; Jump on error
+ 555: 3502+17	02F5' CDB203  	                call wait_r1_resp       ; Await R1 response.
+ 556: 3519+4	02F8' A7      	                and a
+ 557: 3523+7+5	02F9' 2042    	                jr nz, rws_exit         ; Jump on error
+ 558:				; Check the response itself.
+ 559: 3530+4	02FB' 79      	                ld a, c
+ 560: 3534+4	02FC' A7      	                and a
+ 561: 3538+7+5	02FD' 2039    	                jr nz, rws_r1_err       ; Jump on error
+ 562: 3545+10	02FF' 010002  	                ld bc, MMC_SECTOR_SIZE
+ 563: 3555+17	0302' CD2304  	                call write_block
+ 564: 3572+4	0305' A7      	                and a
+ 565: 3576+7+5	0306' 2035    	                jr nz, rws_exit         ; Jump on error
+ 566:				;
+ 567:				; Check card status
+ 568: 3583+17	0308' CDCA04  	                call clr_cmd_buff       ; Clear the command buffer
+ 569: 3600+17	030B' CDD904  	                call select             ; Set slave select
+ 570:				; CMD13 - SEND_STATUS
+ 571: 3617+19	030E' DD36000D	                ld (ix + MMC_CMD), MMC_CMD_SEND_STATUS
+ 572: 3636+17	0312' CD7B03  	                call command
+ 573: 3653+4	0315' A7      	                and a
+ 574: 3657+7+5	0316' 2025    	                jr nz, rws_exit         ; Jump on error
+ 575:				; Response is R2. This is R1 followed by one more byte.
+ 576: 3664+17	0318' CDB203  	                call wait_r1_resp       ; Await R1 response.
+ 577: 3681+4	031B' A7      	                and a
+ 578: 3685+7+5	031C' 201F    	                jr nz, rws_exit         ; Jump on error
+ 579: 3692+4	031E' 41      	                ld b, c                 ; Save the response
+ 580:				; Fetch second byte.
+ 581: 3696+7	031F' 3EFF    	                ld a, 0xff
+ 582: 3703+17	0321' CD0000  	                call spitr              ; Send / receive byte
+ 583: 3720+4	0324' A7      	                and a
+ 584: 3724+7+5	0325' 2016    	                jr nz, rws_exit         ; Jump on error
+ 585:				; B - R2 byte 1 (same as R1)
+ 586:				; C - R2 byte 2
+ 587: 3731+4	0327' 78      	                ld a, b
+ 588: 3735+4	0328' A7      	                and a
+ 589: 3739+7+5	0329' 200D    	                jr nz, rws_r1_err       ; Jump on error
+ 590: 3746+4	032B' 79      	                ld a, c
+ 591: 3750+4	032C' A7      	                and a
+ 592: 3754+7+5	032D' 2002    	                jr nz, rws_r2_err       ; Jump on error
+ 593:				; No errors.
+ 594: 3761+12	032F' 180C    	                jr rws_exit
+ 595:				;
+ 596:				; R2 response contained an error. The saved response can be displayed with mcpr2.
+ 597: 3773+13	0331' 322F00  	rws_r2_err      ld (r2_err_resp), a     ; Save response
+ 598: 3786+7	0334' 3E09    	                ld a, SPI_ERR_BAD_R2
+ 599: 3793+12	0336' 1805    	                jr rws_exit
+ 600:				;
+ 601:				; R1 response contained an error. The saved response can be displayed with mcperr.
+ 602: 3805+13	0338' 322E00  	rws_r1_err      ld (r1_err_resp), a     ; Save response
+ 603: 3818+7	033B' 3E08    	                ld a, SPI_ERR_BAD_R1
+ 604:				;
+ 605:				; Exit with return code in A.
+ 606: 3825+4	033D' 4F      	rws_exit        ld c, a                 ; Save return code
+ 607: 3829+17	033E' CDDF04  	                call deselect           ; Remove slave select
+ 608: 3846+4	0341' 79      	                ld a, c
+ 609: 3850+14	0342' DDE1    	                pop ix
+ 610: 3864+10	0344' C1      	                pop bc
+ 611: 3874+10	0345' C9      	                ret
+ 612:				
+ 613:				
+ 614:				; Set address argument ("data address") in command for read or write.
+ 615:				; Call with:
+ 616:				; IX - pointer to command structure (SDC)
+ 617:				; CDE - sector number (0 to (sectors - 1))
+ 618: 3884+11	0346' C5      	set_addr_arg    push bc
+ 619: 3895+11	0347' E5      	                push hl
+ 620:				; Check sector number range. Subtracting "sectors" should cause a carry.
+ 621: 3906+10	0348' 212A00  	                ld hl, sectors
+ 622: 3916+4	034B' 7B      	                ld a, e
+ 623: 3920+7	034C' 96      	                sub (hl)
+ 624: 3927+6	034D' 23      	                inc hl
+ 625: 3933+4	034E' 7A      	                ld a, d
+ 626: 3937+7	034F' 9E      	                sbc (hl)
+ 627: 3944+6	0350' 23      	                inc hl
+ 628: 3950+4	0351' 79      	                ld a, c
+ 629: 3954+7	0352' 9E      	                sbc (hl)
+ 630: 3961+10+7	0353' D40000  	                call nc, panic          ; System panic if out of range
+ 631:				; Prepare HLDE for result.
+ 632: 3971+7	0356' 2600    	                ld h, 0
+ 633: 3978+4	0358' 69      	                ld l, c
+ 634:				; Multiply HLDE by MMC_SECTOR_SIZE, which is the same as shifting left
+ 635:				; MMC_LOG2_SEC_SIZE times.
+ 636: 3982+7	0359' 3E09    	                ld a, MMC_LOG2_SEC_SIZE
+ 637: 3989+4	035B' 47      	                ld b, a
+ 638: 3993+4	035C' 04      	                inc b                   ; Add offset for initial pass
+ 639: 3997+12	035D' 180B    	                jr saa_loop_end
+ 640:				; Perform 0 to 15 shifts as required.
+ 641: 4009+8	035F' CB23    	saa_loop        sla e                   ; Shift HLDE left (multiply by 2)
+ 642: 4017+8	0361' CB12    	                rl d
+ 643: 4025+8	0363' CB15    	                rl l
+ 644: 4033+8	0365' CB14    	                rl h
+ 645: 4041+10+7	0367' DC0000  	                call c, panic           ; System panic on overflow
+ 646: 4051+8+5	036A' 10F3    	saa_loop_end    djnz saa_loop
+ 647: 4059+19	036C' DD7401  	                ld (ix + MMC_ARG1), h
+ 648: 4078+19	036F' DD7502  	                ld (ix + MMC_ARG2), l
+ 649: 4097+19	0372' DD7203  	                ld (ix + MMC_ARG3), d
+ 650: 4116+19	0375' DD7304  	                ld (ix + MMC_ARG4), e
+ 651: 4135+10	0378' E1      	                pop hl
+ 652: 4145+10	0379' C1      	                pop bc
+ 653: 4155+10	037A' C9      	                ret
+ 654:				;
+ 655:				;
+ 656:				; Send a command to the memory card and receive the response. Start and end bits
+ 657:				; plus CRC are inserted before transmission.
+ 658:				; Call with;
+ 659:				; IX - pointer to command structure (SDC)
+ 660:				; Returns with:
+ 661:				; A - zero (OK) or error code (SPI_ERR_xxx)
+ 662:				; IX is preserved by this routine.
+ 663: 4165+11	037B' C5      	command         push bc
+ 664: 4176+11	037C' E5      	                push hl
+ 665:				; Reset error codes.
+ 666: 4187+4	037D' AF      	                xor a
+ 667: 4191+13	037E' 322E00  	                ld (r1_err_resp), a     ; MMC R1 error response
+ 668: 4204+13	0381' 322F00  	                ld (r2_err_resp), a     ; MMC R2 error response
+ 669:				; Insert start bits
+ 670: 4217+7	0384' 3E40    	                ld a, MMC_CMD_START
+ 671: 4224+19	0386' DDB600  	                or (ix + MMC_CMD)
+ 672: 4243+19	0389' DD7700  	                ld (ix + MMC_CMD), a
+ 673:				;
+ 674:				; Send the command and generate CRC. This is required for first command, but
+ 675:				; ignored thereafter unless we explicitly enable it.
+ 676: 4262+7	038C' 0E00    	                ld c, 0                 ; Set initial CRC
+ 677: 4269+7	038E' 0605    	                ld b, MMC_SIZE - 1      ; Set length excluding CRC
+ 678: 4276+15	0390' DDE5    	                push ix
+ 679: 4291+10	0392' E1      	                pop hl
+ 680: 4301+7	0393' 7E      	cmd_byteloop    ld a, (hl)
+ 681: 4308+11	0394' C5      	                push bc                 ; Save length and CRC
+ 682: 4319+17	0395' CD0000  	                call spitr              ; Send / receive byte
+ 683: 4336+10	0398' C1      	                pop bc
+ 684: 4346+4	0399' A7      	                and a
+ 685: 4350+7+5	039A' 2013    	                jr nz, cmd_exit         ; Jump on error
+ 686: 4357+7	039C' 7E      	                ld a, (hl)
+ 687: 4364+17	039D' CD8105  	                call crc7               ; Include in CRC
+ 688: 4381+6	03A0' 23      	                inc hl
+ 689: 4387+8+5	03A1' 10F0    	                djnz cmd_byteloop
+ 690:				;
+ 691: 4395+4	03A3' 79      	                ld a, c
+ 692:				; Insert CRC and end bit.
+ 693: 4399+4	03A4' 37      	                scf                     ; End bit
+ 694: 4403+4	03A5' 17      	                rla                     ; Move CRC to bits 1 to 7
+ 695: 4407+19	03A6' DD7705  	                ld (ix + MMC_CRC), a
+ 696:				; Result should be 0x95 for CMD0
+ 697: 4426+17	03A9' CD0000  	                call spitr              ; Send / receive byte
+ 698: 4443+4	03AC' A7      	                and a
+ 699: 4447+7+5	03AD' 2000    	                jr nz, cmd_exit         ; Jump on error
+ 700:				;
+ 701:				; Exit with error code or zero in A.
+ 702: 4454+10	03AF' E1      	cmd_exit        pop hl
+ 703: 4464+10	03B0' C1      	                pop bc
+ 704: 4474+10	03B1' C9      	                ret
+ 705:				;
+ 706:				;
+ 707:				; Await R1 response.
+ 708:				; Returns with:
+ 709:				; A - zero (OK) or error code (SPI_ERR_xxx)
+ 710:				; C - received byte
+ 711: 4484+11	03B2' D5      	wait_r1_resp    push de
+ 712: 4495+11	03B3' C5      	                push bc
+ 713: 4506+7	03B4' 0600    	                ld b, 0                 ; Crude timeout
+ 714: 4513+7	03B6' 3EFF    	wr1_waitresp    ld a, 0xff
+ 715: 4520+17	03B8' CD0000  	                call spitr              ; Send / receive byte
+ 716: 4537+4	03BB' A7      	                and a
+ 717: 4541+7+5	03BC' 2008    	                jr nz, wr1_exit         ; Jump on error
+ 718: 4548+8	03BE' CB79    	                bit MMC_R1_START_BIT, c
+ 719: 4556+7+5	03C0' 2804    	                jr z, wr1_exit          ; Jump if response received
+ 720: 4563+8+5	03C2' 10F2    	                djnz wr1_waitresp
+ 721:				; No response found - timed out
+ 722: 4571+7	03C4' 3E02    	                ld a, SPI_ERR_NORESP
+ 723:				;
+ 724:				; Exit with error code or zero in A and received byte in C.
+ 725: 4578+4	03C6' 51      	wr1_exit        ld d, c                 ; Save byte
+ 726: 4582+10	03C7' C1      	                pop bc
+ 727: 4592+4	03C8' 4A      	                ld c, d
+ 728: 4596+10	03C9' D1      	                pop de
+ 729: 4606+10	03CA' C9      	                ret                     ; Return with error code in A
+ 730:				;
+ 731:				;
+ 732:				; Receive a block of data from the SD card. This may be a register (e.g. CID) or
+ 733:				; sector data.
+ 734:				; Call with:
+ 735:				; HL - pointer to buffer
+ 736:				; BC - block length
+ 737:				; Returns with:
+ 738:				; A - zero (OK) or error code (SPI_ERR_xxx)
+ 739:				; HL - updated pointer to buffer (points to location after last written)
+ 740: 4616+11	03CB' D5      	read_block      push de
+ 741: 4627+17	03CC' CDA204  	                call wait_strt_token    ; Await start token
+ 742: 4644+4	03CF' A7      	                and a
+ 743: 4648+7+5	03D0' 203F    	                jr nz, rb_exit          ; Jump if no or error token found
+ 744:     -	0001'         	                if hw_crc == 1
+ 745: 4655+4	03D2' AF      	                    xor a
+ 746: 4659+11	03D3' D324    	                    out IOA_CRC_0           ; CRC register (low)
+ 747: 4670+11	03D5' D325    	                    out IOA_CRC_1           ; CRC register (high)
+ 748:				                else
+ 750:				                endif
+ 751:				; This code originally used spitr (io.z80) to transfer bytes, but in this loop
+ 752:				; we can process while the hardware is running by accessing the hardware directly.
+ 753:				; At 400 kHz, each byte transfer takes about 22 µs.
+ 754: 4681+7	03D7' 3EFF    	                ld a, 0xff
+ 755: 4688+11	03D9' D321    	                out IOA_SPI_DATA        ; Start SPI transfer of first byte
+ 756:				;
+ 757:				; Loop for each byte.
+ 758: 4699+17	03DB' CD1304  	rb_read_loop    call spi_busy_wait      ; Wait for transfer to complete
+ 759:				; Fetch and process the received byte.
+ 760: 4716+11	03DE' DB21    	                in IOA_SPI_DATA         ; Read next byte
+ 761: 4727+7	03E0' 77      	                ld (hl), a
+ 762: 4734+7	03E1' 3EFF    	                ld a, 0xff
+ 763: 4741+11	03E3' D321    	                out IOA_SPI_DATA        ; Start transfer of next byte
+ 764:				; Update CRC (in DE or hardware)
+ 765: 4752+7	03E5' 7E      	                ld a, (hl)              ; Recover received byte
+ 766:     -	0001'         	                if hw_crc == 1
+ 767: 4759+11	03E6' D326    	                    out IOA_CRC_DATA    ; Send data to hardware CRC generator
+ 768:				                else
+ 772:				                endif
+ 773: 4770+6	03E8' 23      	                inc hl
+ 774: 4776+6	03E9' 0B      	                dec bc
+ 775: 4782+4	03EA' 78      	                ld a, b
+ 776: 4786+4	03EB' B1      	                or c
+ 777: 4790+7+5	03EC' 20ED    	                jr nz, rb_read_loop
+ 778:				
+ 779:				; Read and check CRC. The tranfer of the first byte has already been started.
+ 780: 4797+17	03EE' CD1304  	                call spi_busy_wait      ; Wait for transfer to complete
+ 781: 4814+11	03F1' DB21    	                in IOA_SPI_DATA         ; Read next byte
+ 782: 4825+4	03F3' 4F      	                ld c, a
+ 783:     -	0001'         	                if hw_crc == 1
+ 784: 4829+11	03F4' DB25    	                    in IOA_CRC_1        ; CRC register (high)
+ 785:				                else
+ 787:				                endif
+ 788: 4840+4	03F6' B9      	                cp c                    ; Compare high byte
+ 789: 4844+7+5	03F7' 2013    	                jr nz, rb_badcrc
+ 790:				; We can use the SPI library here to do the transfer as it has not yet been
+ 791:				; started.
+ 792: 4851+7	03F9' 3EFF    	                ld a, 0xff
+ 793: 4858+17	03FB' CD0000  	                call spitr              ; Send / receive byte
+ 794: 4875+4	03FE' A7      	                and a
+ 795: 4879+7+5	03FF' 2010    	                jr nz, rb_exit          ; Jump on error
+ 796:     -	0001'         	                if hw_crc == 1
+ 797: 4886+11	0401' DB24    	                    in IOA_CRC_0        ; CRC register (low)
+ 798:				                else
+ 800:				                endif
+ 801: 4897+4	0403' B9      	                cp c                    ; Compare low byte
+ 802: 4901+7+5	0404' 2006    	                jr nz, rb_badcrc
+ 803:				; CRC read complete.
+ 804: 4908+17	0406' CDDF04  	                call deselect           ; Remove slave select
+ 805: 4925+4	0409' AF      	                xor a                   ; Flag success
+ 806: 4929+12	040A' 1805    	                jr rb_exit
+ 807:				;
+ 808:				; CRC failed.
+ 809: 4941+17	040C' CDDF04  	rb_badcrc       call deselect           ; Remove slave select
+ 810: 4958+7	040F' 3E04    	                ld a, SPI_ERR_BADCRC
+ 811:				;
+ 812:				; Exit with return code in A.
+ 813: 4965+10	0411' D1      	rb_exit         pop de
+ 814: 4975+10	0412' C9      	                ret
+ 815:				;
+ 816:				;
+ 817:				; Wait for an SPI transfer to complete. The system will panic if the SPI transfer
+ 818:				; times out. This is most unlikey, as we have exercised the interface and it
+ 819:				; doesn't depend on anything external.
+ 820: 4985+11	0413' C5      	spi_busy_wait   push bc
+ 821: 4996+7	0414' 0600    	                ld b, 0                 ; Crude timeout
+ 822:				; Wait for the SPI transfer to complete.
+ 823: 5003+11	0416' DB20    	rb_busywait     in IOA_SPI_CSR
+ 824: 5014+7	0418' E680    	                and SPI_CSR_BUSY_MASK
+ 825: 5021+7+5	041A' 2805    	                jr z, sbw_exit
+ 826: 5028+8+5	041C' 10F8    	                djnz rb_busywait
+ 827:				; Timed out waiting for SPI interface.
+ 828: 5036+17	041E' CD0000  	                call panic              ; System panic if timed out
+ 829:				;
+ 830: 5053+10	0421' C1      	sbw_exit        pop bc
+ 831: 5063+10	0422' C9      	                ret
+ 832:				;
+ 833:				;
+ 834:				; Transmit a block of data to the SD card. This may be a register (e.g. CID) or
+ 835:				; sector data.
+ 836:				; Call with:
+ 837:				; HL - pointer to buffer
+ 838:				; BC - block length
+ 839:				; Returns with:
+ 840:				; A - zero (OK) or error code (SPI_ERR_xxx)
+ 841:				; HL - updated pointer to buffer (points to location after last read)
+ 842: 5073+11	0423' D5      	write_block     push de
+ 843: 5084+11	0424' C5      	                push bc
+ 844:				; Send 8 clocks.
+ 845: 5095+7	0425' 3EFF    	                ld a, 0xff
+ 846: 5102+17	0427' CD0000  	                call spitr              ; Send / receive byte
+ 847: 5119+4	042A' A7      	                and a
+ 848: 5123+7+5	042B' 2072    	                jr nz, wb_exit          ; Jump on error
+ 849:				; Send start token.
+ 850: 5130+7	042D' 3EFE    	                ld a, 0xfe
+ 851: 5137+17	042F' CD0000  	                call spitr              ; Send / receive byte
+ 852: 5154+4	0432' A7      	                and a
+ 853: 5158+7+5	0433' 206A    	                jr nz, wb_exit          ; Jump on error
+ 854:				;
+ 855:				; Send the block.
+ 856:     -	0001'         	                if hw_crc == 1
+ 857: 5165+4	0435' AF      	                    xor a
+ 858: 5169+11	0436' D324    	                    out IOA_CRC_0           ; CRC register (low)
+ 859: 5180+11	0438' D325    	                    out IOA_CRC_1           ; CRC register (high)
+ 860:				                else
+ 862:				                endif
+ 863: 5191+7	043A' 7E      	wb_write_loop   ld a, (hl)              ; Fetch data
+ 864: 5198+4	043B' 4F      	                ld c, a
+ 865:				; Update CRC (in DE)
+ 866:     -	0001'         	                if hw_crc == 1
+ 867: 5202+11	043C' D326    	                    out IOA_CRC_DATA    ; Input data
+ 868:				                else
+ 872:				                endif
+ 873: 5213+4	043E' 79      	                ld a, c                 ; Restore byte
+ 874: 5217+17	043F' CD0000  	                call spitr              ; Send / receive byte
+ 875: 5234+4	0442' A7      	                and a
+ 876: 5238+7+5	0443' 205A    	                jr nz, wb_exit          ; Jump on error
+ 877: 5245+6	0445' 23      	                inc hl
+ 878: 5251+10	0446' C1      	                pop bc
+ 879: 5261+6	0447' 0B      	                dec bc
+ 880: 5267+11	0448' C5      	                push bc
+ 881: 5278+4	0449' 78      	                ld a, b
+ 882: 5282+4	044A' B1      	                or c
+ 883: 5286+7+5	044B' 20ED    	                jr nz, wb_write_loop
+ 884:				; Send CRC
+ 885:     -	0001'         	                if hw_crc == 1
+ 886: 5293+11	044D' DB25    	                    in IOA_CRC_1        ; CRC register (high)
+ 887:				                else
+ 889:				                endif
+ 890: 5304+17	044F' CD0000  	                call spitr              ; Send / receive byte
+ 891: 5321+4	0452' A7      	                and a
+ 892: 5325+7+5	0453' 204A    	                jr nz, wb_exit          ; Jump on error
+ 893:     -	0001'         	                if hw_crc == 1
+ 894: 5332+11	0455' DB24    	                    in IOA_CRC_0        ; CRC register (low)
+ 895:				                else
+ 897:				                endif
+ 898: 5343+17	0457' CD0000  	                call spitr              ; Send / receive byte
+ 899: 5360+4	045A' A7      	                and a
+ 900: 5364+7+5	045B' 2042    	                jr nz, wb_exit          ; Jump on error
+ 901:				;
+ 902:				; Fetch data response.
+ 903: 5371+7	045D' 3EFF    	                ld a, 0xff
+ 904: 5378+17	045F' CD0000  	                call spitr              ; Send / receive byte
+ 905: 5395+4	0462' A7      	                and a
+ 906: 5399+7+5	0463' 203A    	                jr nz, wb_exit          ; Jump on error
+ 907: 5406+4	0465' 79      	                ld a, c
+ 908: 5410+7	0466' E61F    	                and 0x1f
+ 909: 5417+7	0468' FE05    	                cp 00101b
+ 910: 5424+7+5	046A' 280C    	                jr z, wb_data_acc       ; Data accepted
+ 911: 5431+7	046C' FE0B    	                cp 01011b
+ 912: 5438+7+5	046E' 2829    	                jr z, wb_badcrc         ; CRC error
+ 913: 5445+7	0470' FE0D    	                cp 01101b
+ 914: 5452+7+5	0472' 2821    	                jr z, wb_writeerr       ; "Write error"
+ 915: 5459+7	0474' 3E0D    	                ld a, SPI_ERR_UNKN      ; Unknown error
+ 916: 5466+12	0476' 1827    	                jr wb_exit
+ 917:				;
+ 918:				; Wait for write to complete.
+ 919: 5478+10	0478' 011027  	wb_data_acc     ld bc, 10000            ; Crude timeout
+ 920: 5488+7	047B' 3EFF    	wb_busy_loop    ld a, 0xff
+ 921: 5495+17	047D' CD0000  	                call spitr              ; Send / receive byte
+ 922: 5512+4	0480' A7      	                and a
+ 923: 5516+7+5	0481' 201C    	                jr nz, wb_exit          ; Jump on error
+ 924: 5523+4	0483' 79      	                ld a, c
+ 925: 5527+7	0484' FEFF    	                cp 0xff
+ 926: 5534+7+5	0486' 2807    	                jr z, wb_not_busy
+ 927: 5541+6	0488' 0B      	                dec bc
+ 928: 5547+4	0489' 78      	                ld a, b
+ 929: 5551+4	048A' B1      	                or c
+ 930: 5555+7+5	048B' 20EE    	                jr nz, wb_busy_loop
+ 931: 5562+12	048D' 180E    	                jr wb_busy_to
+ 932:				;
+ 933:				; Card has finished.
+ 934: 5574+17	048F' CDDF04  	wb_not_busy     call deselect           ; Remove slave select
+ 935: 5591+4	0492' AF      	                xor a                   ; Flag success
+ 936: 5595+12	0493' 180A    	                jr wb_exit
+ 937:				;
+ 938:				; Write error.
+ 939: 5607+7	0495' 3E0C    	wb_writeerr     ld a, SPI_ERR_WRITE
+ 940: 5614+12	0497' 1806    	                jr wb_exit
+ 941:				; CRC failed.
+ 942: 5626+7	0499' 3E04    	wb_badcrc       ld a, SPI_ERR_BADCRC
+ 943: 5633+12	049B' 1802    	                jr wb_exit
+ 944:				;
+ 945:				; Timed out waiting for the write to complete.
+ 946: 5645+7	049D' 3E0B    	wb_busy_to      ld a, SPI_ERR_TIMEOUT
+ 947:				;
+ 948:				; Exit with return code in A.
+ 949: 5652+10	049F' C1      	wb_exit         pop bc
+ 950: 5662+10	04A0' D1      	                pop de
+ 951: 5672+10	04A1' C9      	                ret
+ 952:				;
+ 953:				;
+ 954:				; Wait for a Single Block Read, Single Block Write and Multiple Block Read start
+ 955:				; token, or a Data Error Token.
+ 956:				; Returns with:
+ 957:				; A - zero (OK) or error code (SPI_ERR_xxx)
+ 958:				; data_err is set to the data error token byte if no data is returned. See
+ 959:				; reference 1 section 7.6.4.
+ 960: 5682+11	04A2' C5      	wait_strt_token push bc
+ 961: 5693+7	04A3' 0600    	                ld b, 0                 ; Retry count
+ 962: 5700+7	04A5' 3EFF    	wst_loop        ld a, 0xff
+ 963: 5707+17	04A7' CD0000  	                call spitr              ; Send / receive byte
+ 964: 5724+4	04AA' A7      	                and a
+ 965: 5728+7+5	04AB' 201B    	                jr nz, wst_exit         ; Jump on error
+ 966: 5735+4	04AD' 79      	                ld a, c
+ 967: 5739+7	04AE' FEFE    	                cp 0xfe
+ 968: 5746+7+5	04B0' 2812    	                jr z, wst_ok            ; Found start block token
+ 969: 5753+7	04B2' E6E0    	                and 0xe0
+ 970: 5760+7+5	04B4' 2806    	                jr z, wst_err_token     ; Found error token
+ 971: 5767+8+5	04B6' 10ED    	                djnz wst_loop
+ 972:				; Too many attempts.
+ 973: 5775+7	04B8' 3E02    	                ld a, SPI_ERR_NORESP
+ 974: 5782+12	04BA' 180C    	                jr wst_exit
+ 975:				;
+ 976:				; Error token found.
+ 977: 5794+4	04BC' 79      	wst_err_token   ld a, c
+ 978: 5798+13	04BD' 322D00  	                ld (data_err), a
+ 979: 5811+7	04C0' 3E07    	                ld a, SPI_ERR_DATAERR
+ 980: 5818+12	04C2' 1804    	                jr wst_exit
+ 981:				
+ 982: 5830+4	04C4' AF      	wst_ok          xor a                   ; Token found
+ 983: 5834+13	04C5' 322D00  	                ld (data_err), a        ; No data error
+ 984:				;
+ 985:				; Exit with return code in A.
+ 986: 5847+10	04C8' C1      	wst_exit        pop bc
+ 987: 5857+10	04C9' C9      	                ret
+ 988:				;
+ 989:				;
+ 990:				; Clear command buffer.
+ 991:				; Call with;
+ 992:				; IX - pointer to command structure (SDC)
+ 993:				; Note - IX is preserved
+ 994: 5867+11	04CA' C5      	clr_cmd_buff    push bc
+ 995: 5878+11	04CB' E5      	                push hl
+ 996: 5889+15	04CC' DDE5    	                push ix                 ; Move IX to HL
+ 997: 5904+10	04CE' E1      	                pop hl
+ 998: 5914+7	04CF' 0606    	                ld b, MMC_SIZE
+ 999: 5921+4	04D1' AF      	                xor a
+1000:				; HL - buffer pointer
+1001:				; B - loop counter
+1002: 5925+7	04D2' 77      	ccb_loop        ld (hl), a
+1003: 5932+6	04D3' 23      	                inc hl
+1004: 5938+8+5	04D4' 10FC    	                djnz ccb_loop
+1005: 5946+10	04D6' E1      	                pop hl
+1006: 5956+10	04D7' C1      	                pop bc
+1007: 5966+10	04D8' C9      	                ret
+1008:				;
+1009:				;
+1010:				; Assert SPI slave select (card CS).
+1011: 5976+7	04D9' 3E02    	select          ld a, SPI_CSR_MC_SS_MASK    ; Set slave select
+1012: 5983+17	04DB' CD0000  	                call spiss              ; Set SPI slave select(s)
+1013: 6000+10	04DE' C9      	                ret
+1014:				;
+1015:				;
+1016:				; Remove SPI slave select (card CS).
+1017: 6010+4	04DF' AF      	deselect        xor a                   ; Remove slave select
+1018: 6014+17	04E0' CD0000  	                call spiss              ; Set SPI slave select(s)
+1019:				; Send some clocks. Failure to do this seems to lead to byte misalignment between
+1020:				; the card and us.
+1021: 6031+11	04E3' C5      	                push bc
+1022: 6042+7	04E4' 3EFF    	                ld a, 0xff
+1023: 6049+17	04E6' CD0000  	                call spitr              ; Send / receive byte (generate some clocks)
+1024: 6066+10	04E9' C1      	                pop bc
+1025: 6076+10	04EA' C9      	                ret
+1026:				;
+1027:				;
+1028:				; Print memory card error text, or nothing if no error (A = 0)
+1029:				; Call with:
+1030:				; A - zero (OK) or SPI error code (SPI_ERR_xxx)
+1031: 6086+4	04EB' A7      	mcprer          and a
+1032: 6090+5+6	04EC' C8      	                ret z                   ; Return if no error
+1033: 6095+11	04ED' C5      	                push bc
+1034: 6106+11	04EE' E5      	                push hl
+1035: 6117+11	04EF' F5      	                push af
+1036: 6128+10	04F0' 21C405  	                ld hl, err_pre_msg
+1037: 6138+17	04F3' CD0000  	                call conwms             ; Print "*** MMC error: " message
+1038: 6155+10	04F6' 21D405  	                ld hl, err_msgs
+1039: 6165+10	04F9' F1      	                pop af
+1040: 6175+4	04FA' 3D      	                dec a                   ; Errors start from 1
+1041: 6179+7	04FB' 0E7C    	                ld c, "|"               ; Separator
+1042: 6186+17	04FD' CD0000  	                call conwmn             ; Print message <n> in a list
+1043: 6203+10	0500' 21B206  	                ld hl, err_post_msg
+1044: 6213+17	0503' CD0000  	                call conwms             ; Print " *** " message
+1045: 6230+10	0506' E1      	                pop hl
+1046: 6240+10	0507' C1      	                pop bc
+1047: 6250+10	0508' C9      	                ret
+1048:				;
+1049:				;
+1050:				; Print R1 / R2 response error bits stored in r1_err_resp and r2_err_resp. Nothing
+1051:				; is printed if there are no errors. The idle and start bits are ignored, as they
+1052:				; are not errors.
+1053: 6260+11	0509' C5      	mcperr          push bc
+1054: 6271+11	050A' D5      	                push de
+1055: 6282+11	050B' E5      	                push hl
+1056:				;
+1057:				; Display any R1 errors.
+1058: 6293+13	050C' 3A2E00  	                ld a, (r1_err_resp)
+1059:				; Discard non-error bits
+1060: 6306+7	050F' E67E    	                and low not (MMC_R1_START_MASK + MMC_R1_IDLE_MASK)
+1061: 6313+7+5	0511' 2832    	                jr z, pr1_done          ; Jump if nothing to report
+1062: 6320+4	0513' 4F      	                ld c, a
+1063: 6324+10	0514' 21B906  	                ld hl, r1_err_pre_msg
+1064: 6334+17	0517' CD0000  	                call conwms             ; Print "*** MMC R1 errors: " message
+1065: 6351+7	051A' 1600    	                ld d, 0
+1066: 6358+7	051C' 0606    	                ld b, 6
+1067:				; B - loop counter
+1068:				; C - R1 bits
+1069:				; D - report count
+1070:				; Loop for each error bit, writing the corresponding message if appropriate.
+1071: 6365+8	051E' CB11    	pr1_loop        rl c
+1072: 6373+8	0520' CB79    	                bit 7, c
+1073: 6381+7+5	0522' 2819    	                jr z, pr1_nomsg
+1074:				; Print a separator if not the first report
+1075: 6388+4	0524' 7A      	                ld a, d
+1076: 6392+4	0525' A7      	                and a
+1077: 6396+7+5	0526' 2808    	                jr z, pr1_sep_done
+1078: 6403+7	0528' 3E2C    	                ld a, ','
+1079: 6410+17	052A' CD0000  	                call conwch             ; Print separator 
+1080: 6427+17	052D' CD0000  	                call cwpspc             ; Print a space
+1081: 6444+10	0530' 21CD06  	pr1_sep_done    ld hl, r1_err_msgs
+1082: 6454+4	0533' 78      	                ld a, b
+1083: 6458+4	0534' 3D      	                dec a                   ; Adjust counter to range 5 to 0
+1084: 6462+11	0535' C5      	                push bc
+1085: 6473+7	0536' 0E7C    	                ld c, "|"               ; Separator
+1086: 6480+17	0538' CD0000  	                call conwmn             ; Print message <n> in a list
+1087: 6497+10	053B' C1      	                pop bc
+1088: 6507+4	053C' 14      	                inc d                   ; Count reports
+1089: 6511+8+5	053D' 10DF    	pr1_nomsg       djnz pr1_loop
+1090: 6519+10	053F' 21B206  	                ld hl, err_post_msg
+1091: 6529+17	0542' CD0000  	                call conwms             ; Print " *** " message
+1092:				;
+1093:				; Now for the R2 bits.
+1094: 6546+13	0545' 3A2F00  	pr1_done        ld a, (r2_err_resp)
+1095: 6559+4	0548' A7      	                and a
+1096: 6563+7+5	0549' 2832    	                jr z, pr2_done          ; Jump if nothing to report
+1097: 6570+4	054B' 4F      	                ld c, a
+1098: 6574+10	054C' 212807  	                ld hl, r2_err_pre_msg
+1099: 6584+17	054F' CD0000  	                call conwms             ; Print "*** MMC R2 errors: " message
+1100: 6601+7	0552' 1600    	                ld d, 0
+1101: 6608+7	0554' 0608    	                ld b, 8
+1102:				; B - loop counter
+1103:				; C - R1 bits
+1104:				; D - report count
+1105:				; Loop for each error bit, writing the corresponding message if appropriate.
+1106: 6615+8	0556' CB79    	pr2_loop        bit 7, c
+1107: 6623+7+5	0558' 2819    	                jr z, pr2_nomsg
+1108:				; Print a separator if not the first report
+1109: 6630+4	055A' 7A      	                ld a, d
+1110: 6634+4	055B' A7      	                and a
+1111: 6638+7+5	055C' 2808    	                jr z, pr2_sep_done
+1112: 6645+7	055E' 3E2C    	                ld a, ','
+1113: 6652+17	0560' CD0000  	                call conwch             ; Print separator 
+1114: 6669+17	0563' CD0000  	                call cwpspc             ; Print a space
+1115: 6686+10	0566' 213C07  	pr2_sep_done    ld hl, r2_err_msgs
+1116: 6696+4	0569' 78      	                ld a, b
+1117: 6700+4	056A' 3D      	                dec a                   ; Adjust counter to range 7 to 0
+1118: 6704+11	056B' C5      	                push bc
+1119: 6715+7	056C' 0E7C    	                ld c, "|"               ; Separator
+1120: 6722+17	056E' CD0000  	                call conwmn             ; Print message <n> in a list
+1121: 6739+10	0571' C1      	                pop bc
+1122: 6749+4	0572' 14      	                inc d                   ; Count reports
+1123: 6753+8	0573' CB11    	pr2_nomsg       rl c
+1124: 6761+8+5	0575' 10DF    	                djnz pr2_loop
+1125: 6769+10	0577' 21B206  	                ld hl, err_post_msg
+1126: 6779+17	057A' CD0000  	                call conwms             ; Print " *** " message
+1127:				;
+1128: 6796+10	057D' E1      	pr2_done        pop hl
+1129: 6806+10	057E' D1      	                pop de
+1130: 6816+10	057F' C1      	                pop bc
+1131: 6826+10	0580' C9      	                ret
+1132:				;
+1133:				;
+1134:				; Update CRC according to the MultiMediaCard CRC7 algorithm (reference 1 section
+1135:				; 8.2). This is unlikely to find other uses, so is included in this code rather
+1136:				; than in utilities.
+1137:				; Call with:
+1138:				; A - byte to be included
+1139:				; C - CRC
+1140:				; Returns with:
+1141:				; C - updated CRC
+1142: 6836+11	0581' C5      	crc7            push bc
+1143: 6847+11	0582' D5      	                push de
+1144: 6858+4	0583' 57      	                ld d, a
+1145: 6862+7	0584' 0608    	                ld b, 8                 ; Bit count
+1146:				; B - bit count
+1147:				; C - CRC
+1148:				; D - data to include
+1149: 6869+8	0586' CB02    	c7_bit_loop     rlc d                   ; Rotate next bit to bit 0
+1150: 6877+4	0588' 79      	                ld a, c
+1151: 6881+4	0589' 07      	                rlca
+1152: 6885+4	058A' 07      	                rlca
+1153:				; CRC bit 6 is now in bit 0
+1154: 6889+4	058B' AA      	                xor d
+1155: 6893+4	058C' 5F      	                ld e, a
+1156:				; E bit 0 = <CRC bit 6> xor <new bit> = <new CRC bit 0>
+1157: 6897+4	058D' 79      	                ld a, c
+1158: 6901+4	058E' 0F      	                rrca
+1159: 6905+4	058F' 0F      	                rrca
+1160:				; CRC bit 2 is now in bit 0
+1161: 6909+4	0590' AB      	                xor e
+1162:				; Bit 0 = <CRC bit 6> xor <new bit> xor <CRC bit 2> = <new CRC bit 3>
+1163: 6913+11	0591' F5      	                push af
+1164: 6924+4	0592' 7B      	                ld a, e
+1165: 6928+4	0593' 0F      	                rrca                    ; Rotate new bit into carry
+1166: 6932+8	0594' CB11    	                rl c                    ; Rotate into CRC
+1167:				; We need to replace CRC bit 3 with the newly calculated bit.
+1168: 6940+4	0596' 79      	                ld a, c
+1169: 6944+7	0597' E677    	                and 0x77                ; Reset bits 3 and 7
+1170: 6951+4	0599' 4F      	                ld c, a
+1171: 6955+10	059A' F1      	                pop af                  ; Restore new bit 3
+1172: 6965+4	059B' 07      	                rlca
+1173: 6969+4	059C' 07      	                rlca
+1174: 6973+4	059D' 07      	                rlca
+1175: 6977+7	059E' E608    	                and 0x08                ; Isolate bit 3
+1176: 6984+4	05A0' B1      	                or c
+1177: 6988+4	05A1' 4F      	                ld c, a
+1178:				; Bit processing complete.
+1179: 6992+8+5	05A2' 10E2    	                djnz c7_bit_loop
+1180: 7000+4	05A4' 79      	                ld a, c
+1181: 7004+10	05A5' D1      	                pop de
+1182: 7014+10	05A6' C1      	                pop bc
+1183: 7024+4	05A7' 4F      	                ld c, a
+1184: 7028+10	05A8' C9      	                ret
+1185:				;
+1186:				;
+1187:				;
+1188:				; *************
+1189:				; * Constants *
+1190:				; *************
+1191:				;
+1192:     -	05A9' 496E6974	init_msg        byte "Initialising memory card", 0x0d, 0x0a, 0
+	              69616C69
+	              73696E67
+	              206D656D
+	              6F727920
+	              63617264
+	              0D0A00
+1193:     -	05C4' 2A2A2A20	err_pre_msg     byte "*** MMC error: ", 0
+	              4D4D4320
+	              6572726F
+	              723A2000
+1194:     -	05D4' 53504920	err_msgs        byte "SPI busy|no response from MMC|initialisation failure|"
+	              62757379
+	              7C6E6F20
+	              72657370
+	              6F6E7365
+	              2066726F
+	              6D204D4D
+	              437C696E
+	              69746961
+	              6C697361
+	              74696F6E
+	              20666169
+	              6C757265
+	              7C
+1195:     -	0609' 43524320	                byte "CRC error|Bad sector size|Parameter out of range|"
+	              6572726F
+	              727C4261
+	              64207365
+	              63746F72
+	              2073697A
+	              657C5061
+	              72616D65
+	              74657220
+	              6F757420
+	              6F662072
+	              616E6765
+	              7C
+1196:     -	063A' 44617461	                byte "Data error|Card error in R1 response|Card error in R2 response|"
+	              20657272
+	              6F727C43
+	              61726420
+	              6572726F
+	              7220696E
+	              20523120
+	              72657370
+	              6F6E7365
+	              7C436172
+	              64206572
+	              726F7220
+	              696E2052
+	              32207265
+	              73706F6E
+	              73657C
+1197:     -	0679' 4F757420	                byte "Out of heap space|Busy timeout|Write error|Unknown error", 0
+	              6F662068
+	              65617020
+	              73706163
+	              657C4275
+	              73792074
+	              696D656F
+	              75747C57
+	              72697465
+	              20657272
+	              6F727C55
+	              6E6B6E6F
+	              776E2065
+	              72726F72
+	              00
+1198:     -	06B2' 202A2A2A	err_post_msg    byte " ***", 0x0d, 0x0a, 0
+	              0D0A00
+1199:     -	06B9' 2A2A2A20	r1_err_pre_msg  byte "*** MMC R1 errors: ", 0
+	              4D4D4320
+	              52312065
+	              72726F72
+	              733A2000
+1200:     -	06CD' 65726173	r1_err_msgs     byte "erase reset|illegal command|bad command CRC|"
+	              65207265
+	              7365747C
+	              696C6C65
+	              67616C20
+	              636F6D6D
+	              616E647C
+	              62616420
+	              636F6D6D
+	              616E6420
+	              4352437C
+1201:     -	06F9' 65726173	                byte "erase sequence error|bad address|bad parameter", 0
+	              65207365
+	              7175656E
+	              63652065
+	              72726F72
+	              7C626164
+	              20616464
+	              72657373
+	              7C626164
+	              20706172
+	              616D6574
+	              657200
+1202:     -	0728' 2A2A2A20	r2_err_pre_msg  byte "*** MMC R2 errors: ", 0
+	              4D4D4320
+	              52322065
+	              72726F72
+	              733A2000
+1203:     -	073C' 63617264	r2_err_msgs     byte "card locked|erase skip or lock/unlock cmd failed|"
+	              206C6F63
+	              6B65647C
+	              65726173
+	              6520736B
+	              6970206F
+	              72206C6F
+	              636B2F75
+	              6E6C6F63
+	              6B20636D
+	              64206661
+	              696C6564
+	              7C
+1204:     -	076D' 67656E65	                byte "general error|CC error|ECC failed|WP violation|erase param"
+	              72616C20
+	              6572726F
+	              727C4343
+	              20657272
+	              6F727C45
+	              43432066
+	              61696C65
+	              647C5750
+	              2076696F
+	              6C617469
+	              6F6E7C65
+	              72617365
+	              20706172
+	              616D
+1205:     -	07A7' 6F757420	                byte "out of range or csd_overwrite", 0
+	              6F662072
+	              616E6765
+	              206F7220
+	              6373645F
+	              6F766572
+	              77726974
+	              6500
+1206:     -	07C5' 50726F64	prod_name_msg   byte "Product name: ", 0
+	              75637420
+	              6E616D65
+	              3A2000
+1207:     -	07D4' 53657269	prod_serial_msg byte "Serial number: ", 0
+	              616C206E
+	              756D6265
+	              723A2000
+1208:     -	07E4' 4D616E75	man_date_msg    byte "Manufactured: ", 0
+	              66616374
+	              75726564
+	              3A2000
+1209:     -	07F3' 546F7461	capacity_msg    byte "Total capacity: ", 0
+	              6C206361
+	              70616369
+	              74793A20
+	              00
+1210:     -	0804' 204D420D	mb_msg          byte " MB", 0x0d, 0x0a, 0
+	              0A00
+1211:     -	080A' 426C6F63	block_size_msg  byte "Block size: ", 0
+	              6B207369
+	              7A653A20
+	              00
+1212:     -	0817' 20627974	bytes_msg       byte " bytes", 0x0d, 0x0a, 0
+	              65730D0A
+	              00
+1213:				;
+1214:				;
+1215:				;
+1216:				; *************
+1217:				; * Variables *
+1218:				; *************
+1219:				;
+1220:				;
+1221:				; Note: linker "-c" option is used, so no data is initialised here.
+1222:				                dseg                ; Data segment
+1223:				;
+1224:     -	0000"         	cmd_buff        defs MMC_SIZE       ; Command buffer
+1225:     -	0006"         	csd             defs MMC_CSD_SIZE   ; Card-Specific Data (CSD) register buffer
+1226:     -	0016"         	cid             defs MMC_CID_SIZE   ; Card IDentification (CID) register buffer
+1227:     -	0026"         	log2_blk_size   defs 1              ; AKA READ_BL_LEN and WRITE_BL_LEN
+1228:     -	0027"         	blknr           defs 3              ; Number of blocks (BLOCKNR)
+1229:     -	002A"         	sectors         defs 3              ; Number of sectors
+1230:     -	002D"         	data_err        defs 1              ; Value returned by data error token
+1231:     -	002E"         	r1_err_resp     defs 1              ; MMC R1 error response
+1232:     -	002F"         	r2_err_resp     defs 1              ; MMC R2 error response
+1233:     -	0030"         	mcstat          defs 1              ; Card state (MMC_STAT_xxx)
+1234:     -	0031"         	sec_buffer      defs MMC_SECTOR_SIZE ; Sector buffer
+1235:				;
+1236:     -	0231"         	                end
+
+
+
+Statistics:
+
+     4	passes
+     0	jr promotions
+   455	symbols
+  2080	bytes
+
+   188	macro calls
+  1320	macro bytes
+     0	invented symbols
+
+
+
+Symbol Table:
+
+ASCII_BS       =08        8
+ASCII_CR       =0D        13
+ASCII_DEL      =7F        127
+ASCII_ENQ      =05        5
+ASCII_ESC      =1B        27
+ASCII_FF       =0C        12
+ASCII_HT       =09        9
+ASCII_LF       =0A        10
+ASCII_RS       =1E        30
+ASCII_SUB      =1A        26
+ASCII_SYN      =16        22
+ASCII_VT       =0B        11
+I2C_CSR_ACKN_BIT=00        0
+I2C_CSR_ACKN_MASK=01        1
+I2C_CSR_BUSY_BIT=07        7
+I2C_CSR_BUSY_MASK=80        128
+I2C_CSR_START_BIT=01        1
+I2C_CSR_START_MASK=02        2
+I2C_CSR_STOP_BIT=02        2
+I2C_CSR_STOP_MASK=04        4
+INTS_NUM       =08        8
+INT_SER1_RX_BIT=01        1
+INT_SER1_RX_MASK=02        2
+INT_SER1_RX_VEC=01        1
+INT_SER1_TX_BIT=00        0
+INT_SER1_TX_MASK=01        1
+INT_SER1_TX_VEC=00        0
+INT_SER2_RX_BIT=03        3
+INT_SER2_RX_MASK=08        8
+INT_SER2_RX_VEC=03        3
+INT_SER2_TX_BIT=02        2
+INT_SER2_TX_MASK=04        4
+INT_SER2_TX_VEC=02        2
+INT_TICK_BIT   =04        4
+INT_TICK_MASK  =10        16
+INT_TICK_VEC   =04        4
+IOA_CONTROL    =02        2
+IOA_CRC_0      =24        36
+IOA_CRC_1      =25        37
+IOA_CRC_DATA   =26        38
+IOA_FPGA_MAJREV=00        0
+IOA_FPGA_MINREV=01        1
+IOA_FP_SW      =03        3
+IOA_I2C_CSR    =18        24
+IOA_I2C_DATA   =19        25
+IOA_INT_EN     =08        8
+IOA_INT_PEND   =0A        10
+IOA_MMAP_0     =04        4
+IOA_MMAP_1     =05        5
+IOA_MMAP_2     =06        6
+IOA_MMAP_3     =07        7
+IOA_NMI_REASONS=0C        12
+IOA_SER1_CSR   =10        16
+IOA_SER1_DATA  =11        17
+IOA_SER2_CSR   =12        18
+IOA_SER2_DATA  =13        19
+IOA_SPI_CSR    =20        32
+IOA_SPI_DATA   =21        33
+MCALL_CACRS    =E4        228
+MCALL_CACWS    =E7        231
+MCALL_CAFLUS   =EA        234
+MCALL_CONRCH   =72        114
+MCALL_CONSTA   =75        117
+MCALL_CONWCH   =6F        111
+MCALL_CONWMN   =90        144
+MCALL_CONWMS   =8D        141
+MCALL_CRC16X   =CF        207
+MCALL_CWNWLN   =8A        138
+MCALL_CWPDBY   =AE        174
+MCALL_CWPDLO   =B4        180
+MCALL_CWPDWD   =B1        177
+MCALL_CWPHBY   =A8        168
+MCALL_CWPHNB   =A5        165
+MCALL_CWPHWD   =AB        171
+MCALL_CWPSPC   =9F        159
+MCALL_CWPTM    =DE        222
+MCALL_CWVICH   =9C        156
+MCALL_JPTBL_NEXT=F6        246
+MCALL_MADBBU   =C6        198
+MCALL_MADLBU   =C0        192
+MCALL_MADWBU   =C3        195
+MCALL_MAMLBU   =CC        204
+MCALL_MAMWWU   =C9        201
+MCALL_MCPRER   =E1        225
+MCALL_MON_ENTRY=69        105
+MCALL_MPALL    =ED        237
+MCALL_MPFREE   =F0        240
+MCALL_MPSTAT   =F3        243
+MCALL_MTWDLI   =A2        162
+MCALL_PANIC    =6C        108
+MCALL_RDDULO   =BD        189
+MCALL_RDDUWD   =BA        186
+MCALL_RDHXWD   =B7        183
+MCALL_S1RCH    =7B        123
+MCALL_S1STA    =7E        126
+MCALL_S1WCH    =78        120
+MCALL_S2RCH    =84        132
+MCALL_S2STA    =87        135
+MCALL_S2WCH    =81        129
+MCALL_SKPSPC   =93        147
+MCALL_TIITOS   =D8        216
+MCALL_TIRD     =D2        210
+MCALL_TISTOI   =DB        219
+MCALL_TIWR     =D5        213
+MCALL_TOLOCA   =99        153
+MCALL_TOUPCA   =96        150
+MC_STATES      =02        2
+MMAP_PAGE_MASK =3F        63
+MMAP_PROT_BIT  =07        7
+MMAP_PROT_MASK =80        128
+MMAP_SUPER_BIT =06        6
+MMAP_SUPER_MASK=40        64
+MMC_ACMD_MC_SEND_OP_COND=29        41
+MMC_ARG1       =01        1
+MMC_ARG2       =02        2
+MMC_ARG3       =03        3
+MMC_ARG4       =04        4
+MMC_CID_CRC    =0F        15
+MMC_CID_MDT    =0E        14
+MMC_CID_MID    =00        0
+MMC_CID_OID    =01        1
+MMC_CID_PNM    =03        3
+MMC_CID_PNM_SIZE=06        6
+MMC_CID_PRV    =09        9
+MMC_CID_PSN    =0A        10
+MMC_CID_SIZE   =10        16
+MMC_CMD        =00        0
+MMC_CMD_APP_CMD=37        55
+MMC_CMD_CRC_ON_OFF=3B        59
+MMC_CMD_GO_IDLE_STATE=00        0
+MMC_CMD_READ_SINGLE_BLOCK=11        17
+MMC_CMD_SEND_CID=0A        10
+MMC_CMD_SEND_CSD=09        9
+MMC_CMD_SEND_OP_COND=01        1
+MMC_CMD_SEND_STATUS=0D        13
+MMC_CMD_SET_BLOCKLEN=10        16
+MMC_CMD_START  =40        64
+MMC_CMD_STOP   =01        1
+MMC_CMD_WRITE_BLOCK=18        24
+MMC_CRC        =05        5
+MMC_CSD_15_8   =0E        14
+MMC_CSD_23_16  =0D        13
+MMC_CSD_31_24  =0C        12
+MMC_CSD_39_32  =0B        11
+MMC_CSD_47_40  =0A        10
+MMC_CSD_55_48  =09        9
+MMC_CSD_63_56  =08        8
+MMC_CSD_71_64  =07        7
+MMC_CSD_79_72  =06        6
+MMC_CSD_87_80  =05        5
+MMC_CSD_95_88  =04        4
+MMC_CSD_CRC    =0F        15
+MMC_CSD_NSAC   =02        2
+MMC_CSD_SIZE   =10        16
+MMC_CSD_TAAC   =01        1
+MMC_CSD_TR_SPD =03        3
+MMC_CSD_VERSION=00        0
+MMC_LOG2_SEC_SIZE=09        9
+MMC_R1_ADDR_ERR_BIT=05        5
+MMC_R1_ADDR_ERR_MASK=20        32
+MMC_R1_CMD_CRC_ERR_BIT=03        3
+MMC_R1_CMD_CRC_ERR_MASK=08        8
+MMC_R1_ERA_RST_BIT=01        1
+MMC_R1_ERA_RST_MASK=02        2
+MMC_R1_ERA_SEQ_ERR_BIT=04        4
+MMC_R1_ERA_SEQ_ERR_MASK=10        16
+MMC_R1_IDLE_BIT=00        0
+MMC_R1_IDLE_MASK=01        1
+MMC_R1_ILL_CMD_BIT=02        2
+MMC_R1_ILL_CMD_MASK=04        4
+MMC_R1_PAR_ERR_BIT=06        6
+MMC_R1_PAR_ERR_MASK=40        64
+MMC_R1_START_BIT=07        7
+MMC_R1_START_MASK=80        128
+MMC_SECTOR_SIZE= 200      512
+MMC_SIZE       =06        6
+MMC_STAT_IDLE  =00        0
+MMC_STAT_INIT  =01        1
+MST_AF         =1C        28
+MST_AF_P       =14        20
+MST_BC         =1A        26
+MST_BC_P       =12        18
+MST_DE         =18        24
+MST_DE_P       =10        16
+MST_HL         =16        22
+MST_HL_P       =0E        14
+MST_I          =1E        30
+MST_IEN        =00        0
+MST_IX         =0C        12
+MST_IY         =0A        10
+MST_MMAP0      =02        2
+MST_MMAP1      =03        3
+MST_MMAP2      =04        4
+MST_MMAP3      =05        5
+MST_MMAP_EN    =01        1
+MST_PC         =08        8
+MST_R          =1F        31
+MST_SIZE       =20        32
+MST_SP         =06        6
+MS_PER_TICK    =64        100
+MTWDLI_ABBREV_BIT=00        0
+MTWDLI_ABBREV_MASK=01        1
+MTWDLI_ICASE_BIT=01        1
+MTWDLI_ICASE_MASK=02        2
+MTWDLI_TERM_BIT=07        7
+MTWDLI_TERM_MASK=80        128
+NMI_PROT_VIOL_BIT=01        1
+NMI_PROT_VIOL_MASK=02        2
+NMI_REASONS_ALL=0F        15
+NMI_REASONS_NUM=04        4
+NMI_SUPER_VIOL_BIT=02        2
+NMI_SUPER_VIOL_MASK=04        4
+NMI_SWITCH_BIT =00        0
+NMI_SWITCH_MASK=01        1
+NMI_TRACE_BIT  =03        3
+NMI_TRACE_MASK =08        8
+PORT_SER1      =00        0
+PORT_SER2      =01        1
+PORT_STATES    =02        2
+SER_CSR_FRAME_ERR_BIT=03        3
+SER_CSR_FRAME_ERR_MASK=08        8
+SER_CSR_RX_ALHALF_BIT=01        1
+SER_CSR_RX_ALHALF_MASK=02        2
+SER_CSR_RX_EMPTY_BIT=00        0
+SER_CSR_RX_EMPTY_MASK=01        1
+SER_CSR_RX_FULL_BIT=02        2
+SER_CSR_RX_FULL_MASK=04        4
+SER_CSR_TX_ALHALF_BIT=05        5
+SER_CSR_TX_ALHALF_MASK=20        32
+SER_CSR_TX_EMPTY_BIT=04        4
+SER_CSR_TX_EMPTY_MASK=10        16
+SER_CSR_TX_FULL_BIT=06        6
+SER_CSR_TX_FULL_MASK=40        64
+SPI_CSR_BUSY_BIT=07        7
+SPI_CSR_BUSY_MASK=80        128
+SPI_CSR_FAST_BIT=00        0
+SPI_CSR_FAST_MASK=01        1
+SPI_CSR_MC_SS_BIT=01        1
+SPI_CSR_MC_SS_MASK=02        2
+SPI_ERR_BADCRC =04        4
+SPI_ERR_BADINIT=03        3
+SPI_ERR_BADSEC =05        5
+SPI_ERR_BAD_R1 =08        8
+SPI_ERR_BAD_R2 =09        9
+SPI_ERR_BUSY   =01        1
+SPI_ERR_DATAERR=07        7
+SPI_ERR_HEAP   =0A        10
+SPI_ERR_NORESP =02        2
+SPI_ERR_NUM    =0E        14
+SPI_ERR_OK     =00        0
+SPI_ERR_RANGE  =06        6
+SPI_ERR_TIMEOUT=0B        11
+SPI_ERR_UNKN   =0D        13
+SPI_ERR_WRITE  =0C        12
+SYSCTRL_MAPARM_BIT=03        3
+SYSCTRL_MAPARM_MASK=08        8
+SYSCTRL_MMAPN_BIT=04        4
+SYSCTRL_MMAPN_MASK=10        16
+SYSCTRL_MMAP_BIT=01        1
+SYSCTRL_MMAP_MASK=02        2
+SYSCTRL_NMCLR_BIT=02        2
+SYSCTRL_NMCLR_MASK=04        4
+SYSCTRL_RESERVED_BIT=07        7
+SYSCTRL_RESERVED_MASK=80        128
+SYSCTRL_TRARM_BIT=00        0
+SYSCTRL_TRARM_MASK=01        1
+SYSCTRL_TRPRE0_BIT=05        5
+SYSCTRL_TRPRE0_MASK=20        32
+SYSCTRL_TRPRE1_BIT=06        6
+SYSCTRL_TRPRE1_MASK=40        64
+TICK_FREQ      =0A        10
+TRM_NONE       =00        0
+TRM_SINGLE     =01        1
+TRM_STATES     =04        4
+TRM_TO_ADDR    =02        2
+TRM_XPT        =03        3
+Z80_NMI_VEC    =66        102
+Z80_RST00_VEC  =00        0
+Z80_RST08_VEC  =08        8
+Z80_RST10_VEC  =10        16
+Z80_RST18_VEC  =18        24
+Z80_RST20_VEC  =20        32
+Z80_RST28_VEC  =28        40
+Z80_RST30_VEC  =30        48
+Z80_RST38_VEC  =38        56
+ZKEY_CSR_DOWN  =1E        30
+ZKEY_CSR_LEFT  =01        1
+ZKEY_CSR_RIGHT =06        6
+ZKEY_CSR_UP    =1F        31
+ZKEY_DELETE    =7F        127
+ZKEY_END       =04        4
+ZKEY_HOME      =02        2
+ZKEY_INSERT    =16        22
+ZKEY_PAGE_DOWN =1C        28
+ZKEY_PAGE_UP   =1D        29
+blknr           27"       39
+block_size_msg   80A'     2058
+bytes_msg        817'     2071
+c7_bit_loop      586'     1414
+capacity_msg     7F3'     2035
+ccb_loop         4D2'     1234
+cid             16"       22
+clr_cmd_buff     4CA'     1226
+cmd_buff        00"       0
+cmd_byteloop     393'     915
+cmd_exit         3AF'     943
+command          37B'     891
+conrch          00        0 (extern)
+consta          00        0 (extern)
+conwch          00        0 (extern)
+conwmn          00        0 (extern)
+conwms          00        0 (extern)
+coport          00        0 (extern)
+crc16x          00        0 (extern)
+crc7             581'     1409
+csd             06"       6
+cwnwln          00        0 (extern)
+cwpdby          00        0 (extern)
+cwpdlo          00        0 (extern)
+cwpdwd          00        0 (extern)
+cwphby          00        0 (extern)
+cwphnb          00        0 (extern)
+cwphwd          00        0 (extern)
+cwpspc          00        0 (extern)
+cwvich          00        0 (extern)
+data_err        2D"       45
+deselect         4DF'     1247
+enum_counter   =02        2
+err_msgs         5D4'     1492
+err_post_msg     6B2'     1714
+err_pre_msg      5C4'     1476
+halloc          00        0 (extern)
+hinit           00        0 (extern)
+hw_crc         =01        1
+i2crd           00        0 (extern)
+i2cwr           00        0 (extern)
+init_acmd41_lp  41'       65
+init_bad_r1      294'     660
+init_bad_sec_sz  28C'     652
+init_badcrc      290'     656
+init_calc_bln    1D2'     466
+init_calc_blne   1DD'     477
+init_calc_mb     1E1'     481
+init_calc_secs   201'     513
+init_calc_secse  205'     517
+init_clk_loop   0F'       15
+init_cm_loop     1B3'     435
+init_cmd1_lp    91'       145
+init_exit        29C'     668
+init_fail        29A'     666
+init_heap_err    284'     644
+init_mdt_year    175'     373
+init_mmc_init   8F'       143
+init_msg         5A9'     1449
+init_ok_fast    B2'       178
+init_ok_slow    B7'       183
+init_prn_loop    13A'     314
+init_psn_loop    151'     337
+init_range       288'     648
+init_secs_loop   241'     577
+init_secs_lpend  24A'     586
+jptbl_addr     =F6        246
+log2_blk_size   26"       38
+madbbu          00        0 (extern)
+madlbu          00        0 (extern)
+madwbu          00        0 (extern)
+mamlbu          00        0 (extern)
+mamwwu          00        0 (extern)
+man_date_msg     7E4'     2020
+mb_msg           804'     2052
+mcinit          00'       0 (public)
+mcperr           509'     1289
+mcprer           4EB'     1259 (public)
+mcrrs            2A5'     677 (public)
+mcrws            2DE'     734 (public)
+mcstat          30"       48 (public)
+mmc            =01        1
+monitor        =01        1
+mtwdli          00        0 (extern)
+panic           00        0 (extern)
+pr1_done         545'     1349
+pr1_loop         51E'     1310
+pr1_nomsg        53D'     1341
+pr1_sep_done     530'     1328
+pr2_done         57D'     1405
+pr2_loop         556'     1366
+pr2_nomsg        573'     1395
+pr2_sep_done     566'     1382
+prod_name_msg    7C5'     1989
+prod_serial_msg  7D4'     2004
+r1_err_msgs      6CD'     1741
+r1_err_pre_msg   6B9'     1721
+r1_err_resp     2E"       46
+r2_err_msgs      73C'     1852
+r2_err_pre_msg   728'     1832
+r2_err_resp     2F"       47
+rb_badcrc        40C'     1036
+rb_busywait      416'     1046
+rb_exit          411'     1041
+rb_read_loop     3DB'     987
+rddulo          00        0 (extern)
+rdduwd          00        0 (extern)
+rdhxwd          00        0 (extern)
+read_block       3CB'     971
+rrs_exit         2D5'     725
+rrs_r1_err       2D0'     720
+rusby           00        0 (extern)
+ruswd           00        0 (extern)
+rws_exit         33D'     829
+rws_r1_err       338'     824
+rws_r2_err       331'     817
+s1rch           00        0 (extern)
+s1sta           00        0 (extern)
+s1wch           00        0 (extern)
+s2rch           00        0 (extern)
+s2sta           00        0 (extern)
+s2wch           00        0 (extern)
+saa_loop         35F'     863
+saa_loop_end     36A'     874
+sbw_exit         421'     1057
+sec_buffer      31"       49
+sectors         2A"       42
+select           4D9'     1241
+set_addr_arg     346'     838
+skpspc          00        0 (extern)
+spi_busy_wait    413'     1043
+spiini          00        0 (extern)
+spiss           00        0 (extern)
+spitr           00        0 (extern)
+str_offset     =10        16
+tikcnt          00        0 (extern)
+toloca          00        0 (extern)
+toupca          00        0 (extern)
+trarch          00        0 (extern)
+trawch          00        0 (extern)
+trport          00        0 (extern)
+wait_r1_resp     3B2'     946
+wait_strt_token  4A2'     1186
+wb_badcrc        499'     1177
+wb_busy_loop     47B'     1147
+wb_busy_to       49D'     1181
+wb_data_acc      478'     1144
+wb_exit          49F'     1183
+wb_not_busy      48F'     1167
+wb_write_loop    43A'     1082
+wb_writeerr      495'     1173
+wr1_exit         3C6'     966
+wr1_waitresp     3B6'     950
+write_block      423'     1059
+wst_err_token    4BC'     1212
+wst_exit         4C8'     1224
+wst_loop         4A5'     1189
+wst_ok           4C4'     1220
+wusby           00        0 (extern)
+wuswd           00        0 (extern)

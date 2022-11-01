@@ -1,0 +1,139 @@
+3/9/2019 (Tuesday)
+
+Assembler and linker: http://48k.ca/zmac.html and http://48k.ca/ld80.html
+Ultimately C: http://sdcc.sourceforge.net/ ?
+
+ld80 is a clone of Micro$oft's LINK-80, a manual for which may be found here: http://altairclone.com/downloads/manuals/Microsoft%20L80%20Linker.pdf
+
+Useful example project: https://github.com/SuperFabius/Z80-MBC
+Intel hex loader: https://github.com/SuperFabius/Z80-MBC/blob/master/S260117%20iLoad.asm
+
+Added path to file ~.profile (later replaced by scripts - see 18/4/2021):
+
+# Added by Merlin on 14/5/2020
+PATH="$HOME/Technical/HardwareProjects/ZARC_Z80_Box/Software/tools/zmac:$PATH"
+PATH="$HOME/Technical/HardwareProjects/ZARC_Z80_Box/Software/tools/ld80:$PATH"
+
+
+6/9/2019 (Thursday)
+
+Using gedit as a source editor. I used the Z80 syntax highlighting file from:
+
+https://www.ticalc.org/archives/files/fileinfo/436/43646.html
+
+A copy of the (modified) syntax file is in this folder (z80.lang).
+
+This must be copied to either:
+
+/usr/share/gtksourceview-4/language-specs/ (for system-wide use) or
+
+~/.local/share/gtksourceview-4/language-specs/ (for use by current user only).
+
+I went for the second option as it avoids mucking about with sudo and the system.
+
+Note - updated on 3/6/2021
+mkdir ~/.local/share/gtksourceview-4/language-specs/
+cp z80.lang ~/.local/share/gtksourceview-4/language-specs/
+
+Make white space visible:
+sudo apt-get install gedit-plugins
+Preferences / Plugins / Draw Spaces
+
+Set tabs:
+Preferences / Editor / Tab width: 4
+Select Insert spaces instead of tabs.
+
+There is a useful decoder for "Perl-Compatible Regular Expressions" here:
+
+https://en.wikibooks.org/wiki/Regular_Expressions/Perl-Compatible_Regular_Expressions
+
+
+13/5/2020 (Wednesday)
+
+Considering https://www.z88dk.org/
+
+https://github.com/z88dk/z88dk/wiki/installation
+
+Looking at instructions at https://github.com/z88dk/z88dk/wiki/installation
+
+It requires a long list of packages to be installed:
+
+dos2unix
+libboost-all-dev
+texinfo
+texi2html
+libxml2-dev
+subversion
+bison
+flex
+zlib1g-dev
+
+I'm not keen. Back to zmac and ld80.
+
+
+12/10/2020 (Monday)
+
+Updating zmac from "05jan19" to "25aug2020". It might solve the odd corrupt listing file error I receive. Procedure:
+
+Download from http://48k.ca/zmac.html
+
+make
+
+If it complains that yacc is missing: sudo apt install flex bison
+
+It doesn't fix the listing issue. It does, however, add the use of instructions as immediate values. This is handy in a few places in the monitor.
+
+
+27/12/2020 (Sunday)
+
+Adding a "scripts" folder to ~/.profile so project scripts are available in all folders. SEE NOTES OF 18/4/2021!
+
+# Added by Merlin on 14/5/2020 (modified 27/12/2020)
+PATH="$HOME/Technical/HardwareProjects/ZARC_Z80_Box/Software/tools/zmac:$PATH"
+PATH="$HOME/Technical/HardwareProjects/ZARC_Z80_Box/Software/tools/ld80:$PATH"
+PATH="$HOME/Technical/HardwareProjects/ZARC_Z80_Box/Software/tools/scripts:$PATH"
+
+
+18/4/2021 (Sunday)
+
+Cumbersome PATH variable modifications replaced by putting scripts in /usr/local/bin
+It was getting out of hand, with utilities such as the assembler and stran all having separate directories. Scripts installed using:
+
+sudo cp * /usr/local/bin
+sudo chmod +x /usr/local/bin/*
+
+from the scripts folder.
+
+
+21/4/2021 (Wednesday)
+
+Some scripts modified and renamed to implement a second USB serial adaptor on ZARC ser2. Now we have:
+
+zmac
+ld80
+stran
+zarc_dl <file> <port>
+zarc_term <port>
+
+
+22/4/2022 (Friday)
+
+After reinstall (Ubuntu 22.04 LTS), I needed to:
+
+sudo apt install make
+sudo apt install minicom
+Copy scripts as described above (18/4/2021).
+sudo adduser $USER dialout
+Log out and back in again.
+gedit customisations (see notes of 6/9/2019 above)
+
+
+25/5/2022 (Wednesday)
+
+Modified library location to use an environment variable.
+
+Added to ~/.bashrc:
+
+# Added by Merlin on 25/6/2022 for ZARC Z80 include files
+export ZARC_INCLUDE="/home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes/"
+

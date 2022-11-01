@@ -1,0 +1,403 @@
+; *******************************************************
+; * ZARC Monitor Diagnostics Routines                   *
+; * Written by: Merlin Skinner                          *
+; * Date Started: 3/8/2020                              *
+; *******************************************************
+;
+; ZARC diagnostics routines.
+;
+; Routines preserve all registers not required as operands or return
+; values except AF unless otherwise stated below.
+;
+;
+monitor         equ 1                   ; Flag part of monitor build
+diags           equ 1                   ; Flag module for includes
+;
+;
+;
+; ************
+; * Includes *
+; ************
+;
+                include "macros.i"
+                include "z80.i"
+                include "monitor.i"
+                include "zarc.i"        ; Hardware definitions
+                include "io_map.i"      ; I/O addresses mapping
+                include "terminal.i"    ; Terminal constants
+                include "io.i"          ; I/O routines
+                include "utility.i"     ; Utility functions
+                include "maths.i"       ; Mathematical functions
+                include "memory.i"      ; Memory page allocation
+;
+;
+; *************
+; * Externals *
+; *************
+;
+                public cpuspd   ; Measure approximate CPU clock speed
+                public memtst   ; Test an area of memory with a range of patterns
+                public memtal   ; Test entire memory
+;
+;
+; *************
+; * Constants *
+; *************
+;
+; None
+;
+;
+; *************
+; * Main Code *
+; *************
+;
+                cseg                ; Code segment
+;
+; Measure approximate CPU clock speed. This is intended by use during initialisation
+; before interrupts are enabled. The tick interrupt mechanism is used as a timing
+; reference (polling the relevant "pending" bit).
+; Returns with:
+; BC - CPU clock in KHz.
+cpuspd          push de
+                push hl
+                ld bc, 0            ; Reset counter for later
+                ld h, INT_TICK_MASK ; Cache value for later
+                ld de, 0            ; Set timeout
+; Synchronise to the tick interrupt
+                ld a, h
+                out (IOA_INT_PEND), a   ; Clear any pending tick interrupt
+                sett 0              ; Reset assembler cycle count
+; Wait loop
+cspd_waittick   in IOA_INT_PEND     ; [11]
+                and h               ; [4]
+                jr nz, cspd_tick    ; [7 - not taken] Jump if tick interrupt found                
+                inc de              ; [6]
+                ld a, d             ; [4]
+                or e                ; [4]
+                jp nz, cspd_waittick    ; [10]
+; Timed out after 0.41 s (8 MHz) or 105 s (31.25 Khz)
+                call panic          ; System panic if no tick found
+;
+cspd_tick       ld a, h
+                out (IOA_INT_PEND), a   ; Clear pending tick interrupt
+                sett 0              ; Reset assembler cycle count
+; The ideal period of the timing loop is 50 cycles for easy conversion  of the resulting
+; count into KHz. The instructions below total 46, but allowing for I/O wait cycles then
+; we are close.
+cspd_timloop    in IOA_INT_PEND     ; [11]
+                and h               ; [4]
+                jr nz, cspd_tick1   ; [7 - not taken] Jump if tick interrupt found
+                inc bc              ; [6]
+                ld a, b             ; [4]
+                or c                ; [4]
+                jp nz, cspd_timloop ; [10]
+; Timed out after 0.41 s (8 MHz) or 105 s (31.25 Khz)
+                call panic          ; System panic if no tick found
+; Tick interrupt found, so we can stop counting.
+; BC - count
+; We need to divide by approximately 2.141.
+cspd_tick1      ld de, 30605        ; Multiplier
+                call mamwwu         ; 16-bit * 16-bit unsigned multiply
+; DEHL - result
+; Now divide by 65536.
+                ld b, d             ; Copy MSW to BC
+                ld c, e
+                pop hl
+                pop de
+                ret
+;
+;
+; Test an area of memory with a range of patterns. This tests memory as it is
+; currently mapped.
+; Call with:
+; HL - start address
+; BC - length
+; Returns with:
+; A - 0 if all went well.
+memtst          push de
+                xor a
+                ld (mt_err_flag), a ; Reset error flag
+                push hl
+                push bc
+                call mt_test_patt   ; All zeros
+                pop bc
+                pop hl
+                push hl
+                push bc
+                ld a, 0xff
+                call mt_test_patt   ; All ones
+                pop bc
+                pop hl
+; Walking ones
+                ld d, 1             ; Initial pattern
+mt_walk1_lp     ld a, d
+                push hl
+                push bc
+                call mt_test_patt   ; All ones
+                pop bc
+                pop hl
+                rlc d
+; Keep going unless the bit has fallen off
+                jr nc, mt_walk1_lp
+; Walking zeroes
+                ld d, 0xfe          ; Initial pattern
+mt_walk0_lp     ld a, d
+                push hl
+                push bc
+                call mt_test_patt   ; All ones
+                pop bc
+                pop hl
+                rlc d
+; Keep going unless the bit has fallen off
+                jr c, mt_walk0_lp
+; Addressing test. Write a repeating pattern of three bytes (1, 2 and 3)
+; and verify it. No multiple of three is a power of two, so all address
+; bits are tested.
+                ld e, 1             ; Initial pattern
+                push hl             ; Save address
+                push bc             ; Save length
+                ld hl, mt_addr_msg
+                call conwms   ; Print "Addressing test" message
+; Restore address and length but leave a copy on the stack.
+                pop bc
+                pop hl
+                push hl
+                push bc
+; Write the pattern.
+mt_wra_lp       ld a, b
+                or c
+                jr z, mt_wra_dn     ; Exit if finished
+                ld (hl), e
+; Adjust pattern
+                inc e
+                ld a, 3
+                cp e
+                jr nc, mt_wra_pok
+                ld e, 1
+mt_wra_pok      inc hl
+                dec bc
+                jr mt_wra_lp
+; Restore address and length.
+mt_wra_dn       pop bc
+                pop hl
+; Verify the pattern.
+                ld e, 1             ; Initial pattern
+mt_vea_lp       ld a, b
+                or c
+                jr z, mt_done       ; Exit if finished
+                ld a, (hl)
+                cp e
+                jr z, mt_vea_byte_dn ; Jump if OK
+; Mismatch
+                push af             ; Save data read
+                push hl             ; Save address
+                ld hl, mt_err1_msg
+                call conwms         ; Print "Error at " message
+                pop hl
+                push hl
+                call cwphwd         ; Print address in hex
+                ld hl, mt_err2_msg
+                call conwms         ; Print ", read " message
+                pop hl
+                pop af
+                call cwphby         ; Print data read in hex
+                call cwnwln         ; Write new line characters to console
+; Set error flag
+                ld a, 1
+                ld (mt_err_flag), a
+; Adjust pattern
+mt_vea_byte_dn  inc e
+                ld a, 3
+                cp e
+                jr nc, mt_vea_pok
+                ld e, 1
+mt_vea_pok      inc hl
+                dec bc
+                jr mt_vea_lp
+;
+mt_done         pop de
+                
+; Report pass / fail state.
+mt_test_dn      ld a, (mt_err_flag) ; Return with error flag in A
+                and a
+                jr nz, mt_errs
+; No errors
+                ld hl, mt_pass_msg
+                call conwms         ; Print "Passed" message
+                ret
+; One or more errors occurred.
+mt_errs         ld hl, mt_fail_msg
+                call conwms         ; Print "Failed" message
+                ret 
+;
+; Test an area of memory with the pattern specified. This is used by memtst.
+; Call with:
+; A - pattern
+; HL - start address
+; BC - length
+; mt_err_flag is set to 1 if an error is encountered.
+; Note: E is not preserved.
+mt_test_patt    push hl             ; Save address
+                push bc             ; Save length
+                ld e, a             ; Save pattern
+                ld hl, mt_patt_msg
+                call conwms         ; Print "Pattern " message
+                ld a, e
+                call cwphby         ; Print in hex
+                call cwnwln         ; Write new line characters to console
+; Restore address and length but leave a copy on the stack.
+                pop bc
+                pop hl
+                push hl
+                push bc
+; Write the pattern.
+mt_wr_patt_lp   ld a, b
+                or c
+                jr z, mt_wr_patt_dn ; Exit if finished
+                ld (hl), e
+                inc hl
+                dec bc
+                jr mt_wr_patt_lp
+; Now check it.
+; Restore address and length.
+mt_wr_patt_dn   pop bc
+                pop hl
+; Verify the pattern.
+mt_ve_patt_lp   ld a, b
+                or c
+                ret z               ; Exit if finished
+                ld a, (hl)
+                cp e
+                jr z, mt_ve_byte_dn ; Jump if OK
+; Mismatch
+                push af             ; Save data read
+                push hl             ; Save address
+                ld hl, mt_err1_msg
+                call conwms         ; Print "Error at " message
+                pop hl
+                push hl
+                call cwphwd         ; Print address in hex
+                ld hl, mt_err2_msg
+                call conwms         ; Print ", read " message
+                pop hl
+                pop af
+                call cwphby         ; Print data read in hex
+                call cwnwln         ; Write new line characters to console
+; Set error flag
+                ld a, 1
+                ld (mt_err_flag), a
+mt_ve_byte_dn   inc hl
+                dec bc
+                jr mt_ve_patt_lp
+;
+;
+; Test the entire memory. This is not to be used lightly as it is very
+; destructive. Loop through each page, testing them as we go.
+; Returns with:
+; A - 0 if all went well.
+; Registers are not preserved.
+memtal          xor a
+                ld (mt_err_flag), a ; Reset error flag
+                ld c, 0             ; Starting page
+mta_page_lp     ld a, c
+                cp MMAP_MON_B0_PAGE
+                jr z, mta_next_page ; Skip pages used by monitor
+                cp MMAP_MON_B1_PAGE
+                jr z, mta_next_page
+; Print the current page
+                ld hl, mta_page_msg
+                call conwms         ; Print "Page" message
+                ld a, c
+                call cwphby         ; Print page in hex
+                call cwnwln         ; Write new line characters to console
+                ld a, c
+; Set bank 3 (0xc000 to 0xffff) to the required page.
+; Super and prot are not set so we can write, and there is no need for I/O.
+                out (IOA_MMAP_3), a
+                push bc             ; Save page
+                ld hl, MMAP_BANK3_START ; Start address
+                push hl             ; Save address
+                ld bc, MMAP_PAGE_SIZE   ; Length
+                call memtst
+                and a
+                jr z, mta_pageok
+                ld (mt_err_flag), a ; Set error flag on error
+mta_pageok      pop hl
+                pop bc
+                ld (hl), c          ; Write page number into first byte
+mta_next_page   inc c
+                ld a, c
+                cp MMAP_PAGES
+                jr c, mta_page_lp
+; Verify the tags we left in each page to make sure the page select logic
+; is really working.
+; Loop through each page again
+                ld hl, mta_pagetst_msg
+                call conwms         ; Print "Paging test" message
+                ld c, 0             ; Starting page
+mta_page_sel_lp  ld a, c
+                cp MMAP_MON_B0_PAGE
+                jr z, mta_next_page1 ; Skip monitor pages
+                cp MMAP_MON_B1_PAGE
+                jr z, mta_next_page1
+; Set bank 3 (0xc000 to 0xffff) to the required page.
+; is selected as we have no further need to write.
+                or MMAP_PROT_MASK   ; Select write protect
+                out (IOA_MMAP_3), a
+                ld hl, MMAP_BANK3_START ; Set address
+                ld a, (hl)
+;            or 0x20                 ; Deliberately create errors for testing
+                cp c                ; Verify tag
+                jr z, mta_next_page1
+; Mismatch
+; A - data read
+; C - data expected (page number)
+                push af             ; Save data read
+                ld hl, mt_err3_msg
+                call conwms         ; Print "Expected " message
+                ld a, c
+                call cwphby         ; Print data expected in hex
+                ld hl, mt_err2_msg
+                call conwms         ; Print ", read " message
+                pop af
+                call cwphby         ; Print data read in hex
+                call cwnwln         ; Write new line characters to console
+; Set error flag
+                ld a, 1
+                ld (mt_err_flag), a
+mta_next_page1  inc c
+                ld a, c
+                cp MMAP_PAGES
+                jr c, mta_page_sel_lp
+                jp mt_test_dn       ; Report pass / fail state and exit
+;
+;
+;
+; *************
+; * Constants *
+; *************
+;
+mt_addr_msg     byte "Addressing test", 0x0d, 0x0a, 0
+mt_patt_msg     byte "Pattern ", 0
+mt_err1_msg     byte "Error at ", 0
+mt_err2_msg     byte ", read ", 0
+mt_err3_msg     byte "Expected ", 0
+mta_page_msg    byte "Page ", 0
+mta_pagetst_msg byte "Paging test", 0x0d, 0x0a, 0
+mt_pass_msg     byte "Passed", 0x0d, 0x0a, 0
+mt_fail_msg     byte "Failed", 0x0d, 0x0a, 0
+;
+;
+;
+; *************
+; * Variables *
+; *************
+;
+;
+; Note: linker "-c" option is used, so no data is initialised here.
+                dseg                ; Data segment
+;
+mt_err_flag     defs 1              ; Memory test error flag
+;
+                end
+

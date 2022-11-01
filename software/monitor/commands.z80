@@ -1,0 +1,1755 @@
+; *******************************************************
+; * Commands for ZARC Z80 Computer Monitor              *
+; * (Serial boot version).                              *
+; * Merlin Skinner, 30/4/2021                           *
+; *******************************************************
+;
+; User-entered commands for the monitor.
+;
+;
+monitor         equ 1                   ; Flag part of monitor build
+commands        equ 1                   ; Flag module for includes
+;
+;
+;
+; ************
+; * Includes *
+; ************
+;
+;
+                include "macros.i"
+                include "z80.i"
+                include "zarc.i"        ; Hardware definitions
+                include "monitor.i"
+                include "commands.i"    ; Monitor commands
+                include "io_map.i"      ; I/O addresses mapping
+                include "terminal.i"    ; Terminal constants
+                include "io.i"          ; I/O routines
+                include "utility.i"     ; Utility functions
+                include "maths.i"       ; Mathematical functions
+                include "interrupts.i"  ; Interrupts
+                include "time.i"        ; Routines associated with time
+                include "diags.i"       ; Diagnostics
+                include "spi.i"         ; SPI master interface
+                include "mmc.i"         ; Memory card
+                include "disass.i"      ; Z80 disassembler
+                include "cpm.i"         ; CP/M support
+                include "heap.i"
+                include "cache.i"       ; MMC sector cache
+                include "memory.i"      ; Memory page allocation
+;
+;
+;
+; *************
+; * Externals *
+; *************
+;
+;
+; "externs" listed here are ones that are unlikely to be of interest to modules
+; other than monitor.z80.
+; Routines
+                public mcexec           ; Execute a command
+                public mcprot           ; Write protection error reporting
+                public prpnam           ; Print memory page name
+;
+; From monitor.z80
+                extern mcrun            ; Switch context to user code
+                extern mdisrg           ; Display registers
+                extern warm1            ; Warm start marker 1 
+;
+; Variables
+; From monitor.z80
+                extern mscnt            ; Monitor start count
+                extern mcspd            ; Approximate CPU speed in KHz
+                extern mstate           ; Machine state structure
+;
+;
+;
+; *************
+; * Constants *
+; *************
+;
+;
+CD_BYTESPERLINE equ 8                   ; Number of bytes per line for dump command
+MON_DL_MAXLEN   equ 8                   ; Maximum length of relocated download code
+;
+; Dump command ellipsis states for cd_disp_flag.
+                ENUM_START
+                ENUM CD_DISP_PRN        ; Data is to be displayed
+                ENUM CD_DISP_SAME       ; Identical data is to be skipped
+                ENUM CD_DISP_ELDN       ; Ellipsis displayed
+                ENUM_END CD_DISP_STATES ; Number of states
+;
+;
+;
+; *************
+; * Main Code *
+; *************
+;
+;
+                cseg                    ; Code segment
+;
+; Execute a command. Call with:
+; HL - points to the beginning of the null-terminated command.
+; No registers are preserved.
+mcexec          ld de, cmd_list
+; Attempt to match the command. Ignore case and allow abbreviations.
+                ld a, MTWDLI_ABBREV_MASK | MTWDLI_ICASE_MASK
+                call mtwdli             ; Match against list of options
+                and a
+                jr z, cmd_bad
+;
+; Find address of command code
+                push hl                 ; Save command buffer pointer
+                ld hl, cmd_vectors
+                dec a                   ; Start index from zero
+                add a                   ; Convert index to a word offset
+                add l                   ; Add low byte
+                ld l,a
+                ld a, 0
+                adc a, h                ; Add carry to high byte
+                ld h, a
+; HL is cmd_vectors + 2 * index
+                ld e, (hl)              ; Read address
+                inc hl
+                ld d, (hl)
+                pop hl                  ; Restore command buffer pointer
+                call skpspc             ; Skip any leading spaces
+; Save the stack pointer so commands have the option of exiting without worrying
+; about leaving things on the stack.
+                ld (cmd_sp), sp
+; IX is pre-loaded with the base address of the machine state structure as several
+; commands use it.
+                ld ix, mstate           ; Machine state structure
+                push de
+; HL points to the separator after the command word or the terminator.
+                ret                     ; Go to command routine
+;
+; Commands may either simply return or jump here when processing is complete.
+; Going here is always safe as it does not rely on the stack state.
+cmd_done        ld sp, (cmd_sp)
+                ret
+;
+; Can't match command against any of the valid ones.
+cmd_bad         ld hl, cmd_bad_msg
+                call conwms             ; Print message
+                ret
+;
+; Operand error
+cmd_op_error    ld hl, op_err_msg
+                call conwms             ; Print message
+                jp cmd_done
+;
+; Write protection error.
+; HL - fault address in user space
+mcprot          push hl
+                ld hl, wr_prot_msg      ; "Write protection violation, address: "
+                call conwms             ; Print message
+                pop hl
+                call cwphwd             ; Print address in hexadecimal
+                call cwnwln             ; Write new line characters to console
+                jp cmd_done
+;
+; Print terse help text.
+cmd_help        ld hl, help_msg
+                call conwms             ; Print message
+                ret
+;
+;
+; Display an area of memory in hex and ASCII. The format is similar to
+; Linux's hexdump -C:
+; 1234  00 11 22 33 44 55 66 77  |abcdefgh|
+; Command format:
+; dump <start addr> [<length>]
+; length defaults to 0x0040 if not specified. Duplicate lines are omitted.
+; Omission is indicated by an ellipsis.
+cmd_dump        call rdhxwd             ; Fetch address
+                jp c, cmd_op_error      ; Address is required
+                push de                 ; Save starting address
+                call skpspc             ; Skip spaces
+                call rdhxwd             ; Fetch length
+                push af                 ; Save carry flag
+                call skpspc             ; Skip spaces
+; The next thing in the command buffer should be the terminator.
+                xor a
+                cp (hl)
+                jp nz, cmd_op_error
+                pop af
+                jr nc, cd_got_len
+                ld de, 0x0040           ; Use default length
+cd_got_len      pop hl                  ; Put address in HL
+                ld a, CD_DISP_PRN       ; Force display for first line
+                ld (cd_disp_flag), a
+;
+; DE - bytes to display
+; HL - memory address
+cd_line_lp      push hl                 ; Save address
+; Calculate how many bytes to display in this line.
+                ld c, CD_BYTESPERLINE   ; Assume maximum initially
+                ld a,d
+                and a
+                jr nz, cd_line_st
+; 0xff bytes or fewer.
+                ld a,e
+                cp c
+                jnc cd_line_st          ; Jump if >= maximum remaining
+                ld c, e                 ; Use remaining byte count
+cd_line_st      ld b, CD_BYTESPERLINE   ; Bytes per line
+; B - byte counter for this line
+; C - number of bytes to display (allows for partial final lines)
+; DE - bytes remaining to display
+; HL - pointer to data
+                ld a, c
+                and a
+                jp z, cd_done           ; Exit if no bytes to display
+; Read the data to display into cd_line_bytes, comparing with the data already
+; there to see if it would be changed.
+                push bc                 ; Save counters
+                push de
+                ld de, cd_line_bytes    ; Buffer address
+                ex de, hl
+; C - number of bytes to display (allows for partial final lines)
+; DE - pointer to data
+; HL - pointer to cd_line_bytes
+cd_fetch_loop   push hl
+                ld l, e
+                ld h, d
+                call rusby              ; Read byte from user space
+                pop hl
+                cp (hl)
+                ld (hl), a
+                jr z, cd_fetch_fldn
+; Difference detected, so flag display required.
+                ld a, CD_DISP_PRN       ; Flag display required
+                ld (cd_disp_flag), a
+cd_fetch_fldn   inc hl
+                inc de
+                dec c
+                ld a, c
+                and a
+                jr nz, cd_fetch_loop
+                pop de                  ; Restore counters
+                pop bc
+                pop hl                  ; Restore pointer to data
+                push hl
+; Display the line if cd_disp_flag is set.
+                ld a, (cd_disp_flag)
+                cp CD_DISP_PRN
+                jr z, cd_print_line
+                cp CD_DISP_ELDN
+                jr z, cd_line_done      ; Nothing to do if ellipsis shown
+;
+; Display ellipsis.
+                push bc                 ; Save counters
+; Print spaces.
+                ld b, 14
+cd_ellspc_loop  call cwpspc             ; Print a space
+                djnz cd_ellspc_loop
+; Print ellipsis.
+                ld b, 3
+cd_ellips_loop  ld a, '.'
+                call conwch
+                djnz cd_ellips_loop
+                call cwnwln             ; New line
+                pop bc                  ; Restore counters
+; Set flag appropriately, so we don't display multiple lines with an ellipsis.
+                ld a, CD_DISP_ELDN      ; Flag ellipsis displayed
+                ld (cd_disp_flag), a
+                jr cd_line_done         ; Line complete
+;
+; Display the line of data.
+cd_print_line   call cwphwd             ; Print address in hexadecimal
+; Print spaces to separate address from data.
+                call cwpspc             ; Print a space
+                call cwpspc             ; Print a space
+; Write data in hex.                
+                ld hl, cd_line_bytes    ; Buffer address
+                push bc                 ; Save counters
+; For each byte, display either data or spaces according to the number
+; of bytes left.
+cd_hex_lp       ld a, c
+                and a
+                jr nz, cd_hex_gotdata
+; No data left. Print spaces instead.
+                call cwpspc             ; Print a space
+                call cwpspc             ; Print a space
+                jr cd_hex_bydn
+; Display byte
+cd_hex_gotdata  ld a, (hl)
+                call cwphby             ; Print in hex
+                dec c                   ; Reduce displayed data counter
+; Spaces or hex printed. Display a separator.
+cd_hex_bydn     call cwpspc             ; Print a space
+                inc hl
+                djnz cd_hex_lp          ; Loop for all bytes in a row
+; Hex-ASCII separator
+                call cwpspc             ; Print a space
+                ld a, '|'
+                call conwch
+; Write data in ASCII.
+                pop bc                  ; Restore counters
+                push bc
+                ld hl, cd_line_bytes    ; Buffer address
+; For each byte, display either the character or a space according to the
+; number of bytes left.
+cd_asc_lp       ld a, c
+                and a
+                jr nz, cd_asc_gotdata
+; No data left. Print a space instead.
+                call cwpspc             ; Print a space
+                jr cd_asc_bydn
+; Display byte
+cd_asc_gotdata  ld a, (hl)
+                push bc                 ; Save counters
+                ld c, '.'               ; Substitution character
+                call cwvich             ; Print visible characters only
+                pop bc                  ; Restore counters
+                dec c                   ; Reduce displayed data counter
+cd_asc_bydn     inc hl
+                djnz cd_asc_lp
+                pop bc                  ; Restore counters
+; Separator
+                ld a, '|'
+                call conwch
+                call cwnwln             ; End of line
+; Flag identical data for next line. This will be overwritten if differences are
+; detected.
+                ld a, CD_DISP_SAME
+                ld (cd_disp_flag), a
+; Line complete.
+cd_line_done    pop hl
+                push bc
+; Reduce overall bytes displayed (in DE) by the appropriate amount (in C).
+                ld b, 0
+                ex de, hl
+                and a
+                sbc hl, bc
+                ex de, hl
+; Update address for next line.
+                ld bc, CD_BYTESPERLINE
+                add hl, bc
+                pop bc
+                jp cd_line_lp           ; Do next line
+;               
+cd_done         pop hl                  ; Discard address
+                ret
+;
+;
+; Disassemble an area of memory.
+; Command format:
+; disassemble [<start addr>] [<length>]
+; start addr defaults to the current PC if not specified.
+; length defaults to 0x0010 if not specified.
+cmd_disassemble call skpspc             ; Skip spaces
+                call rdhxwd             ; Fetch address
+                jr nc, cdi_operands
+; No operands, so the next thing in the command buffer should be the terminator.
+                xor a
+                cp (hl)
+                jp nz, cmd_op_error
+; Set default address (PC) and length.
+                ld l, (ix + MST_PC)
+                ld h, (ix + MST_PC + 1)
+                push hl                 ; Save starting address
+                jr cdi_def_len          ; Use default lengthx
+;
+; We have at least one operand (the address).
+cdi_operands    push de                 ; Save starting address
+                call skpspc             ; Skip spaces
+                call rdhxwd             ; Fetch length
+                push af                 ; Save carry flag
+                call skpspc             ; Skip spaces
+; The next thing in the command buffer should be the terminator.
+                xor a
+                cp (hl)
+                jp nz, cmd_op_error
+                pop af
+                jr nc, cdi_got_len
+cdi_def_len     ld de, 0x0010           ; Use default length
+cdi_got_len     pop hl                  ; Put address in HL
+; HL - address
+; DE - length in bytes
+; Calculate last address
+                ex de, hl
+                add hl, de
+                ex de, hl
+                inc de
+; DE - last address to disassemble + 1
+cdi_line_lp     call diproc             ; Disassemble instruction to intermediate form
+                call diprnt             ; Print the result
+                call cwnwln             ; New line
+                push hl
+                and a
+                sbc hl, de
+                pop hl
+                jr c, cdi_line_lp
+                ret
+;
+;
+; Write data to memory
+; Command format:
+; write <addr> <data1> [<data2> <data3> ...]
+cmd_write       call rdhxwd             ; Fetch address
+                jp c, cmd_op_error      ; Address is required              
+                ld bc, 0                ; Reset byte count
+; HL - address in command buffer
+; DE - memory address
+; BC - byte counter
+cwr_byte_lp     push bc                 ; Save byte count
+                push de                 ; Save memory address
+                call skpspc             ; Skip spaces
+                call rdhxwd             ; Fetch byte
+                jr c, cwr_done          ; Exit it no valid number remains
+                ld a, d
+                and a
+                jp nz, cmd_op_error     ; Error if value > 8 bits
+                ld a, e
+                ex de, hl               ; Save command pointer to de
+                pop hl                  ; Restore memory address
+                call wusby              ; Write byte to user space
+                jp c, mcprot
+                inc hl
+; DE - address in command buffer
+; HL - memory address
+                ex de, hl               ; Swap pointers
+                pop bc                  ; Restore byte count
+                inc bc                  ; Count bytes
+                jr cwr_byte_lp
+; The next thing in the command buffer should be the terminator.
+cwr_done        call skpspc      ; Skip spaces
+                xor a
+                cp (hl)
+                jp nz, cmd_op_error
+; Write number of bytes written.
+                inc sp                  ; Discard memory address
+                inc sp
+                pop hl                  ; Restore byte count
+                call cwphwd             ; Print number of bytes written
+                ld hl, cwr_bytes_msg
+                call conwms             ; Print message
+                ret
+;
+;
+; Fill a block of memory with a byte value.
+; Command format:
+; fill <addr> <length> <data>
+cmd_fill        call rdhxwd             ; Fetch address
+                jp c, cmd_op_error      ; Address is required
+                push de
+                call skpspc             ; Skip spaces
+                call rdhxwd             ; Fetch data
+                jp c, cmd_op_error      ; Length is required
+                push de
+                call skpspc             ; Skip spaces
+                call rdhxwd             ; Fetch data
+                jp c, cmd_op_error      ; Address is required
+                ld a, d
+                and a
+                jp nz, cmd_op_error     ; Error if value > 8 bits
+; The next thing in the command buffer should be the terminator.
+                call skpspc             ; Skip spaces
+                xor a
+                cp (hl)
+                jp nz, cmd_op_error
+                pop bc
+                pop hl
+; E - byte data
+; BC - length
+; HL - address
+cf_loop         ld a, e
+                call wusby              ; Write byte to user space
+                jp c, mcprot
+                inc hl
+                dec bc
+                ld a, c
+                or b
+                jr nz, cf_loop
+                ret
+;
+;
+; Read a single memory location
+; Command format:
+; read <addr>
+cmd_read        call rdhxwd             ; Fetch address
+                jp c, cmd_op_error      ; Address is required              
+; HL - address in command buffer
+; DE - memory address
+; The next thing in the command buffer should be the terminator.
+                call skpspc             ; Skip spaces
+                xor a
+                cp (hl)
+                jp nz, cmd_op_error
+                ex de, hl
+; HL - memory address
+                call rusby              ; Read byte from user space
+                call cwphby             ; Print result
+                jp cwnwln               ; New line and exit
+;
+;
+; Read an I/O location
+; Command format:
+; in <addr>
+cmd_in          call rdhxwd             ; Fetch address
+                jp c, cmd_op_error      ; Address is required              
+; HL - address in command buffer
+; DE - I/O address
+; The next thing in the command buffer should be the terminator.
+                call skpspc             ; Skip spaces
+                xor a
+                cp (hl)
+                jp nz, cmd_op_error
+                ld a, d
+                and a
+                jp nz, cmd_op_error     ; Error if not an 8-bit address
+                ld c, e
+                in a, (c)
+                call cwphby             ; Print result
+                jp cwnwln               ; New line and exit
+;
+;
+; Write data to I/O
+; Command format:
+; out <addr> <data1> [<data2> <data3> ...]
+; Note that the I/O address is incremented for each byte written.
+cmd_out         call rdhxwd             ; Fetch address
+                jp c, cmd_op_error      ; Address is required
+                ld a, d
+                and a
+                jp nz, cmd_op_error     ; Error if not an 8-bit address
+                ld bc, 0                ; Reset byte count
+; HL - address in command buffer
+; E - I/O address
+; C - byte counter
+cout_byte_lp    push bc                 ; Save byte count
+                push de                 ; Save I/O address
+                call skpspc             ; Skip spaces
+                call rdhxwd             ; Fetch byte
+                jr c, cout_done         ; Exit it no valid number remains
+                ld a, d
+                and a
+                jp nz, cmd_op_error     ; Error if value > 8 bits
+                ld a, e
+                pop de                  ; Restore I/O address
+                ld c, e
+                out (c), a              ; Write data to I/O
+                inc e
+                pop bc                  ; Restore byte count
+                inc bc                  ; Count bytes
+                jr cout_byte_lp
+; The next thing in the command buffer should be the terminator.
+cout_done       call skpspc             ; Skip spaces
+                xor a
+                cp (hl)
+                jp nz, cmd_op_error
+; Write number of bytes written.
+                inc sp                  ; Discard memory address
+                inc sp
+                pop hl                  ; Restore byte count
+                call cwphwd             ; Print number of bytes written
+                ld hl, cwr_bytes_msg
+                call conwms             ; Print message
+                ret
+;
+;
+; Display or change the user context memory mapping. With no operands, the
+; command displays the current state, for example:
+; 0 (0000 - 3fff): 3f [MONP] writeable supervisor
+; 1 (4000 - 7fff): 00 [MOND] read only
+; 2 (8000 - bfff): 01 [unallocated] read only
+; 3 (c000 - ffff): 02 [unallocated] writeable
+; To change the mapping, use:
+; map <register> <page> [<prot>] [<super>]
+cmd_map         xor a
+                cp (hl)
+                jr z, cm_display        ; No operand, so display map
+; Something follows the command. This should be a bank number
+                call rdhxwd             ; Fetch bank number
+                jp c, cmd_op_error
+                ld a, d
+                and a
+                jp nz, cmd_op_error     ; MS byte should be zero
+                ld a, e
+                cp MMAP_BANKS
+                jp nc, cmd_op_error     ; Error if too big
+                ld b, e                 ; Save for later
+; Read page.
+                call skpspc             ; Skip spaces
+                call rdhxwd             ; Fetch page
+                jp c, cmd_op_error
+                ld a, d
+                and a
+                jp nz, cmd_op_error     ; MS byte should be zero
+                ld a, e
+                cp MMAP_PAGES
+                jp nc, cmd_op_error     ; Error if too big
+; HL - address in command buffer
+; E - new RAM page
+; B - bank number
+; Loop, reading operands and collating the options. Repeating options
+; are permitted (though not useful).
+cm_op_loop      call skpspc             ; Skip spaces
+                xor a
+                cp (hl)
+                jr z, cm_ops_done       ; Jump if no more operands
+; Match next operand against list of options.
+                push de                 ; Save page
+                ld de, cm_op_list
+                ld a, MTWDLI_ABBREV_MASK | MTWDLI_ICASE_MASK
+                call mtwdli             ; Match against list of options
+                pop de
+                and a
+                jp z, cmd_op_error
+; 1 = prot, 2 = super.
+                rrca                    ; Rotate to MS bits
+                rrca
+                or e                    ; Combine with page
+                ld e, a
+                jr cm_op_loop
+; All operands have been read.
+; E - new RAM page with PROT and SUPER bits
+; B - bank number
+; Find the appropriate bank in the machine state.
+cm_ops_done     ld hl, mstate + MST_MMAP0
+                ld a, b
+                add l
+                ld l, a
+                ld a, h
+                adc 0
+                ld h, a
+                ld (hl), e              ; Set page
+                ret
+;
+; Display the current mapping.
+; 0 (0000 - 3fff): 3f [MONP] writeable supervisor
+; 1 (4000 - 7fff): 00 [MOND] read only
+; 2 (8000 - bfff): 01 [unallocated] read only
+; 3 (c000 - ffff): 02 [unallocated] writeable
+cm_display      ld b, 0                 ; Bank count
+cm_regloop      ld a, b
+                call cwphnb             ; Print bank as a nibble
+                call cwpspc             ; Print a space
+                ld a, '('
+                call conwch
+                ld a, b                 ; Calculate start address
+                rrca                    ; Rotate to MS bits
+                rrca
+                ld h, a
+                ld l, 0
+; Now hl is the base address as required.
+                push hl                 ; Save it
+                call cwphwd             ; Print address in hexadecimal
+                ld hl, cm_range_msg     ; " - "
+                call conwms             ; Print message
+                pop hl                  ; Fetch base address
+                ld de, MMAP_PAGE_SIZE - 1
+                add hl, de
+                call cwphwd             ; Print address in hexadecimal
+; Separator
+                ld a, ')'
+                call conwch
+                ld a, ':'
+                call conwch
+                call cwpspc             ; Print a space
+; Find the appropriate bank in the machine state.
+                push hl
+                ld hl, mstate + MST_MMAP0
+                ld a, b
+                add l
+                ld l, a
+                ld a, h
+                adc 0
+                ld h, a
+                ld a, (hl)              ; Fetch page
+                ld c, a                 ; Save it for later
+                pop hl
+                and MMAP_PAGE_MASK      ; Isolate page bits
+                call cwphby             ; Print page number in hexadecimal
+                call cwpspc             ; Print a space
+;
+                ld a, c
+                and MMAP_PAGE_MASK      ; Isolate page bits
+                call prpnam             ; Print page name
+                call cwpspc             ; Print a space
+;
+; Write "writeable" or "read only" as appropriate.
+                ld hl, cm_write_msg     ; " writeable"
+                bit MMAP_PROT_BIT, c
+                jr z, cm_prot_pmsg
+                ld hl, cm_ro_msg        ; " read only"
+cm_prot_pmsg    call conwms             ; Print message
+; Write "supervisor" if appropriate.
+                bit MMAP_SUPER_BIT, c
+                jr z, cm_regdn
+                ld hl, cm_super_msg     ; ", supervisor"
+                call conwms             ; Print message
+cm_regdn        call cwnwln             ; New line
+                inc b
+                ld a, b
+                cp MMAP_BANKS
+                jr c, cm_regloop        ; Loop for all banks
+                ret
+;
+;
+; Print page name, e.g. "[MONP] " or "[unallocated] ". Call with:
+; A - page number
+prpnam          push hl
+                push af
+                ld a, '['
+                call conwch
+                pop af
+                call mppnam             ; Print entry name
+                jr nc, prpn_name_dn
+; Page is not allocated.
+                ld hl, cm_unalloc_msg   ; "unallocated"
+                call conwms             ; Print message
+prpn_name_dn    ld a, ']'
+                call conwch
+                call cwpspc             ; Print a space
+                pop hl
+                ret
+;
+;
+; Display page allocations.
+; The next thing in the command buffer should be the terminator.
+cmd_pages       xor a
+                cp (hl)
+                jp nz, cmd_op_error     ; No operands expected
+                jp mprpt                ; Report allocation status
+;
+;
+; Perform a cold start. This reinitialises certain variables, such as the
+; memory page allocations.
+cmd_cold        xor a
+                ld (warm1), a           ; Overwrite warm start marker 1 
+                rst 0                   ; This will force a cold start
+;
+;
+; Display system information.
+; The next thing in the command buffer should be the terminator.
+cmd_info        xor a
+                cp (hl)
+                jp nz, cmd_op_error
+; FPGA firmware version
+                ld hl, ci_fpga_rev_msg  ; "FPGA revision: "
+                call conwms             ; Print message
+                in a, (IOA_FPGA_MAJREV) 
+                call cwphby             ; Print byte in hexadecimal
+                ld a, '.'
+                call conwch 
+                in a, (IOA_FPGA_MINREV) 
+                call cwphby             ; Print byte in hexadecimal
+; Total RAM in system
+                ld hl, ci_ram_msg       ; "Total RAM: "
+                call conwms             ; Print message
+; Note - "+" is required to prevent this being misinterpreted as an indirect load.
+                ld hl, +((MMAP_PAGE_SIZE /1024) * MMAP_PAGES)
+                call cwpdwd             ; Print size in decimal
+; CPU speed
+                ld hl, ci_cpuspd_msg    ; "CPU clock: "
+                call conwms             ; Print message
+                ld hl, (mcspd)          ; Approximate CPU speed in KHz
+                call cwpdwd             ; Print in decimal
+                ld hl, ci_khz_msg       ; " KHz"
+                call conwms             ; Print message
+; Monitor start count
+                ld hl, ci_mon_cnt_msg   ; "Monitor starts: "
+                call conwms             ; Print message
+                ld hl, (mscnt)          ; Monitor start count
+                call cwpdwd             ; Print reset counter in decimal
+; Current console port
+                ld hl, ci_con_port      ; "Console port: "
+                call conwms             ; Print message
+                ld hl, prt_name_list    ; Port name list
+                ld c, ' '               ; Separator
+                ld a, (coport)
+                call conwmn             ; Print message <n> in a list
+; Current data transfer port
+                ld hl, ci_tran_port     ; "Data transfer port: "
+                call conwms             ; Print message
+                ld hl, prt_name_list    ; Port name list
+                ld c, ' '               ; Separator
+                ld a, (trport)
+                call conwmn             ; Print message <n> in a list
+;
+                call cwnwln             ; New line
+                ret
+;
+;
+; Display cache state.
+; The next thing in the command buffer should be the terminator.
+cmd_cache       xor a
+                cp (hl)
+                jp nz, cmd_op_error     ; No operands expected
+                jp carpt                ; Report cache status
+;
+;
+; Test all of memory apart from the two pages used for the monitor. This is a
+; very destructive test. Use with caution!
+cmd_memtest     xor a
+                cp (hl)
+                jp nz, cmd_op_error     ; No operands expected
+                xor a
+                ld (cm_err_flag), a     ; Reset error counter
+;
+; Ask for confirmation as the test is very destructive.
+                ld hl, cmd_conf_msg
+                call conwms             ; Print "Continue" message
+                call conrch             ; Fetch next character from user
+                push af
+                call conwch             ; Echo the response
+                call cwnwln             ; Write new line characters to console
+                pop af
+                cp 'y'
+                ret nz                  ; Exit unless confirmed
+; Pass / fail is reported by the test code, so no need to check the error code.
+                jp  memtal
+;
+;
+; Read or write to / from the real time clock.
+cmd_time        call skpspc             ; Skip spaces
+                push hl                 ; Save command line pointer
+; We need to read the current time and date regardless of whether the intent is to
+; read or set the time.
+                call tird               ; Read current time and date
+                and a
+                jr z, ct_rtcreadok
+                pop hl                  ; Fix stack
+; RTC read error
+ct_rtc_err      ld c, a
+                ld hl, ti_rtc_err_msg
+                call conwms             ; Print "RTC error " message
+                ld a, c
+                call cwphby             ; Print error code in hex
+                call cwnwln             ; New line
+                ret
+;
+; 32-bit time is in DEHL.
+ct_rtcreadok    ld ix, time_tm
+                call tiitos             ; Convert integer time to TM structure
+; Read or set?
+                pop hl                  ; Restore command line pointer
+                xor a
+                cp (hl)
+                jp nz, ct_set           ; Attempt set
+; Nothing follows the command, so display the current time in this format:
+; <hours>:<minutes>:<seconds> <day of week> <day>/<month>/<year>
+                ld ix, time_tm
+                call cwptm              ; Print time structure to console
+                call cwnwln             ; New line
+                ret
+;
+; Set time. This may be a time, or time and date:
+; <hours>:<minutes>:<seconds> <day>/<month>/<year>
+; <hours>:<minutes>:<seconds>
+; <hours>:<minutes>
+; A read has already been performed, so the current time and date is in time_tm.
+ct_set          ld ix, time_tm
+; Hours
+                call rdduwd             ; Read a 16-bit unsigned decimal
+                jp c, cmd_op_error
+; DE - number
+; HL - command line pointer
+                ld (ix + TM_HOURS), e   ; Hours [0,23]
+; Check range
+                ld bc, 24
+                ex de, hl
+                and a
+                sbc hl, bc
+                jp nc, cmd_op_error     ; Error if out of range
+                ex de, hl
+; Separator
+                ld a, ':'
+                cp (hl)
+                jp nz, cmd_op_error     ; Error if no separator
+                inc hl
+; Minutes
+                call rdduwd             ; Read a 16-bit unsigned decimal
+                jp c, cmd_op_error
+; DE - number
+; HL - command line pointer
+                ld (ix + TM_MINS), e    ; Minutes [0,59]
+; Check range
+                ld bc, 60
+                ex de, hl
+                and a
+                sbc hl, bc
+                jp nc, cmd_op_error     ; Error if out of range
+                ex de, hl
+; This may be the end of the line a terminator before the seconds or a space
+; before the date.
+                ld a, (hl)
+                and a
+                jr z, cts_parse_done    ; Jump if end of line (hours & minutes only)
+                cp ':'
+                jp nz, cts_chk_date     ; Date may follow
+                inc hl
+; Seconds
+                call rdduwd             ; Read a 16-bit unsigned decimal
+                jp c, cmd_op_error
+; DE - number
+; HL - command line pointer
+                ld (ix + TM_SECS), e    ; Seconds [0,59]
+; Check range
+                ld bc, 60
+                ex de, hl
+                and a
+                sbc hl, bc
+                jp nc, cmd_op_error     ; Error if out of range
+                ex de, hl
+; This may be the end of the line, or a space before the date.
+                ld a, (hl)
+                and a
+                jr z, cts_parse_done    ; Jump if end of line (time only)
+cts_chk_date    cp ' '
+                jp nz, cmd_op_error     ; Error if no separator
+                inc hl
+;
+; Day
+                call rdduwd             ; Read a 16-bit unsigned decimal
+                jp c, cmd_op_error
+; DE - number
+; HL - command line pointer
+                ld (ix + TM_MDAY), e    ; Day of month [1,31]
+; Check range. This is crude in that it will accept 31 days in any month.
+                dec de                  ; Make range 0 to 30
+                ld bc, 31
+                ex de, hl
+                and a
+                sbc hl, bc
+                jp nc, cmd_op_error     ; Error if out of range
+                ex de, hl
+; Separator
+                ld a, '/'
+                cp (hl)
+                jp nz, cmd_op_error     ; Error if no separator
+                inc hl
+; Month
+                call rdduwd             ; Read a 16-bit unsigned decimal
+                jp c, cmd_op_error
+; DE - number
+; HL - command line pointer
+                ld (ix + TM_MON), e     ; Month of year [1,12]
+; Check range.
+                dec de                  ; Make range 0 to 11
+                ld bc, 12
+                ex de, hl
+                and a
+                sbc hl, bc
+                jp nc, cmd_op_error     ; Error if out of range
+                ex de, hl
+; Separator
+                ld a, '/'
+                cp (hl)
+                jp nz, cmd_op_error     ; Error if no separator
+                inc hl
+; Year
+                call rdduwd             ; Read a 16-bit unsigned decimal
+                jp c, cmd_op_error
+; DE - number
+; HL - command line pointer
+; Check and adjust range [70,255]
+                ld bc, 1900
+                ex de, hl
+                and a
+                sbc hl, bc
+                jp c, cmd_op_error      ; Error if out of range
+                ex de, hl
+                ld (ix + TM_YEAR), e    ; Years since 1900 [70,255]
+                xor a
+                cp d
+                jp nz, cmd_op_error     ; Error if out of range
+; There should be nothing after this but the terminator.
+                call skpspc             ; Skip spaces
+                xor a
+                cp (hl)
+                jp nz, cmd_op_error
+;
+; The command line has been passed, and relevant values written to time_tm. As
+; things have changed, the daylight savings status is set to unknown.
+cts_parse_done  ld (ix + TM_DST), TMDST_UNKNOWN ; Set daylight savings to unknown
+                call tistoi    ; Convert TM structure time to integer
+; DEHL - 32-bit time. This represents the time as entered, which may or may not
+; be DST.
+                push hl                 ; Save integer time
+                push de
+                call tiitos    ; Convert integer time to TM structure
+; DST status has now been calculated.
+                ld a, (ix + TM_DST)
+                cp TMDST_DST
+                jr nz, cts_dst_done
+; DST has been applied during the conversion. This means the resulting time is one
+; hour ahead of that required, as integer time should never include DST.
+                pop de                  ; Restore time
+                pop hl
+; Subtract an hour.
+                ld bc, 3600             ; One hour in seconds
+                and a
+                sbc hl, bc              ; Subtract from LSW
+                ld bc, 0
+                ex de, hl
+                sbc hl, bc              ; Propagate carry to DE
+                ex de, hl
+; Do the conversion again.
+                push hl                 ; Save integer time
+                push de
+                call tiitos             ; Convert integer time to TM structure
+;
+; DST correction applied if it was required.
+cts_dst_done    call cwptm              ; Print time structure to console
+                call cwnwln             ; New line
+                pop de                  ; Restore time
+                pop hl
+;
+                call tiwr               ; Set time and date
+                and a
+                ret z                   ; Return if write was OK
+; Something went wrong.
+                jp ct_rtc_err
+;
+;
+; Runs code very similar to the stage 1 serial bootloader (the one normally
+; entered from the front panel). This allows the monitor to be downloaded again.
+; This is a simple binary download, with all received characters being written to
+; RAM starting at address zero. There is no form of checksum or other
+; verification. Termination is by reset from the front panel. The only functional
+; difference between this and the stage 1 bootloader is that this allows the use
+; of either serial port.
+; The next thing in the command buffer should be the terminator.
+cmd_mon_dl      xor a
+                cp (hl)
+                jp nz, cmd_op_error
+; No operands, as expected.
+                call disp_bin_dl_msg    ; Display prompt
+; The code is run from bank 1 as this code will be overwritten as part of the
+; download process.
+                ld hl, mdl_code_start
+                ld de, mdl_code_run
+                push de                 ; Save start address for later
+                ld bc, mdl_code_end - mdl_code_start
+                ldir
+; Set the I/O port address according to the current data transfer port.
+                ld a, (trport)
+; The following code is also used by the transfer port redirection code.
+                ld c, IOA_SER1_DATA
+                cp PORT_SER1            ; Serial port 1
+                jr z, mdl_have_addr
+                ld c, IOA_SER2_DATA
+                cp PORT_SER2            ; Serial port 2
+                jr z, mdl_have_addr
+; If not valid, complain.
+                pop hl                  ; Discard address
+                ld hl, bad_port_msg     ; "Invalid port"
+                call conwms             ; Print message
+                ret
+;
+; Interrupts are disabled as the handler will be overwritten.
+; C - I/O port address of the transfer data port.
+; (SP) - start address of relocated download code.
+mdl_have_addr   di
+; Set bank 0 (0x0000 to 0x3fff) writeable.
+                ld a, MMAP_MON_B0_PAGE + MMAP_SUPER_MASK
+                out (IOA_MMAP_0), a
+; We need to allow I/O access from bank 1 (0x4000 to 0x7fff) as we will be running
+; from there.
+                ld a, MMAP_MON_B1_PAGE + MMAP_SUPER_MASK
+                out (IOA_MMAP_1), a
+                ret                     ; "Return" to the copied code
+;
+; The actual download code. ZMAC's "phase" doesn't seem to be able to cope with
+; relocatable code, so this code must not be dependent on its load address.
+mdl_code_start  ld hl, 0                ; Start address 
+mdl_loop        ini
+                jr mdl_loop             ; Load data until reset
+mdl_code_end
+;
+;
+; Binary download from a serial port. This is useful for downloading raw binary
+; files to the address specified. This is similar to the monitor download, but
+; it allows an arbitrary address as destination in user address space. It is up
+; to the user to make sure that the destination is writeable.
+; Command format: bindownload <addr>
+cmd_bin_dl      call rdhxwd             ; Fetch address
+                jp c, cmd_op_error      ; Address is required              
+                call skpspc             ; Skip spaces
+; The next thing in the command buffer should be the terminator.
+                xor a
+                cp (hl)
+                jp nz, cmd_op_error
+                call disp_bin_dl_msg    ; Display prompt
+                ex de, hl
+; HL - specified address
+; The following code is similar to that of the stage 1 serial
+; bootloader, with all of the restrictions that implies. Termination is by
+; reset from the front panel.
+cbd_loop        call trarch             ; Fetch next character from user
+                call wusby              ; Write byte to user space
+                jp c, mcprot
+                inc hl
+                jr cbd_loop             ; Load data until reset or NMI
+;
+;
+; Much as the bindownload command above, but downloads to the CP/M Transient
+; Programme Area (TPA). Pages are allocated if CP/M memory is not initialised.
+; There are no operands, so the next thing in the command buffer should be the
+; terminator.
+cmd_tpa_dl      xor a
+                cp (hl)
+                jp nz, cmd_op_error
+; Make sure that the pages are allocated. These are listed in cppags, one page
+; for each bank. This will do nothing if the CP/M system has been run before,
+; as is likely when using this command.
+                call cpmem              ; Allocate CP/M pages
+                call disp_bin_dl_msg    ; Display prompt
+                ld hl, TPA_START        ; Set starting address.
+; The following code is similar to that of the stage 1 serial bootloader, with
+; all of the restrictions that implies. Termination is by reset from the front
+; panel.
+; Map the appropriate page to bank 3 so we can access it.
+tbd_loop        push hl                 ; Save address
+                ld a, h
+                rlca
+                rlca
+; Address bits 15 and 14 are now in 1 and 0, so we have the required bank number.
+                and 0x03                ; Ensure all other bits are reset
+; Loop up the associated page number for this bank.
+                ld hl, cppags           ; Pointer to memory page numbers
+                ld d, 0
+                ld e, a
+                add hl, de
+                ld a, (hl)
+                out (IOA_MMAP_3), a     ; Map bank 3 to this page
+                pop hl                  ; Fetch full (virtual) address
+;
+                push hl
+                ld a, h
+                and high (MMAP_PAGE_SIZE - 1)   ; Maintain only bits within bank
+                add high MMAP_BANK3_START       ; Add base of bank 3
+                ld h, a
+; HL - address in bank 3
+                call trarch             ; Fetch next character
+                ld (hl), a
+                pop hl                  ; Restore full address
+                inc hl
+                jr tbd_loop             ; Load data until reset or NMI
+;
+;
+; Read sectors from memory card.
+; readsec <start sec> <no. of 512-byte sectors> <address>
+cmd_readsec     call rddulo             ; Read a 32-bit decimal number
+                jp c, cmd_op_error      ; Start sector is required
+; BCDE - start sector
+; HL - address in command buffer
+                ld a, b
+                and a
+                jp nz, cmd_op_error     ; MS byte should be zero
+; CDE - start sector
+; HL - address in command buffer
+                push de
+                call skpspc             ; Skip spaces
+                call rdduwd             ; Read a 16-bit unsigned decimal
+                jp c, cmd_op_error      ; No. of sectors is required
+; Note - cmd_op_error path will reset stack, so no need to tidy up here.
+                ld a, d
+                and a
+                jp nz, cmd_op_error     ; MS byte should be zero
+                ld a, e
+                and a
+                jp z, cmd_op_error      ; Zero length is not allowed either
+                ld b, e
+; B - no. of 512-byte sectors
+; C - start sector (MS byte)
+; HL - address in command buffer
+                call skpspc             ; Skip spaces
+                call rdhxwd             ; Fetch address
+                jp c, cmd_op_error      ; Address is required
+; DE - destination address
+                call skpspc             ; Skip spaces
+; The next thing in the command buffer should be the terminator.
+                xor a
+                cp (hl)
+                jp nz, cmd_op_error
+                ex de, hl
+                pop de                  ; Restore LSW of start sector
+;
+; B - no. of 512-byte sectors
+; CDE - start sector (MS byte)
+; HL - destination address
+crs_loop        push hl                 ; Save destination address
+                push bc                 ; Save sector number and counter
+                push de
+                ld hl, crs_sec_msg      ; "Reading sector: "
+                call conwms             ; Print message
+; Move CDE to DEHL
+                ex de, hl
+                ld d, 0
+                ld e, c
+                call cwpdlo             ; Print DEHL in decimal
+                call cwnwln             ; Write new line characters to console
+; Restore sector number.
+                pop de
+                pop bc
+; Keep a copy on the stack.
+                push bc
+                push de
+; Load data into the buffer.
+                ld hl, sector_buff
+                call cars               ; Read the sector (use cache)
+                pop de
+                pop bc
+                and a
+                jr nz, crs_error
+                pop hl                  ; Restore destination address
+;
+                push bc                 ; Save sector number and counter
+                push de
+; Copy the sector data into user space.
+                ld de, sector_buff
+                ld bc, MMC_SECTOR_SIZE
+crs_copy_loop   ld a, (de)
+                call wusby              ; Write byte to user space
+                jp c, mcprot
+                inc de
+                inc hl
+                dec bc
+                ld a, b
+                or c
+                jr nz, crs_copy_loop
+                pop de
+                pop bc
+;
+; Increment sector number (CDE).
+                ld a, 1
+                add e
+                ld e, a
+                ld a, 0
+                adc d
+                ld d, a
+                ld a, 0
+                adc c
+                ld c, a
+; Overflows are unlikely due to range checks in mcrrs.
+                djnz crs_loop
+                ret
+;
+; Print memory card error text, or nothing if no error (A = 0)
+crs_error       call mcprer
+                jp cmd_done
+;
+;
+; Write sectors to memory card.
+; writesec <start sec> <no. of 512-byte sectors> <address>
+cmd_writesec    call rddulo             ; Read a 32-bit decimal number
+                jp c, cmd_op_error      ; Start sector is required
+; BCDE - start sector
+; HL - address in command buffer
+                ld a, b
+                and a
+                jp nz, cmd_op_error     ; MS byte should be zero
+; CDE - start sector
+; HL - address in command buffer
+                push de
+                call skpspc             ; Skip spaces
+                call rdduwd             ; Read a 16-bit unsigned decimal
+                jp c, cmd_op_error      ; No. of sectors is required
+; Note - cmd_op_error path will reset stack, so no need to tidy up here.
+                ld a, d
+                and a
+                jp nz, cmd_op_error     ; MS byte should be zero
+                ld a, e
+                and a
+                jp z, cmd_op_error      ; Zero length is not allowed either
+                ld b, e
+; B - no. of 512-byte sectors
+; C - start sector (MS byte)
+; HL - address in command buffer
+                call skpspc             ; Skip spaces
+                call rdhxwd             ; Fetch length
+                jp c, cmd_op_error      ; Address is required
+; DE - destination address
+                call skpspc             ; Skip spaces
+; The next thing in the command buffer should be the terminator.
+                xor a
+                cp (hl)
+                jp nz, cmd_op_error
+                ex de, hl
+                pop de                  ; Restore LSW of start sector
+;
+; B - no. of 512-byte sectors
+; CDE - start sector (MS byte)
+; HL - source address
+cws_loop        push bc                 ; Save sector number and counter
+                push de
+;
+                push hl                 ; Save source address
+                ld hl, cws_sec_msg      ; "Writing sector: "
+                call conwms       ; Print message
+; Move CDE to DEHL
+                ex de, hl
+                ld d, 0
+                ld e, c
+                call cwpdlo             ; Print DEHL in decimal
+                call cwnwln             ; Write new line characters to console
+; Restore sector number.
+                pop hl                  ; Restore source address
+;
+; Copy the sector data from user space.
+                ld de, sector_buff
+                ld bc, MMC_SECTOR_SIZE
+cws_copy_loop   call rusby              ; Read byte from user space
+                ld (de), a
+                inc de
+                inc hl
+                dec bc
+                ld a, b
+                or c
+                jr nz, cws_copy_loop
+;
+                pop de
+                pop bc
+;
+; No registers are on the stack at this point.
+                push hl                 ; Save source address
+                push bc
+                push de
+                ld hl, sector_buff
+                call caws               ; Write sector buffer to memory card
+                pop de
+                pop bc
+                pop hl
+                and a
+                jr nz, cws_error
+;
+; Increment sector number (CDE).
+                ld a, 1
+                add e
+                ld e, a
+                ld a, 0
+                adc d
+                ld d, a
+                ld a, 0
+                adc c
+                ld c, a
+; Overflows are unlikely due to range checks in sector write code.
+                djnz cws_loop
+                ret
+;
+; Print memory card error text, or nothing if no error (A = 0)
+cws_error       call mcprer
+                ret
+;
+;
+; Load and start CP/M. Command syntax: cpm [""debug""] [""noints""]
+; debug - enables BIOS debugging messages.
+; noints - disables interrupts (use basic I/O mode).
+; rawcon - disables console escape code translation.
+cmd_cpm         ld e, 0                 ; Set initial options
+; Loop, reading operands and collating the options. Repeating options
+; are permitted (though not useful).
+ccpm_op_loop    call skpspc             ; Skip spaces
+                xor a
+                cp (hl)
+                jr z, ccpm_ops_done     ; Jump if no more operands
+; Match next operand against list of options.
+                push de                 ; Save options
+                ld de, ccpm_op_list
+                ld a, MTWDLI_ABBREV_MASK | MTWDLI_ICASE_MASK
+                call mtwdli             ; Match against list of options
+                pop de
+                and a
+                jp z, cmd_op_error
+; 1 = debug, 2 = noints, 3 = rawcon. Message order must match BIOS_OPT_xxx
+; definitions in cpm.i.
+; Convert message number to bit.
+                ld b, a
+                ld a, 0x80
+ccpm_find_mask  rlca
+                djnz ccpm_find_mask
+                or e                    ; Combine with previous options
+                ld e, a
+                jr ccpm_op_loop
+; All options have been read.
+; E - options. See BIOS_OPT_xxx definitions.
+ccpm_ops_done   ld a, e
+                jp cpinit               ; Load with options in A.
+;
+;
+; Set console port. Command format:
+; cport <port>
+cmd_cport       ld de, prt_name_list
+                ld a, MTWDLI_ABBREV_MASK | MTWDLI_ICASE_MASK
+                call mtwdli             ; Match against list of options
+                and a
+                jp z, cmd_op_error      ; Error if not one of the options
+                dec a                   ; Make port zero based to match enum
+; A - port number (PRN_xxx).
+                push af
+                xor a
+                cp (hl)
+                jp nz, cmd_op_error     ; Error if there is more text
+                pop af
+                ld (coport), a
+                ret
+;
+;
+; Set data transfer port. Command format:
+; tport <port>
+cmd_tport       ld de, prt_name_list
+                ld a, MTWDLI_ABBREV_MASK | MTWDLI_ICASE_MASK
+                call mtwdli             ; Match against list of options
+                and a
+                jp z, cmd_op_error      ; Error if not one of the options
+                dec a                   ; Make port zero based to match enum
+; A - port number (PRN_xxx).
+                push af
+                xor a
+                cp (hl)
+                jp nz, cmd_op_error     ; Error if there is more text
+                pop af
+                ld (trport), a
+                ret
+;
+;
+; Call user code, using the current PC or a specified address.
+; Command format:
+; go [<addr>]
+cmd_go          call rdhxwd             ; Fetch address
+                push af                 ; Save carry flag
+                call skpspc             ; Skip spaces
+; The next thing in the command buffer should be the terminator.
+                xor a
+                cp (hl)
+                jp nz, cmd_op_error
+                pop af
+                jr c, cg_no_new_addr
+; DE - new address
+                ld (ix + MST_PC), e
+                ld (ix + MST_PC + 1), d
+;
+; Some checks are made to warn the user if the interrupt configuration looks risky.
+; This may help to avoid hard-to-debug crashes.
+; Read saved interrupt enable state in advance.
+; There may be a problem if the stored context has the interrupts enabled.
+cg_no_new_addr  ld a, (ix + MST_IEN)    ; Non-zero if interrupts enabled
+                and a
+                jr z, cg_ints_ok
+;
+; Warn "Interrupt configuration warning. "
+                ld hl, int_cfg_msg
+                call conwms       ; Print message
+;
+; Ask for confirmation before continuing.
+                ld hl, cmd_conf_msg
+                call conwms             ; Print "Continue" message
+                call conrch             ; Fetch next character from user
+                push af
+                call conwch             ; Echo the response
+                call cwnwln             ; Write new line characters to console
+                pop af
+                cp 'y'
+                ret nz                  ; Exit unless confirmed
+;
+; Run the user code.
+cg_ints_ok      ld a, TRM_NONE          ; Flag normal run (not trace)
+                jp mcrun                ; Switch to user context
+;
+;
+; Call user code for one instruction (single step). If an address is specified, the
+; trace is repeated until that address is reached. Command format:
+; trace [<addr>]
+; t [<addr>]
+cmd_trace       call rdhxwd             ; Fetch address
+                push af                 ; Save carry flag
+                call skpspc             ; Skip spaces
+; The next thing in the command buffer should be the terminator.
+                xor a
+                cp (hl)
+                jp nz, cmd_op_error
+                pop af
+                ld a, TRM_SINGLE        ; Flag single trace required
+                jr c, ct_run
+; DE - new address
+                ld a, TRM_TO_ADDR       ; Flag trace to address required
+ct_run          jp mcrun                ; Switch to user context
+;
+;
+; As trace, but if the current instruction is a CALL or RST, tracing continues
+; until the call is complete. Command format:
+; traceover
+; o
+; The next thing in the command buffer should be the terminator.
+cmd_traceover   xor a
+                cp (hl)
+                jp nz, cmd_op_error
+; What we do next depends on the instruction.
+                ld hl, (mstate + MST_PC)
+                call rusby              ; Read byte from user space
+                ld c, a                 ; Save it for later
+                cp call
+                jr z, cto_call          ; Jump if straightforward CALL
+                and 11000111b
+                cp 11000100b
+                jr z, cto_call          ; Jump if conditional CALL
+                ld a, c
+                and 11000111b
+                cp 11000111b            ; RST p
+                jr z, cto_rst
+; Not a CALL or RST, so trace the instruction and stop.
+                ld a, TRM_SINGLE        ; Flag single trace required
+                jp mcrun                ; Switch to user context
+;
+cto_call        inc hl                  ; CALL or conditional CALL entry point
+                inc hl
+cto_rst         inc hl                  ; Other RST entry point
+                ex de, hl
+; DE - points to instruction after the call.
+                ld a, TRM_TO_ADDR       ; Flag trace to address required
+                jp mcrun                ; Switch to user context
+;
+;
+; Set register to supplied value. Command format:
+; set <reg> <value>
+; "ien" and "mmap" aren't actually registers, but are used here to control the
+; interrupt enable and memory mapping respectively.
+; Match operand against list of options.
+cmd_set         ld de, reg_names
+                ld a, MTWDLI_ABBREV_MASK | MTWDLI_ICASE_MASK
+                call mtwdli             ; Match against list of options
+                and a
+                jp z, cmd_op_error      ; Jump if unknown register
+                dec a                   ; Start index from zero
+                ld c, a                 ; Save index
+; Read value
+                call skpspc             ; Skip spaces
+                call rdhxwd             ; Fetch value
+                push af                 ; Save carry flag
+                call skpspc             ; Skip spaces
+; The next thing in the command buffer should be the terminator.
+                xor a
+                cp (hl)
+                jp nz, cmd_op_error
+                pop af
+                jp c, cmd_op_error
+; C - register name index
+; DE - value
+                ld a, c
+; Some registers require special processing.
+                cp 18
+                jr nz, cs_not_ien
+; Set interrupt enable. Only 0 and 1 is valid in this case.
+                ld a, d
+                and a
+                jp nz, cmd_op_error     ; Error if value was too big
+                ld a, e
+                cp 2
+                jp nc, cmd_op_error     ; Error if value was too big
+                ld (ix + MST_IEN), a
+                ret
+; For all other registers, index a table to find the offsets and length.
+cs_not_ien      ld hl, reg_offsets
+                ld b, 0
+                add hl, bc
+                ld a, (hl)
+                push af
+; Find the address for the register.
+                and 0x7f                ; Remove 16-bit flag
+                push ix                 ; Point to machine state
+                pop hl
+                add a, l
+                ld l, a
+                ld a, h
+                adc 0
+                ld h, a
+                pop af
+; A (bit 7) - 16-bit value flag
+; C - register name index
+; DE - value
+; HL - pointer to register in exception stack
+                and 0x80
+                jr nz, cs_16bit
+                ld a, d
+                and a
+                jp nz, cmd_op_error     ; Error if value was too big
+                ld (hl), e
+                ret                     ; Command complete
+; 16-bit register set.
+cs_16bit        ld (hl), e
+                inc hl
+                ld (hl), d
+                ret                     ; Command complete
+;
+;
+; Display saved registers (user context)
+; The next thing in the command buffer should be the terminator.
+cmd_registers   xor a
+                cp (hl)
+                jp nz, cmd_op_error
+; No operands, as expected.
+                jp mdisrg               ; Display registers and return
+;
+;
+; Display a prompt describing the binary download and which port is selected.
+; This avoids confusion caused by the selected port not be as expected.
+disp_bin_dl_msg push hl
+;
+                ld hl, bin_dl_pre_msg   ; "Send binary data on port "
+                call conwms             ; Print message
+; Display current data transfer port
+                ld hl, prt_name_list    ; Port name list
+                ld c, ' '               ; Separator
+                ld a, (trport)
+                call conwmn             ; Print message <n> in a list
+;
+                ld hl, bin_dl_post_msg  ; ". Press RESET to terminate."
+                call conwms             ; Print message
+;
+                pop hl
+                ret
+;
+;
+;
+; *************
+; * Constants *
+; *************
+;
+
+zarc_msg        byte "____  __  ___   ___", 0x0d, 0x0a
+                byte "   / /  \ |  \ /", 0x0d, 0x0a
+                byte "  /  |__| |__/ |", 0x0d, 0x0a
+                byte " /   |  | |  \ |", 0x0d, 0x0a
+                byte "/___ |  | |  | \___", 0x0d, 0x0a, 0x0d, 0x0a, 0
+signon_msg      byte "ZARC Monitor V1.0", 0x0d, 0x0a, 0
+cold_start_msg  byte 0x0d, 0x0a, "*** Cold start ***", 0
+cmd_prompt      byte "> ", 0
+; The ordered list of commands in cmd_list corresponds to the list of vectors
+; in cmd_vectors.
+cmd_list        byte "help dump read write "
+                byte "in out map info "
+                byte "memtest mondownload bindownload tpadownload "
+                byte "time go trace t "
+                byte "traceover o set registers "
+                byte "disassemble readsec writesec cpm "
+                byte "fill cport tport cache "
+                byte "pages cold", 0
+cmd_vectors     word cmd_help, cmd_dump, cmd_read, cmd_write
+                word cmd_in, cmd_out, cmd_map, cmd_info
+                word cmd_memtest, cmd_mon_dl, cmd_bin_dl, cmd_tpa_dl
+                word cmd_time, cmd_go, cmd_trace, cmd_trace
+                word cmd_traceover, cmd_traceover, cmd_set, cmd_registers
+                word cmd_disassemble, cmd_readsec, cmd_writesec, cmd_cpm
+                word cmd_fill, cmd_cport, cmd_tport, cmd_cache
+                word cmd_pages, cmd_cold
+cmd_bad_msg     byte "Bad command", 0x0d, 0x0a, 0
+op_err_msg      byte "Operand error", 0x0d, 0x0a, 0
+wr_prot_msg     byte 0x0d, 0x0a, "Write protection violation, address: ", 0
+cmd_conf_msg    byte "Continue (y/n): ", 0
+int_cfg_msg     byte "Interrupt configuration warning. ", 0
+crs_sec_msg     byte "Reading sector: ", 0
+cws_sec_msg     byte "Writing sector: ", 0
+;
+help_msg        byte "help", 0x0d, 0x0a
+                byte "dump <start addr> [<length>]", 0x0d, 0x0a
+                byte "disassemble [<start addr>] [<length>]", 0x0d, 0x0a
+                byte "read <addr>", 0x0d, 0x0a
+                byte "write <addr> <data1> [<data2> <data3> ...]", 0x0d, 0x0a
+                byte "fill <addr> <length> <data>", 0x0d, 0x0a
+                byte "in <addr>", 0x0d, 0x0a
+                byte "out <addr> <data1> [<data2> <data3> ...]", 0x0d, 0x0a
+                byte "map [<bank> <page> [""prot""] [""super""]]", 0x0d, 0x0a
+                byte "pages", 0x0d, 0x0a
+                byte "info", 0x0d, 0x0a
+                byte "memtest", 0x0d, 0x0a
+                byte "mondownload", 0x0d, 0x0a
+                byte "bindownload <addr>", 0x0d, 0x0a
+                byte "tpadownload", 0x0d, 0x0a
+                byte "time [<h>:<m>[:s>] [<d>/<m>/<y>]]", 0x0d, 0x0a
+                byte "go [<addr>]", 0x0d, 0x0a
+                byte "trace | t [<addr>]", 0x0d, 0x0a
+                byte "traceover | o", 0x0d, 0x0a
+                byte "set <reg> <value>", 0x0d, 0x0a
+                byte "registers", 0x0d, 0x0a
+                byte "readsec <start sec> <no. of 512-byte sectors> <address>", 0x0d, 0x0a
+                byte "writesec <start sec> <no. of 512-byte sectors> <address>", 0x0d, 0x0a
+                byte "cache", 0x0d, 0x0a
+                byte "cpm [""debug""] [""noints""] [""rawcon""]", 0x0d, 0x0a
+                byte "cport <port>", 0x0d, 0x0a
+                byte "tport <port>", 0x0d, 0x0a
+                byte 'cold (perform a cold start)"', 0x0d, 0x0a
+                byte "Abbreviate commands with '.'.", 0x0d, 0x0a
+                byte "^P / ^N - recall previous / next command.", 0x0d, 0x0a
+                byte '<port> ::= "ser1" | "ser2"', 0x0d, 0x0a
+                byte 0
+;
+cwr_bytes_msg   byte " bytes written", 0x0d, 0x0a, 0
+cm_range_msg    byte " - ", 0
+cm_write_msg    byte " writeable", 0
+cm_ro_msg       byte " read only", 0
+cm_super_msg    byte ", supervisor", 0
+cm_op_list      byte "super prot", 0
+cm_unalloc_msg  byte "unallocated", 0
+ccpm_op_list    byte "debug noints rawcon", 0
+ci_fpga_rev_msg byte "FPGA revision: ", 0
+ci_ram_msg      byte 0x0d, 0x0a, "Total RAM: ", 0
+ci_cpuspd_msg   byte " KB", 0x0d, 0x0a, "CPU clock: ", 0
+ci_khz_msg      byte " KHz", 0
+ci_mon_cnt_msg  byte 0x0d, 0x0a, "Monitor starts: ", 0
+ci_con_port     byte 0x0d, 0x0a, "Console port: ", 0
+ci_tran_port    byte 0x0d, 0x0a, "Data transfer port: ", 0
+ti_rtc_err_msg  byte 0x0d, 0x0a, "RTC error ", 0
+bin_dl_pre_msg  byte "Send binary data on port ", 0
+bin_dl_post_msg byte ". Press RESET to terminate.", 0x0d, 0x0a, 0
+bad_port_msg    byte "Invalid port.", 0x0d, 0x0a, 0
+;
+; 8-bit registers for set command.
+reg_names       byte "a f b c d e h l "             ; Index 0 to 7
+                byte "a' f' b' c' d' e' h' l' "     ; Index 8 to 15
+                byte "i r ien mmap "                ; Index 16 to 19
+                byte "bc de hl "                    ; Index 20 to 22
+                byte "bc' de' hl' "                 ; Index 23 to 25
+; Special registers (no alternates)
+                byte "pc sp ix iy", 0               ; Index 26 to 29
+;
+; A list of offsets into the exception stack for each register. The order must
+; match that of reg_names. Bit 7 is set to identify a 16-bit value (rather than
+; an 8-bit one).
+reg_offsets     byte MST_AF + 1, MST_AF             ; Index 0 to 7
+                byte MST_BC + 1, MST_BC
+                byte MST_DE + 1, MST_DE
+                byte MST_HL + 1, MST_HL
+                byte MST_AF_P + 1, MST_AF_P         ; Index 8 to 15
+                byte MST_BC_P + 1, MST_BC_P
+                byte MST_DE_P + 1, MST_DE_P
+                byte MST_HL_P + 1, MST_HL_P
+                byte MST_I, MST_R, MST_IEN, MST_MMAP_EN ; Index 16 to 19
+                byte MST_BC + 0x80, MST_DE + 0x80   ; Index 20 to 22
+                byte MST_HL + 0x80
+                byte MST_BC_P + 0x80, MST_DE_P+ 0x80 ; Index 23 to 25
+                byte MST_HL_P + 0x80
+; Special registers (no alternates)
+                byte MST_PC + 0x80, MST_SP + 0x80   ; Index 26 to 29
+                byte MST_IX + 0x80, MST_IY + 0x80
+;
+; Names must match definitions in io.i
+prt_name_list   byte "ser1 ser2", 0
+;
+;
+;
+; *************
+; * Variables *
+; *************
+;
+; Private monitor variables located in bank 1.
+; Note: linker "-c" option is used, so no data is initialised here.
+                dseg                ; Data segment
+;
+cmd_sp          defs 2              ; mcexec stack pointer
+cd_line_bytes   defs CD_BYTESPERLINE    ; Dump cmd. data for current line
+cd_disp_flag    defs 1              ; Dump cmd. ellipsis state
+cm_err_flag     defs 1              ; Memory test error flag
+time_tm         defs TM_SIZE        ; Date / time structure
+sector_buff     defs MMC_SECTOR_SIZE
+; Space for relocated monitor download code. The linker is understandably not
+; clever enough to cope with a calculated defs.
+                assert MON_DL_MAXLEN >= (mdl_code_end - mdl_code_start)
+mdl_code_run    defs MON_DL_MAXLEN
+;
+                end

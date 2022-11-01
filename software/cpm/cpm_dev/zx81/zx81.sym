@@ -1,0 +1,64 @@
+Addr  Length Typ Name       Module   File
+=====================================================================
+0100   07f3   P  -          ZX81.Z   zx81.rel
+08f3   0387   P  -          CPM_UT   ../shared/cpm_utility.rel
+0c7a   04e0   P  -          CPM_FI   ../shared/cpm_files.rel
+115a   02af   P  -          CPM_TE   ../shared/cpm_terminal.rel
+1409   0104   D  -          ZX81.Z   zx81.rel
+150d   000a   D  -          CPM_UT   ../shared/cpm_utility.rel
+1517   0052   D  -          CPM_TE   ../shared/cpm_terminal.rel
+
+Symbol   Value Module   File
+======================================================================
+BRKFLG   140b  ZX81.Z   zx81.rel
+CBDOS    08f3  CPM_UT   ../shared/cpm_utility.rel
+CBIOS    08ff  CPM_UT   ../shared/cpm_utility.rel
+CCINIT   115a  CPM_TE   ../shared/cpm_terminal.rel
+CCLS     12f3  CPM_TE   ../shared/cpm_terminal.rel
+CLDCUR   122c  CPM_TE   ../shared/cpm_terminal.rel
+CONCAP   1568  CPM_TE   ../shared/cpm_terminal.rel
+CONRCH   0972  CPM_UT   ../shared/cpm_utility.rel
+CONREV   12a0  CPM_TE   ../shared/cpm_terminal.rel
+CONST    0989  CPM_UT   ../shared/cpm_utility.rel
+CONULN   126e  CPM_TE   ../shared/cpm_terminal.rel
+CONWCH   0964  CPM_UT   ../shared/cpm_utility.rel
+CONWMN   0ae9  CPM_UT   ../shared/cpm_utility.rel
+CONWMS   0996  CPM_UT   ../shared/cpm_utility.rel
+CSCRUP   1313  CPM_TE   ../shared/cpm_terminal.rel
+CSRVIS   12d2  CPM_TE   ../shared/cpm_terminal.rel
+CWNWLN   097f  CPM_UT   ../shared/cpm_utility.rel
+CWPDBY   0a05  CPM_UT   ../shared/cpm_utility.rel
+CWPDLO   0a4c  CPM_UT   ../shared/cpm_utility.rel
+CWPDWD   0a0f  CPM_UT   ../shared/cpm_utility.rel
+CWPHBY   09f1  CPM_UT   ../shared/cpm_utility.rel
+CWPHNB   09e4  CPM_UT   ../shared/cpm_utility.rel
+CWPHWD   09fd  CPM_UT   ../shared/cpm_utility.rel
+CWPSPC   09bf  CPM_UT   ../shared/cpm_utility.rel
+CWVICH   09c4  CPM_UT   ../shared/cpm_utility.rel
+FBFCB    0c7f  CPM_FI   ../shared/cpm_files.rel
+FCLOSE   0e21  CPM_FI   ../shared/cpm_files.rel
+FDEL     0c9b  CPM_FI   ../shared/cpm_files.rel
+FDFCB    0e59  CPM_FI   ../shared/cpm_files.rel
+FDNAM    0ef4  CPM_FI   ../shared/cpm_files.rel
+FDSREM   0f49  CPM_FI   ../shared/cpm_files.rel
+FDSWEM   0f42  CPM_FI   ../shared/cpm_files.rel
+FINIT    0c7a  CPM_FI   ../shared/cpm_files.rel
+FMAKE    0cf0  CPM_FI   ../shared/cpm_files.rel
+FOPEN    0cc1  CPM_FI   ../shared/cpm_files.rel
+FRDBLK   0e0a  CPM_FI   ../shared/cpm_files.rel
+FRDBY    0dd0  CPM_FI   ../shared/cpm_files.rel
+FRDREC   0da2  CPM_FI   ../shared/cpm_files.rel
+FSTFRE   1569  CPM_TO   ../shared/cpm_top.rel
+FWRBLK   0d91  CPM_FI   ../shared/cpm_files.rel
+FWRBY    0d5f  CPM_FI   ../shared/cpm_files.rel
+FWRREC   0d2d  CPM_FI   ../shared/cpm_files.rel
+MTWDLI   0b0d  CPM_UT   ../shared/cpm_utility.rel
+PANIC    0913  CPM_UT   ../shared/cpm_utility.rel
+RDDULO   0bdd  CPM_UT   ../shared/cpm_utility.rel
+RDDUWD   0ba5  CPM_UT   ../shared/cpm_utility.rel
+RDHXWD   0b67  CPM_UT   ../shared/cpm_utility.rel
+SKPSPC   09a6  CPM_UT   ../shared/cpm_utility.rel
+TOLOCA   09b6  CPM_UT   ../shared/cpm_utility.rel
+TOUPCA   09ad  CPM_UT   ../shared/cpm_utility.rel
+Z80DET   094a  CPM_UT   ../shared/cpm_utility.rel
+ZRCDET   0926  CPM_UT   ../shared/cpm_utility.rel

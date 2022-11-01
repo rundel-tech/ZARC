@@ -1,0 +1,7 @@
+21/11/2021 (Sunday)
+
+Finding how many times each routine is called. I did this before, but much has changed since then. This method is scripted, and is reasonably accurate.
+
+I did this while thinking about which functions might be allocated to RST codes for best effect.
+
+    Merlin

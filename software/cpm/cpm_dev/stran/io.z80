@@ -1,0 +1,649 @@
+; *******************************************************
+; * I/O Routines for STran                              *
+; * Version: V1.0                                       *
+; * Merlin Skinner, 22/3/2021                           *
+; *******************************************************
+;
+                title STran I/O
+;
+;
+;
+; ************
+; * Includes *
+; ************
+;
+;
+                include "macros.i"
+                include "cpm.i"
+                include "stran.i"       ; Project include file
+                include "cpm_utility.i" ; CP/M utilities
+                include "cpm_maths.i"   ; Integer mathematics
+;
+;
+;
+; *************
+; * Externals *
+; *************
+;
+;
+; Variables
+                extern spoflg   ; Non-zero if in single port mode
+                extern zrcflg   ; Non-zero if on a ZARC system
+                extern brkflg   ; Non-zero if break character detected
+;
+; Functions
+                public flush    ; Flush data port receive buffer
+                public rxpkt    ; Receive a packet
+                public txpkt    ; Transmit a packet
+                public txdch    ; Transmit a character to the data port
+                public rxdch    ; Read a character from the data port
+;
+;
+                cseg                    ; Code segment
+;
+;
+;
+; ************
+; * Transmit *
+; ************
+;
+;
+; Transmit a packet. The packet is assumed to be fully built, with all fields
+; populated except the CRC.
+; Call with:
+; IY - pointer to packet buffer
+txpkt           push bc
+                push de
+                push hl
+;
+                push iy
+                pop hl
+;
+; Send start of packet character ("*" - not encoded)
+                ld a, "*"
+                call txdch
+;
+; Calculate total number of unencoded bytes to send.
+                ex de, hl
+                ld hl, PKT_DATA         ; Number of header bytes to send
+                ld b, (iy + PKT_LENGTH + 1) ; Fetch data length in bytes
+                ld c, (iy + PKT_LENGTH)
+                add hl, bc
+                push hl                 ; Copy length to BC
+                pop bc
+                ex de, hl
+                ld de, 0                ; Set initial CRC
+; BC - total bytes of header + data.
+; DE - CRC
+; HL - pointer to next byte to send (PSN).
+txp_send_loop   push bc                 ; Save byte counter
+                push de                 ; Save CRC
+;
+; Send data
+                ld c, (hl)
+                inc hl
+                ld d, (hl)
+                inc hl
+                ld e, (hl)
+                call tx_data_enc        ; Send 3 to 4 bytes encoded data
+                pop de                  ; Restore CRC
+;
+; Update CRC.
+                dec hl
+                dec hl
+                ex de, hl
+
+; DE - pointer to next byte to send (PSN).
+; HL - CRC
+                ld a, (de)              ; Fetch byte 0
+                call crc16x             ; Add to CRC
+                inc de
+;
+                ld a, (de)              ; Fetch byte 1
+                call crc16x             ; Add to CRC
+                inc de
+;
+                ld a, (de)              ; Fetch byte 2
+                call crc16x             ; Add to CRC
+                inc de
+;
+                ex de, hl
+                pop bc
+; BC - total bytes of header + data.
+; DE - CRC
+; HL - pointer to next byte to send (PSN).
+                dec bc                  ; Update byte counter
+                dec bc
+                dec bc
+; If BC is zero or negative there is no more data to send.
+                dec bc
+; Now we can look for negative in all cases.
+                ld a, b
+                inc bc                  ; Restore decrement by 3 result
+                and a
+                jp p, txp_send_loop     
+; Data sent, complete with padding (if required) to align to a 3-byte boundary.
+;
+; Send CRC
+                ld c, e
+                ld e, 0                 ; Pad byte
+                call tx_data_enc        ; Send 3 to 4 bytes encoded data
+;
+                pop hl
+                pop de
+                pop bc
+                ret
+;
+;
+; Transmit 3 bytes using the 3 to 4 bytes encoding scheme.
+; Call with:
+; CDE - data to transmit (C first)
+tx_data_enc     push bc
+                ld a, c
+                srl a
+                srl a
+                or 0x40
+; A - <0, 1> <byte 0 bits 7 to 2>
+                call txdch
+                ld a, c
+                rlca
+                rlca
+                rlca
+                rlca
+                and 0x30                ; Isolate byte 0 bits 1 to 0
+                ld b, a
+                ld a, d
+                rrca
+                rrca
+                rrca
+                rrca
+                and 0x0f                ; Isolate byte 1 bits 7 to 4
+                or b
+                or 0x40
+; A - <0, 1> <byte 0 bits 1 to 0> <byte 1 bits 7 to 4>
+                call txdch
+                ld a, d
+                rlca
+                rlca
+                and 0x3c                ; Isolate byte 1 bits 3 to 0
+                ld b, a
+                ld a, e
+                rlca
+                rlca
+                and 0x03                ; Isolate byte 2 bits 7 to 6
+                or b
+                or 0x40
+; A - <0, 1> <byte 1 bits 3 to 0> <byte 2 bits 7 to 6>
+                call txdch
+                ld a, e
+                and 0x3f                ; Isolate byte 2 bits 5 to 0
+                or 0x40
+; A - <0, 1> <byte 2 bits 5 to 0>
+                call txdch
+                pop bc
+                ret
+;
+;
+; Transmit a character to the data port. CP/M does not provide a method for reading
+; the PUNCH device port status, so this routine will wait if the transmitter is
+; busy.
+; Call with:
+; A - character to send.
+txdch           push bc
+                push de
+                push hl
+;
+                ld c, a
+                ld hl, BIOS_PUNCH       ; Paper tape punch output
+                call cbios
+;
+                pop hl
+                pop de
+                pop bc
+                ret
+;
+;
+;
+; ***********
+; * Receive *
+; ***********
+;
+;
+; Receive a packet.
+; Call with:
+; IY - pointer to packet buffer
+; Returns with:
+; A - 0x00 if OK or RXERR_...
+rxpkt           push bc
+                push de
+                push hl
+                ld (ret_sp), sp         ; Save stack for error exits
+;
+; Await start of packet character.
+rxp_wait_start  ld sp, (ret_sp)         ; Restore saved stack pointer
+                call rxdch
+                ld b, a
+                ld a, (brkflg)          ; Check break flag
+                and a
+                jr nz, rxp_break
+                ld a, b
+                cp "*"
+                jr nz, rxp_wait_start
+;
+; Start character found.
+                ifdef DEBUG
+                    ld a, "["
+                    call conwch             ; Write character to console
+                endif
+                ld bc, 0                ; Byte count
+                ld de, 0                ; Initial CRC
+                push iy
+                pop hl
+;
+; BC - total bytes of header + data
+; DE - CRC
+; HL - receive buffer pointer
+rxp_loop        call rxp_read           ; Read three bytes
+                cp RXERR_BREAK
+                jr z, rxp_break
+                and a
+                jr nz, rxp_wait_start   ; Restart on other errors
+;
+; Handle length.
+                inc bc                  ; Three more bytes
+                inc bc
+                inc bc
+; Read until the entire packet is in the buffer.
+                ld a, b
+                and a
+                jr nz, rxp_have_len
+                ld a, c
+                cp PKT_LENGTH + 2
+                jr c, rxp_loop          ; Keep reading if no data length yet
+; The length bytes are in the buffer.
+rxp_have_len    push hl
+                push de
+                ld hl, PKT_DATA         ; Number of header bytes
+                ld e, (iy + PKT_LENGTH) ; Fetch data length
+                ld d, (iy + PKT_LENGTH + 1)
+                add hl, de
+; HL - number of bytes to read.
+                dec hl                  ; Subtract 1 to catch equal case
+                and a
+                sbc hl, bc
+                pop de
+                pop hl
+                jr nc, rxp_loop
+;
+; Read the CRC
+                push de
+                call rx_data_enc        ; Receive three bytes
+; A - 0x00 if OK or RXERR_...
+; CDE - received data (C first) unless brkflg is set.
+                cp RXERR_BREAK
+                jr z, rxp_break
+                and a
+                jr nz, rxp_wait_start   ; Restart on other errors
+; CD - received checksum
+                ld l, c
+                ld h, d
+                pop de
+                ifdef DEBUG
+                    ld a, "C"
+                    call conwch             ; Write character to console
+                    push hl
+                    call cwphwd             ; Print HL in hexadecimal
+                    ld a, ":"
+                    call conwch             ; Write character to console
+                    ld h, d
+                    ld l, e
+                    call cwphwd             ; Print HL in hexadecimal
+                    pop hl
+                endif
+                and a
+                sbc hl, de
+                jr nz, rxp_crc_err
+                ifdef DEBUG
+                    ld a, "]"
+                    call conwch             ; Write character to console
+                endif
+                xor a                   ; Success code
+;
+; Return with error code in A.
+rxp_exit        ld sp, (ret_sp)         ; Restore saved stack pointer
+                pop hl
+                pop de
+                pop bc
+                ret
+;
+; Break (^C) detected.
+rxp_break       ld a, RXERR_BREAK       ; Break detected
+                jr rxp_exit
+; 
+rxp_crc_err     ld a, RXERR_CRC         ; CRC error
+                jr rxp_exit
+;
+;
+; Read three bytes and store them in the buffer. Update the CRC.
+; Call and returns with:
+; DE - CRC
+; HL - buffer pointer
+; Returns with:
+; A - 0x00 if OK or RXERR_...
+rxp_read        push bc
+;
+                push de                 ; Save CRC
+                call rx_data_enc        ; Receive three bytes
+; A - 0x00 if OK or RXERR_...
+; CDE - received data (C first) unless brkflg is set.
+                ld (hl), c              ; Save the data
+                inc hl
+                ld (hl), d
+                inc hl
+                ld (hl), e
+                pop de                  ; Restore CRC
+                and a
+                jr nz, rxpr_exit        ; Exit on error
+;
+; Update CRC.
+                dec hl                  ; Point to first byte again
+                dec hl
+                ex de, hl
+; DE - pointer to next byte in buffer
+; HL - CRC
+                ld a, (de)              ; Fetch byte 0
+                call crc16x             ; Add to CRC
+                inc de
+;
+                ld a, (de)              ; Fetch byte 1
+                call crc16x             ; Add to CRC
+                inc de
+;
+                ld a, (de)              ; Fetch byte 2
+                call crc16x             ; Add to CRC
+                inc de
+;
+                ex de, hl
+; DE - CRC
+; HL - pointer to next byte in buffer
+                xor a                   ; Success code
+;
+; Exit with zero or error code (RXERR_...) in A.
+rxpr_exit       pop bc
+                ret
+;
+;
+; Receive 3 bytes using the 3 to 4 bytes encoding scheme.
+; Returns with:
+; A - 0x00 if OK or RXERR_...
+; CDE - received data (C first) if A = 0x00
+rx_data_enc     push hl
+                ld l, b                 ; Preserve B (only)
+;
+                call rde_char           ; Read character 0
+; A - <byte 0 bits 7 to 2>
+                add a
+                add a
+                ld c, a
+                call rde_char           ; Read character 1
+; A - <byte 0 bits 1 to 0> <byte 1 bits 7 to 4>
+                ld b, a
+                rrca
+                rrca
+                rrca
+                rrca
+                and 0x03                ; Isolate byte 0 bits 1 to 0
+                or c
+                ld c, a
+; C - decoded byte 0.
+; B - 6 data bits recovered from character 1
+                ld a, b
+                rlca
+                rlca
+                rlca
+                rlca
+                and 0xf0                ; Isolate byte 1 bits 7 to 4
+                ld d, a
+                call rde_char           ; Read character 2
+; A - <byte 1 bits 3 to 0> <byte 2 bits 7 to 6>
+                ld b, a
+                rrca
+                rrca
+                and 0x0f                ; Isolate byte 1 bits 3 to 0
+                or d
+                ld d, a
+; D - decoded byte 1.
+; B - 6 data bits recovered from character 2
+                ld a, b
+                rrca
+                rrca
+                and 0xc0                ; Isolate byte byte 2 bits 7 to 6
+                ld e, a
+                call rde_char           ; Read character 3
+; A - <byte 2 bits 5 to 0>
+                and 0x3f                ; Isolate byte 2 bits 5 to 0
+                or e
+                ld e, a
+; E - decoded byte 2.
+; CDE - received data (C first)
+                ifdef DEBUG
+                    ld a, "{"
+                    call conwch             ; Write character to console
+                    ld a, c
+                    call cwphby             ; Print A in hexadecimal
+                    ld a, ","
+                    call conwch             ; Write character to console
+                    ld a, d
+                    call cwphby             ; Print A in hexadecimal
+                    ld a, ","
+                    call conwch             ; Write character to console
+                    ld a, e
+                    call cwphby             ; Print A in hexadecimal
+                    ld a, "}"
+                    call conwch             ; Write character to console
+                    call cwnwln             ; Write new line characters to console
+                endif
+                xor a                   ; Set success code
+;
+rde_exit        ld b, l
+                pop hl
+                ret
+;
+; Read a character. For use by rx_data_enc as it makes direct jumps for error
+; handling. B register is not preserved.
+; A - bits 5 to 0 contain the 6 data bits recovered from this encoded character.
+rde_char        call rxdch
+                ld b, a
+                ld a, (brkflg)          ; Check break flag
+                and a
+                jr nz, rdec_break
+                ld a, b
+                sub 0x40
+                jr c, rdec_enc          ; Error if < 0x40
+                cp 0x40
+                jr nc, rdec_enc         ; Error if character was >= 0x80
+                ret
+;
+rdec_break      inc sp                  ; Discard rde_char return address
+                inc sp
+                ld a, RXERR_BREAK       ; Break detected
+                jr rde_exit
+;
+rdec_enc        inc sp                  ; Discard rde_char return address
+                inc sp
+                ld a, RXERR_ENC         ; 3 to 4 encoding error
+                jr rde_exit
+;
+;
+; Fetch a received character from the data port. If no character is available,
+; wait until one arrives. CP/M 2.2 does not provide a method for reading the
+; READER device port status, but we can do this using ZARC extensions if we are
+; running on a ZARC system. This code also checks for break (^C) characters on
+; the console port, whether this is the same as the data port or not. If a break
+; is detected, brkflg is set.
+; Returns with:
+; A - received character.
+rxdch           push bc
+                push de
+                push hl
+;
+                ld a, (spoflg)          ; Non-zero if in single port mode
+                and a
+                jr nz, rdc_read         ; Read character or ^C
+; We are in two port mode. We should preferably check that a character is ready
+; before committing to a blocking read.
+                ld a, (zrcflg)          ; Non-zero if on a ZARC system
+                and a
+                jr z, rdc_read          ; Jump if non-ZARC as we can't help
+; We are in two port mode on ZARC. Wait until a character is ready, polling
+; for break as we do so. Note, the auxiliary input is called READER in CP/M 2.x.
+rdc_wait        ld hl, BIOS_AUXIST      ; Status of auxiliary input
+                call cbios
+                and a
+                jr nz, rdc_read         ; Jump if a character awaits
+                call rdc_con_break
+                jr c, rdc_break         ; Jump if break detected
+                jr rdc_wait
+;
+; Read a character, waiting if required. In single port mode, it doesn't matter
+; that this blocks as the returned character will either be data or a break.
+rdc_read        ld hl, BIOS_READER      ; Reader input
+                call cbios
+                ld (rdc_char), a        ; Save it for later
+                ifdef DEBUG
+                    push af
+                    ld a, "("
+                    call conwch             ; Write character to console
+                    pop af
+                    call cwphby             ; Print A in hexadecimal
+                    ld a, ")"
+                    call conwch             ; Write character to console
+                endif
+;
+; Perform break (^C) checks. How we do this depends on the mode.
+                ld a, (spoflg)
+                and a
+                jr nz, rdc_one_port
+;
+; In two port mode, we should check the console device for break characters.
+; This is somewhat redundant if on ZARC as we have checked previously, but
+; is harmless.
+                call rdc_con_break
+                jr c, rdc_break         ; Jump if break detected
+                jr rdc_break_done
+;
+; In single port mode, we just check the received character.
+rdc_one_port    ld a, (rdc_char)        ; Fetch received character
+rdc_chk_char    cp BREAK_CHAR
+                jr nz, rdc_break_done   ; Exit if not a break
+;
+; Break character detected.
+rdc_break       ld a, 0xff
+                ld (brkflg), a          ; Flag break detected
+;
+rdc_break_done  ld a, (rdc_char)        ; Fetch received character
+                pop hl
+                pop de
+                pop bc
+                ret
+;
+; Check console port for break character.
+; Returns with:
+; Carry flag - set if break detected.
+rdc_con_break   ld hl, BIOS_CONST       ; Console status
+                call cbios
+                and a
+                jr z, rdcb_no_break     ; Exit if no character awaits
+                ld hl, BIOS_CONIN       ; Console input
+                call cbios
+                cp BREAK_CHAR
+                jr z, rdcb_break
+rdcb_no_break   and a                   ; Flag no break detected
+                ret
+;
+rdcb_break      scf                     ; Flag break detected
+                ret
+;
+;
+; Flush data port receive buffer. This works when the console port is the
+; data port (single port mode) and / or when running on a ZARC system. CP/M 2.2
+; does not provide a method for reading the READER device port status, so this
+; doesn't work on a non-ZARC system in dual port mode. This code keeps reading
+; and discarding data until no data is received for a reasonable period,
+; defined by FLUSH_TIMER. This behaviour allows for delays caused by additional
+; upstream buffers, such as those in a RS-232 to USB adaptor.
+flush           ld a, (spoflg)          ; Non-zero if in single port mode
+                and a
+                jr nz, flu_doit         ; Jump if in single port mode
+                ld a, (zrcflg)          ; Non-zero if on a ZARC system
+                and a
+                ret z                   ; Return if not ZARC
+;
+flu_doit        push bc
+                push de
+                push hl
+;
+                ld hl, flushing_msg     ; "Flushing serial port receive buffer"
+                call conwms             ; Print $-terminated string to the console
+;
+; The timer is crude in that it really only sets the number of checks made
+; before declaring the buffer empty. The actual time will depend on processor
+; speed.
+flu_reset       ld bc, FLUSH_TIMER
+flu_loop        push bc
+;
+; Check the port status. This will determine whether we use CONST or AUXIST
+; to check whether or not there is a character to read.
+                ld hl, BIOS_CONST       ; Console status (single port mode)
+                ld a, (spoflg)          ; Non-zero if in single port mode
+                and a
+                jr nz, flu_check        ; Jump if in single port mode
+                ld hl, BIOS_AUXIST      ; Status of auxiliary input
+; Check the port status using the appropriate function.
+flu_check       call cbios
+                and a
+                jr z, flu_no_char       ; Exit if no character awaits
+;
+; There is a character awaiting, so read it.
+                ld hl, BIOS_READER      ; Reader input
+                call cbios
+                pop bc                  ; Recover timer
+; The received character is discarded.
+                jr flu_reset            ; Reset timer and keep checking
+;
+flu_no_char     pop bc                  ; Recover timer
+                dec bc
+                ld a, b
+                or c
+                jr nz, flu_loop
+;
+; Best effort flushing complete.
+flu_done        pop hl
+                pop de
+                pop bc
+                ret
+;
+;
+;
+; *************
+; * Constants *
+; *************
+;
+;
+flushing_msg    byte "Flushing serial port receive buffer", 0x0d, 0x0a, "$"
+;
+;
+;
+; *************
+; * Variables *
+; *************
+;
+;
+; Note: linker "-c" option is used, so no data is initialised here.
+                dseg                ; Data segment
+;
+ret_sp          defs 2              ; Saved stack for error exits
+rdc_char        defs 1              ; Temporary character store for rxdch
+;
+                end
+
