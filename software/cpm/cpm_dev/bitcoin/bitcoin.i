@@ -17,7 +17,7 @@
 STACK_SIZE      equ 64                  ; Stack space allocation
 BREAK_CHAR      equ 'C' - 0x40
 ;
-MSG_PERIOD      equ 2 * 1000            ; Time between messages in ms (ZARC)
+MSG_PERIOD      equ 10 * 1000           ; Time between messages in ms (ZARC)
 MSG_REP_MASK    equ 32 - 1              ; Iteration report mask
 ; MSG_REP_MASK must be 2^n - 1, where n is a positive integer. Reports will
 ; occur every 2^n iterations.

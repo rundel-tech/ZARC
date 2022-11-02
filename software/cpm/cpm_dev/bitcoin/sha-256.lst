@@ -14,7 +14,7 @@
   14:				;
   15:				;
   16:				                include "macros.i"
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//macros.i ****
+**** /home/merlin/Technical/HardwareProjects/ZARC_Z80_Box/software/includes//macros.i ****
    1:				; ***********************************
    2:				; * ZARC Macro Definitions          *
    3:				; * Written by: Merlin Skinner      *
@@ -172,7 +172,7 @@
   17:     -	0040'         	STACK_SIZE      equ 64                  ; Stack space allocation
   18:     -	0003'         	BREAK_CHAR      equ 'C' - 0x40
   19:				;
-  20:     -	07D0'         	MSG_PERIOD      equ 2 * 1000            ; Time between messages in ms (ZARC)
+  20:     -	2710'         	MSG_PERIOD      equ 10 * 1000           ; Time between messages in ms (ZARC)
   21:     -	001F'         	MSG_REP_MASK    equ 32 - 1              ; Iteration report mask
   22:				; MSG_REP_MASK must be 2^n - 1, where n is a positive integer. Reports will
   23:				; occur every 2^n iterations.
@@ -201,7 +201,7 @@
   46:				;
 **** sha-256.z80 ****
   19:				                include "cpm_utility.i" ; CP/M utilities
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//cpm_utility.i ****
+**** /home/merlin/Technical/HardwareProjects/ZARC_Z80_Box/software/includes//cpm_utility.i ****
    1:				; *******************************************************
    2:				; * Utility Routines for CP/M Applications              *
    3:				; * Version: V1.0                                       *
@@ -253,7 +253,7 @@
   49:				
 **** sha-256.z80 ****
   20:				                include "cpm_maths.i"   ; Integer mathematics
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//cpm_maths.i ****
+**** /home/merlin/Technical/HardwareProjects/ZARC_Z80_Box/software/includes//cpm_maths.i ****
    1:				; *******************************************************
    2:				; * Mathematical Routines for CP/M Applications         *
    3:				; * Version: V1.0                                       *
@@ -1497,7 +1497,7 @@ BH_SIZE        =50        80
 BH_TIME_STAMP  =44        68
 BH_VER         =00        0
 BREAK_CHAR     =03        3
-MSG_PERIOD     = 7D0      2000
+MSG_PERIOD     =2710      10000
 MSG_REP_MASK   =1F        31
 MTWDLI_ABBREV_BIT=00        0
 MTWDLI_ABBREV_MASK=01        1

@@ -82,24 +82,18 @@ on_z80          ld hl, signon_msg
                 rla
                 and 1
                 ld (zarc_flag), a       ; 0x01 if ZARC, zero otherwise
-                jr nz, init_fcbr
+                jr nz, exam_tail
 ;
 ; Warn about limited facilites.
                 ld hl, no_zarc_msg      ; "ZARC BIOS not detected ..."
                 call conwms             ; Print $-terminated string to console
-;
-; Setup file structure.
-; IX - pointer to FCBR structure (FCB with record buffer). This is defined in
-; cpm_files.i
-init_fcbr       ld ix, fcbr
-                call finit              ; Initialise FCBR structure
 ;
 ; Examine the command tail, looking for operands. This is stored in the default
 ; buffer. "The first byte at 0080H contains the length of the command tall,
 ; while the command tail itself begins at 0081H. The command tail is terminated
 ; by a byte containing a binary zero value."
 ; (http://www.cpm.z80.de/manuals/cpm22-m.pdf appendix H).
-                ld hl, DEF_BUFFER + 1
+exam_tail       ld hl, DEF_BUFFER + 1
 ; No operands (yet).
 ; The terminator should follow.
 op_check_term   call skpspc
@@ -214,11 +208,16 @@ operands_ok
 ;
 ;
 ; Attempt to load saved progress.
-                ld hl, load_state_msg   ; "Loading saved state "
-                call conwms             ; Print $-terminated string to console
-; IX - pointer to FCBR structure (FCB with record buffer) was setup earlier.
+                ld ix, fcbr
+; IX - pointer to FCBR structure (FCB with record buffer). This is defined in
+; cpm_files.i
+                call finit              ; Initialise FCBR structure
                 ld hl, save_fn          ; Filename
                 call fbfcb              ; Build the FCB.
+                ld hl, load_msg         ; "Loading saved state "
+                call conwms             ; Print $-terminated string to console
+                call fdnam              ; Display CP/M filename
+                call cwnwln             ; Write new line characters to console
 ;
                 call fopen              ; Open file for reading
 ; Carry set on error. A generic message will have been written to the console
@@ -475,12 +474,18 @@ rep_done        call const              ; Fetch console input status
 ml_no_break     jp main_loop            ; Do another iteration
 ;
 ;
-; Break detected. Attempt to save state. The fcbr is reused, so the save
-; filename is the same as that used for loading.
-break_det       ld hl, save_msg         ; "Saving state "
+; Break detected. Attempt to save state. The fcbr is reused.
+break_det       ld ix, fcbr             ; Ensure pointer is still valid
+; IX - pointer to FCBR structure (FCB with record buffer). This is defined in
+; cpm_files.i
+                call finit              ; Re-initialise FCBR structure
+                ld hl, save_fn          ; Filename
+                call fbfcb              ; Build the FCB.
+                ld hl, save_msg         ; "Saving state "
                 call conwms             ; Print $-terminated string to console
                 call fdnam              ; Display CP/M filename
                 call cwnwln             ; Write new line characters to console
+;
                 call fmake              ; Create new file and report errors
 ; A - BDOS error code if carry = 1
 ; Carry flag is set if BDOS reported an error.
@@ -747,7 +752,7 @@ test_long_msg   byte "Long message test: $"
 test_long2_msg  byte "Long message test 2: $"
 genesis_msg     byte "Bitcoin genesis block: $"
 bitc_exam_msg   byte "Bitcoin example block: $"
-load_state_msg  byte "Loading saved state.", 0x0d, 0x0a, "$"
+load_msg        byte "Loading state from file $"
 save_fn         byte "BITCOIN SAV"
 load_err_msg    byte "Error reading saved state. "
                 byte "Using bitcoin genesis block.", 0x0d, 0x0a, "$"

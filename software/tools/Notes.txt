@@ -135,5 +135,5 @@ Modified library location to use an environment variable.
 Added to ~/.bashrc:
 
 # Added by Merlin on 25/6/2022 for ZARC Z80 include files
-export ZARC_INCLUDE="/home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes/"
+export ZARC_INCLUDE="/home/merlin/Technical/HardwareProjects/ZARC_Z80_Box/software/includes/"
 
