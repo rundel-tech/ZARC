@@ -26,3 +26,10 @@ Software features include:
 * Bitcoin miner (bitcoin)
 
 The CP/M system is capable of running most widely available CP/M software.
+
+## Documentation
+* [Hardware](hardware/HardwareGuide.pdf)
+* [Monitor](software/monitor/MonitorGuide.pdf)
+* [CP/M, including BIOS and installation](software/cpm/CPM_Guide.pdf)
+* [File system checker](software/cpm/cpm_dev/fsck/fsckGuide.pdf)
+* [File transfer over serial link](software/tools/stran/STranGuide.pdf)
