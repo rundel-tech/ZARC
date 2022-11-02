@@ -1,0 +1,2 @@
+# Fix github's language detection for .z80 files.
+*.z80 linguist-language=Assembly
