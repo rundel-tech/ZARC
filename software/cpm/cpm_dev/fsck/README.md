@@ -1,0 +1,2 @@
+# CP/M 2.2 File System Consistency Checker
+“FSCK” is an abbreviation for File System Consistency checK), as commonly found on Unix and Linux systems. This programme scans a CP/M 2.2 file system and reports any errors it finds. It does not attempt any kind of repair. Though written for my ZARC retro-computer project, this should run on any suitable CP/M system. It would be interesting for someone to try this. Simply copy [FSCK.COM](FSCK.COM) to a disk and run it. For further information, see [fsckGuide.pdf](fsck/fsckGuide.pdf).
