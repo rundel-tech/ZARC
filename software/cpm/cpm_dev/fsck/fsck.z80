@@ -1,8 +1,12 @@
 ; *******************************************************
 ; * CP/M File System Checker                            *
-; * Version: V1.0                                       *
-; * Merlin Skinner, 16/2/2022                           *
+; * Version: V1.1                                       *
+; * Merlin Skinner-Oakes, 16/2/2022                     *
 ; *******************************************************
+;
+; V1.0 - 16/2/2022, initial version.
+; V1.1 - 4/11/2022, added option to skip the surface scan on request from
+;        "alank2" at https://forum.vcfed.org/
 ;
 ; CP/M 2.2 file system checker. It is intended for ZARC but avoids using
 ; any special facilities so should run elsewhere. It reads the DPB to discover
@@ -105,6 +109,7 @@ on_z80          ld hl, signon_msg
                 ld hl, DEF_BUFFER + 1
                 call skpspc             ; Skip spaces
                 ld a, (hl)              ; This should be a drive letter
+                inc hl
                 ifdef DEBUG
                     ld a, "C"   ; ***TEMP*** - useful when debugging
                 endif
@@ -118,11 +123,51 @@ on_z80          ld hl, signon_msg
                 ld (drive), a           ; Save it
 ;
 ; A following colon is optional.
-                inc hl
                 ld a, (hl)
                 cp ":"
-                jr nz, op_check_term
+                jr nz, op_options
                 inc hl                  ; Step past colon
+;
+; Set default options. These may be modified as the command tail is processed.
+op_options      xor a
+                ld (scan_enable), a     ; Disable surface scan
+;
+; Check for options. These may begin with "[", "/" or "$", to match all
+; conventions I have found used with CP/M.
+                call skpspc             ; Skip spaces
+; Options 
+                ld a, (hl)
+                inc hl
+                ld c, a                 ; Save for later
+                and a
+                jr z, operands_ok       ; Jump if no options
+                cp "["
+                jr z, op_found
+                cp "/"
+                jr z, op_found
+                cp "$"
+                jr nz, op_error         ; Jump if not an option
+; Option introducer found.
+; C - option character
+; HL - pointer to command tail
+op_found        ld a, (hl)
+                inc hl
+                and a
+                jr z, op_error          ; Error if option missing
+; At present, there is just one option.
+                cp "S"
+                jr nz, op_error         ; C
+; "S" option enables surface scan.
+                ld a, 0xff
+                ld (scan_enable), a     ; Enable surface scan
+; Options processed. Check for "]" if appropriate.
+                ld a, c
+                cp "["
+                jr nz, op_check_term    ; Jump if we didn't start with "["
+                ld a, (hl)
+                inc hl
+                cp "]"
+                jr nz, op_error         ; Jump if terminator or anything else
 ;
 ; The terminator should follow.
 op_check_term   call skpspc             ; Skip spaces
@@ -830,6 +875,13 @@ bdis_entry_done ld a, c
                 jr c, bdis_loop
                 call cwnwln             ; Write new line characters to console
 ;
+; Should we perform the surface scan?
+                ld a, (scan_enable)     ; Surface scan enable flag
+                and a
+                jr nz, surface_scan
+                ld hl, no_ss_msg        ; "Surface scan skipped ..."
+                jp msg_exit
+;
 ;
 ; *** Surface scan ***
 ; Read every block to ensure that they are readable. The reserved (system) area
@@ -837,8 +889,7 @@ bdis_entry_done ld a, c
 ; may cause trouble. Blocks extend from 0 (the beginning of the directory) to
 ; DPB.DSM. Each block consists of DPB.BLM + 1 sectors. Alternatively, shifting
 ; the number of blocks by DPB.BSH gives the number of sectors.
-;
-                ld hl, surf_scan_msg    ; "Checking all blocks are readable (surface scan)"
+surface_scan    ld hl, surf_scan_msg    ; "Checking all blocks are readable (surface scan)"
                 call conwms             ; Print $-terminated string to console
 ; Find number of sectors in file system.
                 ld e, (ix + DPB_DSM)    ; Maximum block number
@@ -1532,9 +1583,9 @@ ss_track_done   ld b, h                 ; Move track number to BC
 ; *************
 ;
 ;
-signon_msg      byte "*** CP/M File System Checker V1.0 ***", 0x0d, 0x0a, 0x0d, 0x0a, "$"
+signon_msg      byte "*** CP/M File System Checker V1.1 ***", 0x0d, 0x0a, 0x0d, 0x0a, "$"
 no_z80_msg      byte "Z80 CPU required", 0x0d, 0x0a, "$"
-op_err_msg      byte "Drive letter expected.", 0x0d, 0x0a, "$"
+op_err_msg      byte "Operand error. Expected format: fsck <drive>[:] [/s]", 0x0d, 0x0a, "$"
 exit_msg        byte "Returning to CP/M.", 0x0d, 0x0a, "$"
 memory_msg      byte "Insufficient memory", 0x0d, 0x0a, "$"
 sel_err_msg     byte "Can't select drive.", 0x0d, 0x0a, "$"
@@ -1545,6 +1596,7 @@ unused_msg      byte "Unused directory entries: $"
 blocks_used_msg byte "Blocks used: $"
 block_map_msg   byte 0x0d, 0x0a, "Block map ('D': directory, 'F': file and '-': unused).", 0x0d, 0x0a, "$"
 errors_msg      byte "Errors and warnings: $"
+no_ss_msg       byte "Surface scan skipped", 0x0d, 0x0a, "$"
 surf_scan_msg   byte 0x0d, 0x0a, "Checking all blocks are readable (surface scan)", 0x0d, 0x0a, "$"
 track_msg       byte 0x0d, "Track: $"
 sector_msg      byte ", sector: $"
@@ -1573,6 +1625,7 @@ empty_msg       byte " - has no data [warning]$"
 ;
 bdos_sp         defs 2              ; BDOS's stack pointer
 drive           defs 1              ; Drive number (0 to 15)
+scan_enable     defs 1              ; Surface scan enable flag
 blk_flags       defs 2              ; Pointer to start of blocks used flags
 blk_flags_size  defs 2              ; Size of block flags buffer
 files_info      defs 2              ; Start address of FI structures
