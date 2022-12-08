@@ -28,7 +28,7 @@
   28:				;
   29:				;
   30:				                include "macros.i"
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//macros.i ****
+**** /home/merlin/Technical/ZARC_Z80_Box/git/software/includes/macros.i ****
    1:				; ***********************************
    2:				; * ZARC Macro Definitions          *
    3:				; * Written by: Merlin Skinner      *
@@ -165,7 +165,7 @@
  134:				
 **** cpm_files.z80 ****
   31:				                include "cpm.i"
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//cpm.i ****
+**** /home/merlin/Technical/ZARC_Z80_Box/git/software/includes/cpm.i ****
    1:				; *******************************************************
    2:				; * ZARC Monitor CP/M Definitions                       *
    3:				; * Written by: Merlin Skinner                          *
@@ -455,7 +455,7 @@
  298:				
 **** cpm_files.z80 ****
   32:				                include "terminal.i"    ; Terminal constants
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//terminal.i ****
+**** /home/merlin/Technical/ZARC_Z80_Box/git/software/includes/terminal.i ****
    1:				; ***********************************
    2:				; * ZARC Terminal Definitions       *
    3:				; * Written by: Merlin Skinner      *
@@ -492,7 +492,7 @@
   34:				
 **** cpm_files.z80 ****
   33:				                include "cpm_utility.i" ; CP/M utilities
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//cpm_utility.i ****
+**** /home/merlin/Technical/ZARC_Z80_Box/git/software/includes/cpm_utility.i ****
    1:				; *******************************************************
    2:				; * Utility Routines for CP/M Applications              *
    3:				; * Version: V1.0                                       *
@@ -508,43 +508,44 @@
   13:				                extern panic    ; Fatal application error
   14:				                extern zrcdet   ; Detect ZARC
   15:				                extern z80det   ; Detect Z80 (instead of 8080 / 8085)
-  16:				;
-  17:				; Derived from the monitor's utility.z80.
-  18:				                extern conwch   ; Write character to console
-  19:				                extern conrch   ; Read character from the console
-  20:				                extern const    ; Fetch console input status
-  21:				                extern cwnwln   ; Write new line characters to console
-  22:				                extern conwms   ; Print "$" terminated string to the console
-  23:				                extern conwmn   ; Print message <n> in a list
-  24:				                extern skpspc   ; Step hl past spaces
-  25:				                extern toupca   ; Convert character in A to upper case
-  26:				                extern toloca   ; Convert character in A to lower case
-  27:				                extern cwvich   ; Print only visible 7-bit characters
-  28:				                extern cwpspc   ; Print a space
-  29:				                extern mtwdli   ; Match word in a string against list of options
-  30:				                extern cwphnb   ; Print least-significant nibble in A in hexadecimal
-  31:				                extern cwphby   ; Print A in hexadecimal
-  32:				                extern cwphwd   ; Print HL in hexadecimal
-  33:				                extern cwpdwd   ; Print HL in decimal. Leading zeros are suppressed
-  34:				                extern cwpdby   ; Print A in decimal. Leading zeros are suppressed
-  35:				                extern cwpdwd   ; Print HL in decimal. Leading zeros are suppressed
-  36:				                extern cwpdlo   ; Print DEHL in decimal. Leading zeros are suppressed
-  37:				                extern rdhxwd   ; Read a 16-bit hexadecimal number from a string
-  38:				                extern rdduwd   ; Read a 16-bit unsigned decimal number from a string
-  39:				                extern rddulo   ; Read a 32-bit unsigned decimal number from a string
-  40:				;
-  41:				            endif
-  42:				;
+  16:				                extern clopts   ; Read command line options
+  17:				;
+  18:				; Derived from the monitor's utility.z80.
+  19:				                extern conwch   ; Write character to console
+  20:				                extern conrch   ; Read character from the console
+  21:				                extern const    ; Fetch console input status
+  22:				                extern cwnwln   ; Write new line characters to console
+  23:				                extern conwms   ; Print "$" terminated string to the console
+  24:				                extern conwmn   ; Print message <n> in a list
+  25:				                extern skpspc   ; Step hl past spaces
+  26:				                extern toupca   ; Convert character in A to upper case
+  27:				                extern toloca   ; Convert character in A to lower case
+  28:				                extern cwvich   ; Print only visible 7-bit characters
+  29:				                extern cwpspc   ; Print a space
+  30:				                extern mtwdli   ; Match word in a string against list of options
+  31:				                extern cwphnb   ; Print least-significant nibble in A in hexadecimal
+  32:				                extern cwphby   ; Print A in hexadecimal
+  33:				                extern cwphwd   ; Print HL in hexadecimal
+  34:				                extern cwpdwd   ; Print HL in decimal. Leading zeros are suppressed
+  35:				                extern cwpdby   ; Print A in decimal. Leading zeros are suppressed
+  36:				                extern cwpdwd   ; Print HL in decimal. Leading zeros are suppressed
+  37:				                extern cwpdlo   ; Print DEHL in decimal. Leading zeros are suppressed
+  38:				                extern rdhxwd   ; Read a 16-bit hexadecimal number from a string
+  39:				                extern rdduwd   ; Read a 16-bit unsigned decimal number from a string
+  40:				                extern rddulo   ; Read a 32-bit unsigned decimal number from a string
+  41:				;
+  42:				            endif
   43:				;
-  44:				; mtwdli (match word in a string against list of options) option bits. Each bit
-  45:				; has the described effect if set.
-  46:     -	        	BITDEF MTWDLI_ABBREV, 0                 ; Enable "." abbreviation
-  47:     -	        	BITDEF MTWDLI_ICASE, 1                  ; Ignore case when matching
-  48:     -	        	BITDEF MTWDLI_TERM, 7                   ; Terminator found (internal use only)
-  49:				
+  44:				;
+  45:				; mtwdli (match word in a string against list of options) option bits. Each bit
+  46:				; has the described effect if set.
+  47:     -	        	BITDEF MTWDLI_ABBREV, 0                 ; Enable "." abbreviation
+  48:     -	        	BITDEF MTWDLI_ICASE, 1                  ; Ignore case when matching
+  49:     -	        	BITDEF MTWDLI_TERM, 7                   ; Terminator found (internal use only)
+  50:				
 **** cpm_files.z80 ****
   34:				                include "cpm_files.i"   ; CP/M file handling
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//cpm_files.i ****
+**** /home/merlin/Technical/ZARC_Z80_Box/git/software/includes/cpm_files.i ****
    1:				; *******************************************************
    2:				; * Utility Routines for CP/M Applications              *
    3:				; * Version: V1.0                                       *
@@ -1584,7 +1585,7 @@ Statistics:
 
      4	passes
      0	jr promotions
-   309	symbols
+   310	symbols
   1248	bytes
 
    102	macro calls
@@ -1797,6 +1798,7 @@ cf_clean         1BF'     447
 cf_close_err     1D4'     468
 cf_exit          1CC'     460
 cf_pad_loop      1B0'     432
+clopts          00        0 (extern)
 close_err_msg    339'     825
 close_msg        31E'     798
 closed_msg       32D'     813

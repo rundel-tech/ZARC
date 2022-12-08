@@ -25,7 +25,7 @@
   25:				;
   26:				;
   27:				                include "macros.i"
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//macros.i ****
+**** /home/merlin/Technical/ZARC_Z80_Box/git/software/includes/macros.i ****
    1:				; ***********************************
    2:				; * ZARC Macro Definitions          *
    3:				; * Written by: Merlin Skinner      *
@@ -162,7 +162,7 @@
  134:				
 **** cpm_utility.z80 ****
   28:				                include "z80.i"
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//z80.i ****
+**** /home/merlin/Technical/ZARC_Z80_Box/git/software/includes/z80.i ****
    1:				; ***********************************
    2:				; * ZARC Z80 Definitions            *
    3:				; * Written by: Merlin Skinner      *
@@ -184,7 +184,7 @@
   19:				
 **** cpm_utility.z80 ****
   29:				                include "terminal.i"    ; Terminal constants
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//terminal.i ****
+**** /home/merlin/Technical/ZARC_Z80_Box/git/software/includes/terminal.i ****
    1:				; ***********************************
    2:				; * ZARC Terminal Definitions       *
    3:				; * Written by: Merlin Skinner      *
@@ -221,7 +221,7 @@
   34:				
 **** cpm_utility.z80 ****
   30:				                include "cpm.i"
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//cpm.i ****
+**** /home/merlin/Technical/ZARC_Z80_Box/git/software/includes/cpm.i ****
    1:				; *******************************************************
    2:				; * ZARC Monitor CP/M Definitions                       *
    3:				; * Written by: Merlin Skinner                          *
@@ -511,7 +511,7 @@
  298:				
 **** cpm_utility.z80 ****
   31:				                include "cpm_utility.i"
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//cpm_utility.i ****
+**** /home/merlin/Technical/ZARC_Z80_Box/git/software/includes/cpm_utility.i ****
    1:				; *******************************************************
    2:				; * Utility Routines for CP/M Applications              *
    3:				; * Version: V1.0                                       *
@@ -521,15 +521,15 @@
    7:				; Note that ld80 only considers the first six characters of labels significant.
    8:				;
    9:     -	0000'         	            ifndef CPMU         ; Inhibit for this module
-  41:				            endif
-  42:				;
+  42:				            endif
   43:				;
-  44:				; mtwdli (match word in a string against list of options) option bits. Each bit
-  45:				; has the described effect if set.
-  46:     -	        	BITDEF MTWDLI_ABBREV, 0                 ; Enable "." abbreviation
-  47:     -	        	BITDEF MTWDLI_ICASE, 1                  ; Ignore case when matching
-  48:     -	        	BITDEF MTWDLI_TERM, 7                   ; Terminator found (internal use only)
-  49:				
+  44:				;
+  45:				; mtwdli (match word in a string against list of options) option bits. Each bit
+  46:				; has the described effect if set.
+  47:     -	        	BITDEF MTWDLI_ABBREV, 0                 ; Enable "." abbreviation
+  48:     -	        	BITDEF MTWDLI_ICASE, 1                  ; Ignore case when matching
+  49:     -	        	BITDEF MTWDLI_TERM, 7                   ; Terminator found (internal use only)
+  50:				
 **** cpm_utility.z80 ****
   32:				;
   33:				;
@@ -549,898 +549,1011 @@
   47:				                public panic    ; Fatal application error
   48:				                public zrcdet   ; Detect ZARC
   49:				                public z80det   ; Detect Z80 (instead of 8080 / 8085)
-  50:				;
-  51:				; Derived from the monitor's utility.z80.
-  52:				                public conwch   ; Write character to console
-  53:				                public conrch   ; Read character from the console
-  54:				                public const    ; Fetch console input status
-  55:				                public cwnwln   ; Write new line characters to console
-  56:				                public conwms   ; Print "$" terminated string to the console
-  57:				                public conwmn   ; Print message <n> in a list
-  58:				                public skpspc   ; Step hl past spaces
-  59:				                public toupca   ; Convert character in A to upper case
-  60:				                public toloca   ; Convert character in A to lower case
-  61:				                public cwvich   ; Print only visible 7-bit characters
-  62:				                public cwpspc   ; Print a space
-  63:				                public mtwdli   ; Match word in a string against list of options
-  64:				                public cwphnb   ; Print least-significant nibble in A in hexadecimal
-  65:				                public cwphby   ; Print A in hexadecimal
-  66:				                public cwphwd   ; Print HL in hexadecimal
-  67:				                public cwpdwd   ; Print HL in decimal. Leading zeros are suppressed
-  68:				                public cwpdby   ; Print A in decimal. Leading zeros are suppressed
-  69:				                public cwpdwd   ; Print HL in decimal. Leading zeros are suppressed
-  70:				                public cwpdlo   ; Print DEHL in decimal. Leading zeros are suppressed
-  71:				                public rdhxwd   ; Read a 16-bit hexadecimal number from a string
-  72:				                public rdduwd   ; Read a 16-bit unsigned decimal number from a string
-  73:				                public rddulo   ; Read a 32-bit unsigned decimal number from a string
-  74:				;
+  50:				                public clopts   ; Read command line options
+  51:				;
+  52:				; Derived from the monitor's utility.z80.
+  53:				                public conwch   ; Write character to console
+  54:				                public conrch   ; Read character from the console
+  55:				                public const    ; Fetch console input status
+  56:				                public cwnwln   ; Write new line characters to console
+  57:				                public conwms   ; Print "$" terminated string to the console
+  58:				                public conwmn   ; Print message <n> in a list
+  59:				                public skpspc   ; Step hl past spaces
+  60:				                public toupca   ; Convert character in A to upper case
+  61:				                public toloca   ; Convert character in A to lower case
+  62:				                public cwvich   ; Print only visible 7-bit characters
+  63:				                public cwpspc   ; Print a space
+  64:				                public mtwdli   ; Match word in a string against list of options
+  65:				                public cwphnb   ; Print least-significant nibble in A in hexadecimal
+  66:				                public cwphby   ; Print A in hexadecimal
+  67:				                public cwphwd   ; Print HL in hexadecimal
+  68:				                public cwpdwd   ; Print HL in decimal. Leading zeros are suppressed
+  69:				                public cwpdby   ; Print A in decimal. Leading zeros are suppressed
+  70:				                public cwpdwd   ; Print HL in decimal. Leading zeros are suppressed
+  71:				                public cwpdlo   ; Print DEHL in decimal. Leading zeros are suppressed
+  72:				                public rdhxwd   ; Read a 16-bit hexadecimal number from a string
+  73:				                public rdduwd   ; Read a 16-bit unsigned decimal number from a string
+  74:				                public rddulo   ; Read a 32-bit unsigned decimal number from a string
   75:				;
   76:				;
-  77:				; ********
-  78:				; * Code *
-  79:				; ********
-  80:				;
+  77:				;
+  78:				; ********
+  79:				; * Code *
+  80:				; ********
   81:				;
-  82:				                cseg                    ; Code segment
-  83:				;
-  84:				; Call BDOS with IX and IY registers saved.
-  85:    0+15	0000' DDE5    	cbdos           push ix
-  86:   15+15	0002' FDE5    	                push iy
-  87:   30+17	0004' CD0500  	                call BDOS
-  88:   47+14	0007' FDE1    	                pop iy
-  89:   61+14	0009' DDE1    	                pop ix
-  90:   75+10	000B' C9      	                ret
-  91:				;
+  82:				;
+  83:				                cseg                    ; Code segment
+  84:				;
+  85:				; Call BDOS with IX and IY registers saved.
+  86:    0+15	0000' DDE5    	cbdos           push ix
+  87:   15+15	0002' FDE5    	                push iy
+  88:   30+17	0004' CD0500  	                call BDOS
+  89:   47+14	0007' FDE1    	                pop iy
+  90:   61+14	0009' DDE1    	                pop ix
+  91:   75+10	000B' C9      	                ret
   92:				;
-  93:				; Call BIOS with some registers saved.
-  94:				; Call with:
-  95:				; BC - operand (depends on BIOS function called)
-  96:				; DE - operand (depends on BIOS function called)
-  97:				; HL - offset for the routine (e.g. BIOS_CONIN)
-  98:   85+15	000C' DDE5    	cbios           push ix
-  99:  100+15	000E' FDE5    	                push iy
- 100:  115+17	0010' CD1800  	                call cbios_raw
- 101:  132+14	0013' FDE1    	                pop iy
- 102:  146+14	0015' DDE1    	                pop ix
- 103:  160+10	0017' C9      	                ret
- 104:				;
+  93:				;
+  94:				; Call BIOS with some registers saved.
+  95:				; Call with:
+  96:				; BC - operand (depends on BIOS function called)
+  97:				; DE - operand (depends on BIOS function called)
+  98:				; HL - offset for the routine (e.g. BIOS_CONIN)
+  99:   85+15	000C' DDE5    	cbios           push ix
+ 100:  100+15	000E' FDE5    	                push iy
+ 101:  115+17	0010' CD1800  	                call cbios_raw
+ 102:  132+14	0013' FDE1    	                pop iy
+ 103:  146+14	0015' DDE1    	                pop ix
+ 104:  160+10	0017' C9      	                ret
  105:				;
- 106:				; Call BIOS, allowing for its unknown base address.
- 107:				; Call with:
- 108:				; BC - operand (depends on BIOS function called)
- 109:				; DE - operand (depends on BIOS function called)
- 110:				; HL - offset for the routine (e.g. BIOS_CONIN)
- 111:  170+11	0018' D5      	cbios_raw       push de
- 112:  181+4	0019' EB      	                ex de, hl
- 113:  185+16	001A' 2A0100  	                ld hl, (1)              ; Find WBOOT (warm boot) address
- 114:  201+11	001D' 19      	                add hl, de              ; Add offset
- 115:  212+10	001E' D1      	                pop de
- 116:  222+4	001F' E9      	                jp (hl)                 ; Jump to BIOS then return to caller
- 117:				;
+ 106:				;
+ 107:				; Call BIOS, allowing for its unknown base address.
+ 108:				; Call with:
+ 109:				; BC - operand (depends on BIOS function called)
+ 110:				; DE - operand (depends on BIOS function called)
+ 111:				; HL - offset for the routine (e.g. BIOS_CONIN)
+ 112:  170+11	0018' D5      	cbios_raw       push de
+ 113:  181+4	0019' EB      	                ex de, hl
+ 114:  185+16	001A' 2A0100  	                ld hl, (1)              ; Find WBOOT (warm boot) address
+ 115:  201+11	001D' 19      	                add hl, de              ; Add offset
+ 116:  212+10	001E' D1      	                pop de
+ 117:  222+4	001F' E9      	                jp (hl)                 ; Jump to BIOS then return to caller
  118:				;
- 119:				; Unrecoverable application error! Halt the application to prevent further
- 120:				; damage. Call this routine in case of a serious error.
- 121:				; Note: call is preferred (rather than jump) as it preserves the PC.
- 122:  226+10	0020' 215A03  	panic           ld hl, panic_1_msg      ; "*** Software panic at PC="
- 123:  236+17	0023' CDA300  	                call conwms             ; Print $-terminated string to console
- 124:  253+10	0026' E1      	                pop hl                  ; Fetch PC
- 125:  263+17	0027' CD0A01  	                call cwphwd             ; Print HL in hexadecimal
- 126:  280+10	002A' 217603  	                ld hl, panic_2_msg      ; " ***"
- 127:  290+17	002D' CDA300  	                call conwms             ; Print $-terminated string to console
- 128:  307+10	0030' C30000  	                jp 0                    ; Warm boot
- 129:				;
+ 119:				;
+ 120:				; Unrecoverable application error! Halt the application to prevent further
+ 121:				; damage. Call this routine in case of a serious error.
+ 122:				; Note: call is preferred (rather than jump) as it preserves the PC.
+ 123:  226+10	0020' 21BC03  	panic           ld hl, panic_1_msg      ; "*** Software panic at PC="
+ 124:  236+17	0023' CDA300  	                call conwms             ; Print $-terminated string to console
+ 125:  253+10	0026' E1      	                pop hl                  ; Fetch PC
+ 126:  263+17	0027' CD0A01  	                call cwphwd             ; Print HL in hexadecimal
+ 127:  280+10	002A' 21D803  	                ld hl, panic_2_msg      ; " ***"
+ 128:  290+17	002D' CDA300  	                call conwms             ; Print $-terminated string to console
+ 129:  307+10	0030' C30000  	                jp 0                    ; Warm boot
  130:				;
- 131:				; Determine whether or not we are running on a ZARC system. Returns with carry
- 132:				; set if ZARC BIOS not found.
- 133:  317+11	0033' D5      	zrcdet          push de
- 134:  328+11	0034' E5      	                push hl
- 135:  339+10	0035' 116000  	                ld de, BIOS_ID          ; ID offset into BIOS jump table
- 136:  349+16	0038' 2A0100  	                ld hl, (1)              ; Find WBOOT (warm boot) address
- 137:  365+11	003B' 19      	                add hl, de              ; Add offset
- 138:  376+7	003C' 7E      	                ld a, (hl)
- 139:  383+7	003D' FE5A    	                cp "Z"
- 140:  390+10	003F' C25400  	                jp nz, zd_not_zarc
- 141:  400+6	0042' 23      	                inc hl
- 142:  406+7	0043' 7E      	                ld a, (hl)
- 143:  413+7	0044' FE52    	                cp "R"
- 144:  420+10	0046' C25400  	                jp nz, zd_not_zarc
- 145:  430+6	0049' 23      	                inc hl
- 146:  436+7	004A' 7E      	                ld a, (hl)
- 147:  443+7	004B' FE43    	                cp "C"
- 148:  450+10	004D' C25400  	                jp nz, zd_not_zarc
- 149:  460+4	0050' A7      	                and a               ; Flag success
- 150:				;
- 151:  464+10	0051' E1      	zd_exit         pop hl
- 152:  474+10	0052' D1      	                pop de
- 153:  484+10	0053' C9      	                ret
- 154:				;
- 155:				; ZARC BIOS not found.
- 156:  494+4	0054' 37      	zd_not_zarc     scf
- 157:  498+12	0055' 18FA    	                jr zd_exit
- 158:				;
+ 131:				;
+ 132:				; Determine whether or not we are running on a ZARC system. Returns with carry
+ 133:				; set if ZARC BIOS not found.
+ 134:  317+11	0033' D5      	zrcdet          push de
+ 135:  328+11	0034' E5      	                push hl
+ 136:  339+10	0035' 116000  	                ld de, BIOS_ID          ; ID offset into BIOS jump table
+ 137:  349+16	0038' 2A0100  	                ld hl, (1)              ; Find WBOOT (warm boot) address
+ 138:  365+11	003B' 19      	                add hl, de              ; Add offset
+ 139:  376+7	003C' 7E      	                ld a, (hl)
+ 140:  383+7	003D' FE5A    	                cp "Z"
+ 141:  390+10	003F' C25400  	                jp nz, zd_not_zarc
+ 142:  400+6	0042' 23      	                inc hl
+ 143:  406+7	0043' 7E      	                ld a, (hl)
+ 144:  413+7	0044' FE52    	                cp "R"
+ 145:  420+10	0046' C25400  	                jp nz, zd_not_zarc
+ 146:  430+6	0049' 23      	                inc hl
+ 147:  436+7	004A' 7E      	                ld a, (hl)
+ 148:  443+7	004B' FE43    	                cp "C"
+ 149:  450+10	004D' C25400  	                jp nz, zd_not_zarc
+ 150:  460+4	0050' A7      	                and a               ; Flag success
+ 151:				;
+ 152:  464+10	0051' E1      	zd_exit         pop hl
+ 153:  474+10	0052' D1      	                pop de
+ 154:  484+10	0053' C9      	                ret
+ 155:				;
+ 156:				; ZARC BIOS not found.
+ 157:  494+4	0054' 37      	zd_not_zarc     scf
+ 158:  498+12	0055' 18FA    	                jr zd_exit
  159:				;
- 160:				; Determine whether we are running on a Z80 system. Returns with carry set if
- 161:				; the processor appears to be something else (8080 or 8085). Take care when
- 162:				; modifying this code, as it has to support all CPU types.
- 163:  510+11	0057' C5      	z80det          push bc
- 164:				;
- 165:  521+4	0058' AF      	                xor a
- 166:  525+4	0059' A7      	                and a
- 167:				; From https://ee.sharif.edu/~sakhtar3/articles/8080-8085/8085%20Instruction%20Set.pdf
- 168:				; ANA r ... The CY flag is cleared and the AC is set (8085). The CY is cleared
- 169:				; and the AC is set to the OR'ing of bits 3 of the operands (8080).
- 170:				; The Z80 calls AC "half-carry" (H) and behaves like an 8085 in this regard.
- 171:  529+11	005A' F5      	                push af
- 172:  540+10	005B' C1      	                pop bc
- 173:  550+4	005C' 79      	                ld a, c                 ; Flags
- 174:  554+7	005D' E610    	                and 0x10                ; Isolate AC / half-carry
- 175:  561+10	005F' CA6D00  	                jp z, z8d_not_z80       ; Jump if 8080
- 176:				; 8085 or Z80. Using the method described at:
- 177:				; https://heavydeck.net/post/i8085-rl35902-z80-run-time-detection/
- 178:				; ... exploit the difference on byte 0x20 which on the i8085 translates to RIM
- 179:				; (Read Interrupt Mask) opcode and on the z80 ... is a two-byte relative jump
- 180:				; JR NZ n.
- 181:  571+4	0062' AF      	                xor a
- 182:  575+4	0063' 3C      	                inc a                   ; Reset Z flag
- 183:				; The following (0x20, 0x04) is interpreted as RIM, INR B on an 8085.
- 184:  579+7+5	0064' 2004    	                jr nz, z8d_z80
- 185:  586+4	0066' 00      	                nop                     ; 1
- 186:				; This must be an 8085.
- 187:  590+10	0067' C36D00  	                jp z8d_not_z80          ; 3
- 188:				;
- 189:				; There must be four bytes between the jr nz / RIM instruction and this point
- 190:				; for this to work.
- 191:  600+4	006A' A7      	z8d_z80         and a                   ; Flag success
- 192:  604+10	006B' C1      	z8d_exit        pop bc
- 193:  614+10	006C' C9      	                ret
- 194:				;
- 195:				; Z80 not found.
- 196:  624+4	006D' 37      	z8d_not_z80     scf
- 197:  628+10	006E' C36B00  	                jp z8d_exit             ; No "jr" on 8080 / 8085!
- 198:				;
+ 160:				;
+ 161:				; Determine whether we are running on a Z80 system. Returns with carry set if
+ 162:				; the processor appears to be something else (8080 or 8085). Take care when
+ 163:				; modifying this code, as it has to support all CPU types.
+ 164:  510+11	0057' C5      	z80det          push bc
+ 165:				;
+ 166:  521+4	0058' AF      	                xor a
+ 167:  525+4	0059' A7      	                and a
+ 168:				; From https://ee.sharif.edu/~sakhtar3/articles/8080-8085/8085%20Instruction%20Set.pdf
+ 169:				; ANA r ... The CY flag is cleared and the AC is set (8085). The CY is cleared
+ 170:				; and the AC is set to the OR'ing of bits 3 of the operands (8080).
+ 171:				; The Z80 calls AC "half-carry" (H) and behaves like an 8085 in this regard.
+ 172:  529+11	005A' F5      	                push af
+ 173:  540+10	005B' C1      	                pop bc
+ 174:  550+4	005C' 79      	                ld a, c                 ; Flags
+ 175:  554+7	005D' E610    	                and 0x10                ; Isolate AC / half-carry
+ 176:  561+10	005F' CA6D00  	                jp z, z8d_not_z80       ; Jump if 8080
+ 177:				; 8085 or Z80. Using the method described at:
+ 178:				; https://heavydeck.net/post/i8085-rl35902-z80-run-time-detection/
+ 179:				; ... exploit the difference on byte 0x20 which on the i8085 translates to RIM
+ 180:				; (Read Interrupt Mask) opcode and on the z80 ... is a two-byte relative jump
+ 181:				; JR NZ n.
+ 182:  571+4	0062' AF      	                xor a
+ 183:  575+4	0063' 3C      	                inc a                   ; Reset Z flag
+ 184:				; The following (0x20, 0x04) is interpreted as RIM, INR B on an 8085.
+ 185:  579+7+5	0064' 2004    	                jr nz, z8d_z80
+ 186:  586+4	0066' 00      	                nop                     ; 1
+ 187:				; This must be an 8085.
+ 188:  590+10	0067' C36D00  	                jp z8d_not_z80          ; 3
+ 189:				;
+ 190:				; There must be four bytes between the jr nz / RIM instruction and this point
+ 191:				; for this to work.
+ 192:  600+4	006A' A7      	z8d_z80         and a                   ; Flag success
+ 193:  604+10	006B' C1      	z8d_exit        pop bc
+ 194:  614+10	006C' C9      	                ret
+ 195:				;
+ 196:				; Z80 not found.
+ 197:  624+4	006D' 37      	z8d_not_z80     scf
+ 198:  628+10	006E' C36B00  	                jp z8d_exit             ; No "jr" on 8080 / 8085!
  199:				;
- 200:				; Write character to console. This "looks like" the monitor's routine of the
- 201:				; same name, thereby easing the use of monitor routines copied here. 
- 202:				; Call with:
- 203:				; A - character to write.
- 204:  638+11	0071' C5      	conwch          push bc
- 205:  649+11	0072' D5      	                push de
- 206:  660+11	0073' E5      	                push hl
- 207:				;
- 208:				; BDOS version.
- 209:				;                ld e, a
- 210:				;                ld c, BDOS_CON_OUT      ; Console output
- 211:				;                call cbdos
- 212:				;
- 213:				; BIOS version.
- 214:  671+4	0074' 4F      	                ld c, a
- 215:  675+10	0075' 210900  	                ld hl, BIOS_CONOUT      ; Console output
- 216:  685+17	0078' CD0C00  	                call cbios              ; Call BIOS
- 217:				;
- 218:  702+10	007B' E1      	                pop hl
- 219:  712+10	007C' D1      	                pop de
- 220:  722+10	007D' C1      	                pop bc
- 221:  732+10	007E' C9      	                ret
- 222:				;
+ 200:				;
+ 201:				; Write character to console. This "looks like" the monitor's routine of the
+ 202:				; same name, thereby easing the use of monitor routines copied here. 
+ 203:				; Call with:
+ 204:				; A - character to write.
+ 205:  638+11	0071' C5      	conwch          push bc
+ 206:  649+11	0072' D5      	                push de
+ 207:  660+11	0073' E5      	                push hl
+ 208:				;
+ 209:				; BDOS version.
+ 210:				;                ld e, a
+ 211:				;                ld c, BDOS_CON_OUT      ; Console output
+ 212:				;                call cbdos
+ 213:				;
+ 214:				; BIOS version.
+ 215:  671+4	0074' 4F      	                ld c, a
+ 216:  675+10	0075' 210900  	                ld hl, BIOS_CONOUT      ; Console output
+ 217:  685+17	0078' CD0C00  	                call cbios              ; Call BIOS
+ 218:				;
+ 219:  702+10	007B' E1      	                pop hl
+ 220:  712+10	007C' D1      	                pop de
+ 221:  722+10	007D' C1      	                pop bc
+ 222:  732+10	007E' C9      	                ret
  223:				;
- 224:				; Read character from the console. This "looks like" the monitor's routine of
- 225:				; the same name, thereby easing the use of monitor routines copied here. BIOS
- 226:				; routines are used for console I/O as this avoids unwanted echoing of input.
- 227:				; This means that the BDOS tab expansion and XON / XOFF features are not
- 228:				; available.
- 229:				; Returns with:
- 230:				; A - character.
- 231:  742+11	007F' C5      	conrch          push bc
- 232:  753+11	0080' D5      	                push de
- 233:  764+11	0081' E5      	                push hl
- 234:				;
- 235:				; BDOS version.
- 236:				;                ld c, BDOS_CON_IN       ; Console input
- 237:				;                call cbdos
- 238:				;
- 239:				; BIOS version.
- 240:  775+10	0082' 210600  	                ld hl, BIOS_CONIN       ; Console input
- 241:  785+17	0085' CD0C00  	                call cbios              ; Call BIOS
- 242:				;
- 243:  802+10	0088' E1      	                pop hl
- 244:  812+10	0089' D1      	                pop de
- 245:  822+10	008A' C1      	                pop bc
- 246:  832+10	008B' C9      	                ret
- 247:				;
+ 224:				;
+ 225:				; Read character from the console. This "looks like" the monitor's routine of
+ 226:				; the same name, thereby easing the use of monitor routines copied here. BIOS
+ 227:				; routines are used for console I/O as this avoids unwanted echoing of input.
+ 228:				; This means that the BDOS tab expansion and XON / XOFF features are not
+ 229:				; available.
+ 230:				; Returns with:
+ 231:				; A - character.
+ 232:  742+11	007F' C5      	conrch          push bc
+ 233:  753+11	0080' D5      	                push de
+ 234:  764+11	0081' E5      	                push hl
+ 235:				;
+ 236:				; BDOS version.
+ 237:				;                ld c, BDOS_CON_IN       ; Console input
+ 238:				;                call cbdos
+ 239:				;
+ 240:				; BIOS version.
+ 241:  775+10	0082' 210600  	                ld hl, BIOS_CONIN       ; Console input
+ 242:  785+17	0085' CD0C00  	                call cbios              ; Call BIOS
+ 243:				;
+ 244:  802+10	0088' E1      	                pop hl
+ 245:  812+10	0089' D1      	                pop de
+ 246:  822+10	008A' C1      	                pop bc
+ 247:  832+10	008B' C9      	                ret
  248:				;
- 249:				; Write new line characters to console.
- 250:  842+7	008C' 3E0D    	cwnwln          ld a, ascii_cr
- 251:  849+17	008E' CD7100  	                call conwch
- 252:  866+7	0091' 3E0A    	                ld a, ascii_lf
- 253:  873+10	0093' C37100  	                jp conwch
- 254:				;
+ 249:				;
+ 250:				; Write new line characters to console.
+ 251:  842+7	008C' 3E0D    	cwnwln          ld a, ascii_cr
+ 252:  849+17	008E' CD7100  	                call conwch
+ 253:  866+7	0091' 3E0A    	                ld a, ascii_lf
+ 254:  873+10	0093' C37100  	                jp conwch
  255:				;
- 256:				; Fetch the console input status. Returns with:
- 257:				; A - zero if no character is ready, 0xff if one is.
- 258:  883+11	0096' C5      	const           push bc
- 259:  894+11	0097' D5      	                push de
- 260:  905+11	0098' E5      	                push hl
- 261:				;
- 262:				; BDOS version.
- 263:				;                ld c, BDOS_GET_CON_STAT     ; Console status
- 264:				;                call cbdos
- 265:				;
- 266:  916+10	0099' 210300  	                ld hl, BIOS_CONST       ; Console status
- 267:  926+17	009C' CD0C00  	                call cbios
- 268:				;
- 269:  943+10	009F' E1      	                pop hl
- 270:  953+10	00A0' D1      	                pop de
- 271:  963+10	00A1' C1      	                pop bc
- 272:  973+10	00A2' C9      	                ret
- 273:				;
+ 256:				;
+ 257:				; Fetch the console input status. Returns with:
+ 258:				; A - zero if no character is ready, 0xff if one is.
+ 259:  883+11	0096' C5      	const           push bc
+ 260:  894+11	0097' D5      	                push de
+ 261:  905+11	0098' E5      	                push hl
+ 262:				;
+ 263:				; BDOS version.
+ 264:				;                ld c, BDOS_GET_CON_STAT     ; Console status
+ 265:				;                call cbdos
+ 266:				;
+ 267:  916+10	0099' 210300  	                ld hl, BIOS_CONST       ; Console status
+ 268:  926+17	009C' CD0C00  	                call cbios
+ 269:				;
+ 270:  943+10	009F' E1      	                pop hl
+ 271:  953+10	00A0' D1      	                pop de
+ 272:  963+10	00A1' C1      	                pop bc
+ 273:  973+10	00A2' C9      	                ret
  274:				;
- 275:				; Print "$" terminated string to the console. Note, this is different to the
- 276:				; monitor version in that it uses the "$" CP/M terminator instead of a null. It
- 277:				; also does not return with the address of the terminator in HL.
- 278:				; Call with:
- 279:				; HL - pointer to start of message
- 280:  983+11	00A3' C5      	conwms          push bc
- 281:  994+11	00A4' D5      	                push de
- 282:				;
- 283:				; BDOS version.
- 284:				;                ex de, hl
- 285:				;                ld c, BDOS_PRINT_STRING ; Print String
- 286:				;                call cbdos
- 287:				;
- 288: 1005+7	00A5' 7E      	cwms_loop       ld a, (hl)
- 289: 1012+7	00A6' FE24    	                cp "$"
- 290: 1019+7+5	00A8' 2806    	                jr z, cwms_exit
- 291: 1026+17	00AA' CD7100  	                call conwch             ; Write character to console
- 292: 1043+6	00AD' 23      	                inc hl
- 293: 1049+12	00AE' 18F5    	                jr cwms_loop
- 294:				;
- 295: 1061+10	00B0' D1      	cwms_exit       pop de
- 296: 1071+10	00B1' C1      	                pop bc
- 297: 1081+10	00B2' C9      	                ret
- 298:				;
+ 275:				;
+ 276:				; Print "$" terminated string to the console. Note, this is different to the
+ 277:				; monitor version in that it uses the "$" CP/M terminator instead of a null. It
+ 278:				; also does not return with the address of the terminator in HL.
+ 279:				; Call with:
+ 280:				; HL - pointer to start of message
+ 281:  983+11	00A3' C5      	conwms          push bc
+ 282:  994+11	00A4' D5      	                push de
+ 283:				;
+ 284:				; BDOS version.
+ 285:				;                ex de, hl
+ 286:				;                ld c, BDOS_PRINT_STRING ; Print String
+ 287:				;                call cbdos
+ 288:				;
+ 289: 1005+7	00A5' 7E      	cwms_loop       ld a, (hl)
+ 290: 1012+7	00A6' FE24    	                cp "$"
+ 291: 1019+7+5	00A8' 2806    	                jr z, cwms_exit
+ 292: 1026+17	00AA' CD7100  	                call conwch             ; Write character to console
+ 293: 1043+6	00AD' 23      	                inc hl
+ 294: 1049+12	00AE' 18F5    	                jr cwms_loop
+ 295:				;
+ 296: 1061+10	00B0' D1      	cwms_exit       pop de
+ 297: 1071+10	00B1' C1      	                pop bc
+ 298: 1081+10	00B2' C9      	                ret
  299:				;
- 300:				; Step HL past any spaces.
- 301:				; Returns with:
- 302:				; HL - points to the first non-space character
- 303: 1091+7	00B3' 3E20    	skpspc          ld a, ' '
- 304: 1098+7	00B5' BE      	sks_loop        cp (hl)
- 305: 1105+5+6	00B6' C0      	                ret nz                  ; Return if non-space found
- 306: 1110+6	00B7' 23      	                inc hl
- 307: 1116+12	00B8' 18FB    	                jr sks_loop
- 308:				;
+ 300:				;
+ 301:				; Step HL past any spaces.
+ 302:				; Returns with:
+ 303:				; HL - points to the first non-space character
+ 304: 1091+7	00B3' 3E20    	skpspc          ld a, ' '
+ 305: 1098+7	00B5' BE      	sks_loop        cp (hl)
+ 306: 1105+5+6	00B6' C0      	                ret nz                  ; Return if non-space found
+ 307: 1110+6	00B7' 23      	                inc hl
+ 308: 1116+12	00B8' 18FB    	                jr sks_loop
  309:				;
- 310:				; Convert character in A to upper case.
- 311: 1128+7	00BA' FE61    	toupca          cp 'a'
- 312: 1135+5+6	00BC' D8      	                ret c                   ; Nothing to do if < 'a'
- 313: 1140+7	00BD' FE7B    	                cp 'z' + 1
- 314: 1147+5+6	00BF' D0      	                ret nc                  ; Nothing to do if > 'z'
- 315: 1152+7	00C0' D620    	                sub 'a' - 'A'
- 316: 1159+10	00C2' C9      	                ret
- 317:				;
+ 310:				;
+ 311:				; Convert character in A to upper case.
+ 312: 1128+7	00BA' FE61    	toupca          cp 'a'
+ 313: 1135+5+6	00BC' D8      	                ret c                   ; Nothing to do if < 'a'
+ 314: 1140+7	00BD' FE7B    	                cp 'z' + 1
+ 315: 1147+5+6	00BF' D0      	                ret nc                  ; Nothing to do if > 'z'
+ 316: 1152+7	00C0' D620    	                sub 'a' - 'A'
+ 317: 1159+10	00C2' C9      	                ret
  318:				;
- 319:				; Convert character in A to lower case.
- 320: 1169+7	00C3' FE41    	toloca          cp 'A'
- 321: 1176+5+6	00C5' D8      	                ret c                   ; Nothing to do if < 'A'
- 322: 1181+7	00C6' FE5B    	                cp 'Z' + 1
- 323: 1188+5+6	00C8' D0      	                ret nc                  ; Nothing to do if > 'Z'
- 324: 1193+7	00C9' C620    	                add 'a' - 'A'
- 325: 1200+10	00CB' C9      	                ret
- 326:				;
+ 319:				;
+ 320:				; Convert character in A to lower case.
+ 321: 1169+7	00C3' FE41    	toloca          cp 'A'
+ 322: 1176+5+6	00C5' D8      	                ret c                   ; Nothing to do if < 'A'
+ 323: 1181+7	00C6' FE5B    	                cp 'Z' + 1
+ 324: 1188+5+6	00C8' D0      	                ret nc                  ; Nothing to do if > 'Z'
+ 325: 1193+7	00C9' C620    	                add 'a' - 'A'
+ 326: 1200+10	00CB' C9      	                ret
  327:				;
- 328:				; Print a space.
- 329: 1210+7	00CC' 3E20    	cwpspc          ld a, ' '
- 330: 1217+10	00CE' C37100  	                jp conwch
- 331:				;
+ 328:				;
+ 329:				; Print a space.
+ 330: 1210+7	00CC' 3E20    	cwpspc          ld a, ' '
+ 331: 1217+10	00CE' C37100  	                jp conwch
  332:				;
- 333:				; Print only visible 7-bit characters. Non-visible ones are substituted by the
- 334:				; character in C. If C is 0xff, non-visible characters are displayed in
- 335:				; hexadecimal. Call with:
- 336:				; A - character to display
- 337:				; C - substution character. If C is zero, non-visible characters are displayed
- 338:				; in hexadecimal.
- 339:				; Note that the hexadecimal feature is not included in the monitor version of
- 340:				; this function. 
- 341: 1227+11	00D1' C5      	cwvich          push bc
- 342: 1238+4	00D2' 47      	                ld b, a                 ; Save character
- 343: 1242+7	00D3' FE20    	                cp ' '
- 344: 1249+7+5	00D5' 3809    	                jr c, prv_do_subs       ; < ' ' is a control character
- 345: 1256+7	00D7' FE7F    	                cp ascii_del
- 346: 1263+7+5	00D9' 3005    	                jr nc, prv_do_subs      ; >= DEL isn't visible either
- 347:				; Character is printable.
- 348: 1270+17	00DB' CD7100  	prv_dis_exit    call conwch             ; Print visible character
- 349: 1287+10	00DE' C1      	prv_exit        pop bc
- 350: 1297+10	00DF' C9      	                ret
- 351:				;
- 352:				; Use substitution character
- 353: 1307+4	00E0' 79      	prv_do_subs     ld a, c
- 354: 1311+4	00E1' A7      	                and a
- 355: 1315+7+5	00E2' 20F7    	                jr nz, prv_dis_exit
- 356:				;
- 357:				; Display in hexadecimal.
- 358: 1322+7	00E4' 3E7B    	                ld a, "{"
- 359: 1329+17	00E6' CD7100  	                call conwch             ; Write character to console
- 360: 1346+4	00E9' 78      	                ld a, b
- 361: 1350+17	00EA' CDFE00  	                call cwphby             ; Print A in hexadecimal
- 362: 1367+7	00ED' 3E7D    	                ld a, "}"
- 363: 1374+12	00EF' 18EA    	                jr prv_dis_exit         ; Print and exit
- 364:				;
+ 333:				;
+ 334:				; Print only visible 7-bit characters. Non-visible ones are substituted by the
+ 335:				; character in C. If C is 0xff, non-visible characters are displayed in
+ 336:				; hexadecimal. Call with:
+ 337:				; A - character to display
+ 338:				; C - substution character. If C is zero, non-visible characters are displayed
+ 339:				; in hexadecimal.
+ 340:				; Note that the hexadecimal feature is not included in the monitor version of
+ 341:				; this function. 
+ 342: 1227+11	00D1' C5      	cwvich          push bc
+ 343: 1238+4	00D2' 47      	                ld b, a                 ; Save character
+ 344: 1242+7	00D3' FE20    	                cp ' '
+ 345: 1249+7+5	00D5' 3809    	                jr c, prv_do_subs       ; < ' ' is a control character
+ 346: 1256+7	00D7' FE7F    	                cp ascii_del
+ 347: 1263+7+5	00D9' 3005    	                jr nc, prv_do_subs      ; >= DEL isn't visible either
+ 348:				; Character is printable.
+ 349: 1270+17	00DB' CD7100  	prv_dis_exit    call conwch             ; Print visible character
+ 350: 1287+10	00DE' C1      	prv_exit        pop bc
+ 351: 1297+10	00DF' C9      	                ret
+ 352:				;
+ 353:				; Use substitution character
+ 354: 1307+4	00E0' 79      	prv_do_subs     ld a, c
+ 355: 1311+4	00E1' A7      	                and a
+ 356: 1315+7+5	00E2' 20F7    	                jr nz, prv_dis_exit
+ 357:				;
+ 358:				; Display in hexadecimal.
+ 359: 1322+7	00E4' 3E7B    	                ld a, "{"
+ 360: 1329+17	00E6' CD7100  	                call conwch             ; Write character to console
+ 361: 1346+4	00E9' 78      	                ld a, b
+ 362: 1350+17	00EA' CDFE00  	                call cwphby             ; Print A in hexadecimal
+ 363: 1367+7	00ED' 3E7D    	                ld a, "}"
+ 364: 1374+12	00EF' 18EA    	                jr prv_dis_exit         ; Print and exit
  365:				;
- 366:				; Print least-significant nibble in A in hexadecimal.
- 367: 1386+7	00F1' E60F    	cwphnb          and 0x0f
- 368: 1393+7	00F3' C630    	                add '0'
- 369: 1400+7	00F5' FE3A    	                cp '9' + 1
- 370: 1407+7+5	00F7' 3802    	                jr c, pn_numeric        ; Jump if <= '9'
- 371: 1414+7	00F9' C607    	                add ('A' - '9') - 1     ; Convert to alpha
- 372: 1421+10	00FB' C37100  	pn_numeric      jp conwch
- 373:				;
+ 366:				;
+ 367:				; Print least-significant nibble in A in hexadecimal.
+ 368: 1386+7	00F1' E60F    	cwphnb          and 0x0f
+ 369: 1393+7	00F3' C630    	                add '0'
+ 370: 1400+7	00F5' FE3A    	                cp '9' + 1
+ 371: 1407+7+5	00F7' 3802    	                jr c, pn_numeric        ; Jump if <= '9'
+ 372: 1414+7	00F9' C607    	                add ('A' - '9') - 1     ; Convert to alpha
+ 373: 1421+10	00FB' C37100  	pn_numeric      jp conwch
  374:				;
- 375:				; Print A in hexadecimal.
- 376: 1431+11	00FE' F5      	cwphby          push af
- 377: 1442+4	00FF' 0F      	                rrca
- 378: 1446+4	0100' 0F      	                rrca
- 379: 1450+4	0101' 0F      	                rrca
- 380: 1454+4	0102' 0F      	                rrca
- 381: 1458+17	0103' CDF100  	                call cwphnb             ; Print MSN
- 382: 1475+10	0106' F1      	                pop af
- 383: 1485+10	0107' C3F100  	                jp cwphnb               ; Print LSN
- 384:				;
+ 375:				;
+ 376:				; Print A in hexadecimal.
+ 377: 1431+11	00FE' F5      	cwphby          push af
+ 378: 1442+4	00FF' 0F      	                rrca
+ 379: 1446+4	0100' 0F      	                rrca
+ 380: 1450+4	0101' 0F      	                rrca
+ 381: 1454+4	0102' 0F      	                rrca
+ 382: 1458+17	0103' CDF100  	                call cwphnb             ; Print MSN
+ 383: 1475+10	0106' F1      	                pop af
+ 384: 1485+10	0107' C3F100  	                jp cwphnb               ; Print LSN
  385:				;
- 386:				; Print HL in hexadecimal. Leading zeros are suppressed.
- 387: 1495+4	010A' 7C      	cwphwd          ld a,h
- 388: 1499+17	010B' CDFE00  	                call cwphby             ; Print MSB
- 389: 1516+4	010E' 7D      	                ld a,l
- 390: 1520+10	010F' C3FE00  	                jp cwphby               ; Print LSB
- 391:				;
+ 386:				;
+ 387:				; Print HL in hexadecimal. Leading zeros are suppressed.
+ 388: 1495+4	010A' 7C      	cwphwd          ld a,h
+ 389: 1499+17	010B' CDFE00  	                call cwphby             ; Print MSB
+ 390: 1516+4	010E' 7D      	                ld a,l
+ 391: 1520+10	010F' C3FE00  	                jp cwphby               ; Print LSB
  392:				;
- 393:				; Print A as a decimal unsigned number. Leading zeros are suppressed.
- 394: 1530+11	0112' C5      	cwpdby          push bc
- 395: 1541+11	0113' D5      	                push de
- 396: 1552+11	0114' E5      	                push hl
- 397: 1563+7	0115' 1E00    	                ld e, 0                 ; Leading zeros flag
- 398: 1570+7	0117' 2600    	                ld h, 0                 ; Move A to HL
- 399: 1577+4	0119' 6F      	                ld l, a
- 400: 1581+12	011A' 1811    	                jr pdw_byte             ; Use word code, skipping MS digits
- 401:				;
+ 393:				;
+ 394:				; Print A as a decimal unsigned number. Leading zeros are suppressed.
+ 395: 1530+11	0112' C5      	cwpdby          push bc
+ 396: 1541+11	0113' D5      	                push de
+ 397: 1552+11	0114' E5      	                push hl
+ 398: 1563+7	0115' 1E00    	                ld e, 0                 ; Leading zeros flag
+ 399: 1570+7	0117' 2600    	                ld h, 0                 ; Move A to HL
+ 400: 1577+4	0119' 6F      	                ld l, a
+ 401: 1581+12	011A' 1811    	                jr pdw_byte             ; Use word code, skipping MS digits
  402:				;
- 403:				; Print HL as a decimal unsigned number. Leading zeros are suppressed.
- 404:				; Derived from code at http://map.grauw.nl/sources/external/z80bits.html
- 405:				; HL is saved because this allows common exit code with cwpdby.
- 406: 1593+11	011C' C5      	cwpdwd          push bc
- 407: 1604+11	011D' D5      	                push de
- 408: 1615+11	011E' E5      	                push hl
- 409: 1626+7	011F' 1E00    	                ld e, 0                 ; Leading zeros flag
- 410:				; Entry point from cwpdlo (32-bit version).
- 411: 1633+10	0121' 01F0D8  	                ld bc, -10000           ; 10^4
- 412: 1643+17	0124' CD4201  	                call pdw_digit
- 413: 1660+10	0127' 0118FC  	pdl_entry       ld bc, -1000            ; 10^3
- 414: 1670+17	012A' CD4201  	                call pdw_digit
- 415:				; cwpdby enters here to display a single byte.
- 416: 1687+10	012D' 019CFF  	pdw_byte        ld bc, -100             ; 10^2
- 417: 1697+17	0130' CD4201  	                call pdw_digit
- 418: 1714+7	0133' 0EF6    	                ld c, -10               ; 10^1
- 419: 1721+17	0135' CD4201  	                call pdw_digit
- 420: 1738+7	0138' 1EFF    	                ld e, 0xff              ; Always print the units digit
- 421: 1745+4	013A' 48      	                ld c, b
- 422: 1749+17	013B' CD4201  	                call pdw_digit
- 423: 1766+10	013E' E1      	                pop hl
- 424: 1776+10	013F' D1      	                pop de
- 425: 1786+10	0140' C1      	                pop bc
- 426: 1796+10	0141' C9      	                ret
- 427:				;
- 428: 1806+7	0142' 3E2F    	pdw_digit       ld a, '0' - 1
- 429: 1813+4	0144' 3C      	pdw_digloop     inc a
- 430: 1817+11	0145' 09      	                add hl, bc
- 431: 1828+7+5	0146' 38FC    	                jr c, pdw_digloop
- 432: 1835+15	0148' ED42    	                sbc hl, bc
- 433:				; A - ASCII digit
- 434: 1850+7	014A' FE30    	                cp '0'
- 435: 1857+7+5	014C' 2005    	                jr nz, pdw_prdig        ; Non-zero digit, so print it
- 436: 1864+4	014E' 1C      	                inc e
- 437: 1868+7+5	014F' 2802    	                jr z, pdw_prdig         ; Print anyway if e was 0xff
- 438: 1875+4	0151' 1D      	                dec e                   ; Restore flag
- 439: 1879+10	0152' C9      	                ret
- 440: 1889+7	0153' 1EFF    	pdw_prdig       ld e, 0xff              ; Flag non-zero found
- 441: 1896+17	0155' CD7100  	                call conwch             ; Write character to console
- 442: 1913+10	0158' C9      	                ret
- 443:				;
+ 403:				;
+ 404:				; Print HL as a decimal unsigned number. Leading zeros are suppressed.
+ 405:				; Derived from code at http://map.grauw.nl/sources/external/z80bits.html
+ 406:				; HL is saved because this allows common exit code with cwpdby.
+ 407: 1593+11	011C' C5      	cwpdwd          push bc
+ 408: 1604+11	011D' D5      	                push de
+ 409: 1615+11	011E' E5      	                push hl
+ 410: 1626+7	011F' 1E00    	                ld e, 0                 ; Leading zeros flag
+ 411:				; Entry point from cwpdlo (32-bit version).
+ 412: 1633+10	0121' 01F0D8  	                ld bc, -10000           ; 10^4
+ 413: 1643+17	0124' CD4201  	                call pdw_digit
+ 414: 1660+10	0127' 0118FC  	pdl_entry       ld bc, -1000            ; 10^3
+ 415: 1670+17	012A' CD4201  	                call pdw_digit
+ 416:				; cwpdby enters here to display a single byte.
+ 417: 1687+10	012D' 019CFF  	pdw_byte        ld bc, -100             ; 10^2
+ 418: 1697+17	0130' CD4201  	                call pdw_digit
+ 419: 1714+7	0133' 0EF6    	                ld c, -10               ; 10^1
+ 420: 1721+17	0135' CD4201  	                call pdw_digit
+ 421: 1738+7	0138' 1EFF    	                ld e, 0xff              ; Always print the units digit
+ 422: 1745+4	013A' 48      	                ld c, b
+ 423: 1749+17	013B' CD4201  	                call pdw_digit
+ 424: 1766+10	013E' E1      	                pop hl
+ 425: 1776+10	013F' D1      	                pop de
+ 426: 1786+10	0140' C1      	                pop bc
+ 427: 1796+10	0141' C9      	                ret
+ 428:				;
+ 429: 1806+7	0142' 3E2F    	pdw_digit       ld a, '0' - 1
+ 430: 1813+4	0144' 3C      	pdw_digloop     inc a
+ 431: 1817+11	0145' 09      	                add hl, bc
+ 432: 1828+7+5	0146' 38FC    	                jr c, pdw_digloop
+ 433: 1835+15	0148' ED42    	                sbc hl, bc
+ 434:				; A - ASCII digit
+ 435: 1850+7	014A' FE30    	                cp '0'
+ 436: 1857+7+5	014C' 2005    	                jr nz, pdw_prdig        ; Non-zero digit, so print it
+ 437: 1864+4	014E' 1C      	                inc e
+ 438: 1868+7+5	014F' 2802    	                jr z, pdw_prdig         ; Print anyway if e was 0xff
+ 439: 1875+4	0151' 1D      	                dec e                   ; Restore flag
+ 440: 1879+10	0152' C9      	                ret
+ 441: 1889+7	0153' 1EFF    	pdw_prdig       ld e, 0xff              ; Flag non-zero found
+ 442: 1896+17	0155' CD7100  	                call conwch             ; Write character to console
+ 443: 1913+10	0158' C9      	                ret
  444:				;
- 445:				; Print DEHL as a decimal unsigned number. Leading zeros are suppressed.
- 446: 1923+11	0159' C5      	cwpdlo          push bc
- 447: 1934+4	015A' 44      	                ld b, h
- 448: 1938+4	015B' 4D      	                ld c, l
- 449:				; DEBC - value to display. Store this.
- 450: 1942+10	015C' 210400  	                ld hl, pdl_reg
- 451: 1952+7	015F' 71      	                ld (hl), c
- 452: 1959+6	0160' 23      	                inc hl
- 453: 1965+7	0161' 70      	                ld (hl), b
- 454: 1972+6	0162' 23      	                inc hl
- 455: 1978+7	0163' 73      	                ld (hl), e
- 456: 1985+6	0164' 23      	                inc hl
- 457: 1991+7	0165' 72      	                ld (hl), d
- 458:				; Reset leading zeros flag
- 459: 1998+7	0166' 3E00    	                ld a, 0
- 460: 2005+13	0168' 320800  	                ld (pdl_lz_flag), a
- 461:				; Digits
- 462: 2018+10	016B' 1100CA  	                ld de, 0xca00           ; 10^9
- 463: 2028+10	016E' 019A3B  	                ld bc, 0x3b9a
- 464: 2038+17	0171' CDB101  	                call pdl_digit
- 465: 2055+10	0174' 1100E1  	                ld de, 0xe100           ; 10^8
- 466: 2065+10	0177' 01F505  	                ld bc, 0x05f5
- 467: 2075+17	017A' CDB101  	                call pdl_digit
- 468: 2092+10	017D' 118096  	                ld de, 0x9680           ; 10^7
- 469: 2102+10	0180' 019800  	                ld bc, 0x0098
- 470: 2112+17	0183' CDB101  	                call pdl_digit
- 471: 2129+10	0186' 114042  	                ld de, 0x4240           ; 10^6
- 472: 2139+10	0189' 010F00  	                ld bc, 0x000f
- 473: 2149+17	018C' CDB101  	                call pdl_digit
- 474: 2166+10	018F' 11A086  	                ld de, 0x86a0           ; 10^5
- 475: 2176+10	0192' 010100  	                ld bc, 0x0001
- 476: 2186+17	0195' CDB101  	                call pdl_digit
- 477: 2203+10	0198' 111027  	                ld de, 0x2710           ; 10^4
- 478: 2213+10	019B' 010000  	                ld bc, 0x0000
- 479: 2223+17	019E' CDB101  	                call pdl_digit
- 480:				; Use 16-bit version to print the remainder of the digits.
- 481: 2240+11	01A1' D5      	                push de
- 482: 2251+11	01A2' E5      	                push hl
- 483:				; Fetch value.
- 484: 2262+10	01A3' 210400  	                ld hl, pdl_reg
- 485: 2272+7	01A6' 5E      	                ld e, (hl)
- 486: 2279+6	01A7' 23      	                inc hl
- 487: 2285+7	01A8' 56      	                ld d, (hl)
- 488: 2292+4	01A9' EB      	                ex de, hl
- 489: 2296+13	01AA' 3A0800  	                ld a, (pdl_lz_flag)
- 490: 2309+4	01AD' 5F      	                ld e, a                 ; Set leading zeros flag
- 491:				; E - leading zeros flag
- 492:				; HL - value to print
- 493: 2313+10	01AE' C32701  	                jp pdl_entry
- 494:				;
- 495:				; BCDE - significance of digit.
- 496: 2323+10	01B1' 210900  	pdl_digit       ld hl, pdl_ascii
- 497: 2333+10	01B4' 362F    	                ld (hl), '0' - 1
- 498: 2343+11	01B6' 34      	pdl_digloop     inc (hl)                ; Update ASCII digit
- 499:				; Trial subtraction.
- 500: 2354+11	01B7' E5      	                push hl                 ; Save pointer to pdl_ascii
- 501: 2365+10	01B8' 210400  	                ld hl, pdl_reg
- 502: 2375+7	01BB' 7E      	                ld a, (hl)
- 503: 2382+4	01BC' 93      	                sub e
- 504: 2386+7	01BD' 77      	                ld (hl), a
- 505: 2393+6	01BE' 23      	                inc hl
- 506: 2399+7	01BF' 7E      	                ld a, (hl)
- 507: 2406+4	01C0' 9A      	                sbc d
- 508: 2410+7	01C1' 77      	                ld (hl), a
- 509: 2417+6	01C2' 23      	                inc hl
- 510: 2423+7	01C3' 7E      	                ld a, (hl)
- 511: 2430+4	01C4' 99      	                sbc c
- 512: 2434+7	01C5' 77      	                ld (hl), a
- 513: 2441+6	01C6' 23      	                inc hl
- 514: 2447+7	01C7' 7E      	                ld a, (hl)
- 515: 2454+4	01C8' 98      	                sbc b
- 516: 2458+7	01C9' 77      	                ld (hl), a
- 517: 2465+10	01CA' E1      	                pop hl                  ; Restore pointer to pdl_ascii
- 518: 2475+7+5	01CB' 30E9    	                jr nc, pdl_digloop      ; Keep subtracting until carry
- 519:				; Reverse the last subtraction to restore the value before carry.
- 520: 2482+10	01CD' 210400  	                ld hl, pdl_reg
- 521: 2492+7	01D0' 7E      	                ld a, (hl)
- 522: 2499+4	01D1' 83      	                add e
- 523: 2503+7	01D2' 77      	                ld (hl), a
- 524: 2510+6	01D3' 23      	                inc hl
- 525: 2516+7	01D4' 7E      	                ld a, (hl)
- 526: 2523+4	01D5' 8A      	                adc d
- 527: 2527+7	01D6' 77      	                ld (hl), a
- 528: 2534+6	01D7' 23      	                inc hl
- 529: 2540+7	01D8' 7E      	                ld a, (hl)
- 530: 2547+4	01D9' 89      	                adc c
- 531: 2551+7	01DA' 77      	                ld (hl), a
- 532: 2558+6	01DB' 23      	                inc hl
- 533: 2564+7	01DC' 7E      	                ld a, (hl)
- 534: 2571+4	01DD' 88      	                adc b
- 535: 2575+7	01DE' 77      	                ld (hl), a
- 536:				;
- 537: 2582+10	01DF' 210800  	                ld hl, pdl_lz_flag      ; Point to leading zeros flag
- 538: 2592+13	01E2' 3A0900  	                ld a, (pdl_ascii)       ; Fetch ASCII digit
- 539: 2605+4	01E5' 4F      	                ld c, a
- 540: 2609+7	01E6' FE30    	                cp '0'
- 541: 2616+7+5	01E8' 2005    	                jr nz, pdl_prdig        ; Non-zero digit, so print it
- 542: 2623+7	01EA' 7E      	                ld a, (hl)
- 543: 2630+4	01EB' A7      	                and a
- 544: 2634+7+5	01EC' 2001    	                jr nz, pdl_prdig        ; Print anyway if flag was set
- 545:				; Skip leading zeros.
- 546: 2641+10	01EE' C9      	                ret
- 547:				;
- 548: 2651+10	01EF' 36FF    	pdl_prdig       ld (hl), 0xff           ; Flag non-zero found
- 549: 2661+4	01F1' 79      	                ld a, c
- 550: 2665+17	01F2' CD7100  	                call conwch
- 551: 2682+10	01F5' C9      	                ret
- 552:				;
+ 445:				;
+ 446:				; Print DEHL as a decimal unsigned number. Leading zeros are suppressed.
+ 447: 1923+11	0159' C5      	cwpdlo          push bc
+ 448: 1934+4	015A' 44      	                ld b, h
+ 449: 1938+4	015B' 4D      	                ld c, l
+ 450:				; DEBC - value to display. Store this.
+ 451: 1942+10	015C' 210400  	                ld hl, pdl_reg
+ 452: 1952+7	015F' 71      	                ld (hl), c
+ 453: 1959+6	0160' 23      	                inc hl
+ 454: 1965+7	0161' 70      	                ld (hl), b
+ 455: 1972+6	0162' 23      	                inc hl
+ 456: 1978+7	0163' 73      	                ld (hl), e
+ 457: 1985+6	0164' 23      	                inc hl
+ 458: 1991+7	0165' 72      	                ld (hl), d
+ 459:				; Reset leading zeros flag
+ 460: 1998+7	0166' 3E00    	                ld a, 0
+ 461: 2005+13	0168' 320800  	                ld (pdl_lz_flag), a
+ 462:				; Digits
+ 463: 2018+10	016B' 1100CA  	                ld de, 0xca00           ; 10^9
+ 464: 2028+10	016E' 019A3B  	                ld bc, 0x3b9a
+ 465: 2038+17	0171' CDB101  	                call pdl_digit
+ 466: 2055+10	0174' 1100E1  	                ld de, 0xe100           ; 10^8
+ 467: 2065+10	0177' 01F505  	                ld bc, 0x05f5
+ 468: 2075+17	017A' CDB101  	                call pdl_digit
+ 469: 2092+10	017D' 118096  	                ld de, 0x9680           ; 10^7
+ 470: 2102+10	0180' 019800  	                ld bc, 0x0098
+ 471: 2112+17	0183' CDB101  	                call pdl_digit
+ 472: 2129+10	0186' 114042  	                ld de, 0x4240           ; 10^6
+ 473: 2139+10	0189' 010F00  	                ld bc, 0x000f
+ 474: 2149+17	018C' CDB101  	                call pdl_digit
+ 475: 2166+10	018F' 11A086  	                ld de, 0x86a0           ; 10^5
+ 476: 2176+10	0192' 010100  	                ld bc, 0x0001
+ 477: 2186+17	0195' CDB101  	                call pdl_digit
+ 478: 2203+10	0198' 111027  	                ld de, 0x2710           ; 10^4
+ 479: 2213+10	019B' 010000  	                ld bc, 0x0000
+ 480: 2223+17	019E' CDB101  	                call pdl_digit
+ 481:				; Use 16-bit version to print the remainder of the digits.
+ 482: 2240+11	01A1' D5      	                push de
+ 483: 2251+11	01A2' E5      	                push hl
+ 484:				; Fetch value.
+ 485: 2262+10	01A3' 210400  	                ld hl, pdl_reg
+ 486: 2272+7	01A6' 5E      	                ld e, (hl)
+ 487: 2279+6	01A7' 23      	                inc hl
+ 488: 2285+7	01A8' 56      	                ld d, (hl)
+ 489: 2292+4	01A9' EB      	                ex de, hl
+ 490: 2296+13	01AA' 3A0800  	                ld a, (pdl_lz_flag)
+ 491: 2309+4	01AD' 5F      	                ld e, a                 ; Set leading zeros flag
+ 492:				; E - leading zeros flag
+ 493:				; HL - value to print
+ 494: 2313+10	01AE' C32701  	                jp pdl_entry
+ 495:				;
+ 496:				; BCDE - significance of digit.
+ 497: 2323+10	01B1' 210900  	pdl_digit       ld hl, pdl_ascii
+ 498: 2333+10	01B4' 362F    	                ld (hl), '0' - 1
+ 499: 2343+11	01B6' 34      	pdl_digloop     inc (hl)                ; Update ASCII digit
+ 500:				; Trial subtraction.
+ 501: 2354+11	01B7' E5      	                push hl                 ; Save pointer to pdl_ascii
+ 502: 2365+10	01B8' 210400  	                ld hl, pdl_reg
+ 503: 2375+7	01BB' 7E      	                ld a, (hl)
+ 504: 2382+4	01BC' 93      	                sub e
+ 505: 2386+7	01BD' 77      	                ld (hl), a
+ 506: 2393+6	01BE' 23      	                inc hl
+ 507: 2399+7	01BF' 7E      	                ld a, (hl)
+ 508: 2406+4	01C0' 9A      	                sbc d
+ 509: 2410+7	01C1' 77      	                ld (hl), a
+ 510: 2417+6	01C2' 23      	                inc hl
+ 511: 2423+7	01C3' 7E      	                ld a, (hl)
+ 512: 2430+4	01C4' 99      	                sbc c
+ 513: 2434+7	01C5' 77      	                ld (hl), a
+ 514: 2441+6	01C6' 23      	                inc hl
+ 515: 2447+7	01C7' 7E      	                ld a, (hl)
+ 516: 2454+4	01C8' 98      	                sbc b
+ 517: 2458+7	01C9' 77      	                ld (hl), a
+ 518: 2465+10	01CA' E1      	                pop hl                  ; Restore pointer to pdl_ascii
+ 519: 2475+7+5	01CB' 30E9    	                jr nc, pdl_digloop      ; Keep subtracting until carry
+ 520:				; Reverse the last subtraction to restore the value before carry.
+ 521: 2482+10	01CD' 210400  	                ld hl, pdl_reg
+ 522: 2492+7	01D0' 7E      	                ld a, (hl)
+ 523: 2499+4	01D1' 83      	                add e
+ 524: 2503+7	01D2' 77      	                ld (hl), a
+ 525: 2510+6	01D3' 23      	                inc hl
+ 526: 2516+7	01D4' 7E      	                ld a, (hl)
+ 527: 2523+4	01D5' 8A      	                adc d
+ 528: 2527+7	01D6' 77      	                ld (hl), a
+ 529: 2534+6	01D7' 23      	                inc hl
+ 530: 2540+7	01D8' 7E      	                ld a, (hl)
+ 531: 2547+4	01D9' 89      	                adc c
+ 532: 2551+7	01DA' 77      	                ld (hl), a
+ 533: 2558+6	01DB' 23      	                inc hl
+ 534: 2564+7	01DC' 7E      	                ld a, (hl)
+ 535: 2571+4	01DD' 88      	                adc b
+ 536: 2575+7	01DE' 77      	                ld (hl), a
+ 537:				;
+ 538: 2582+10	01DF' 210800  	                ld hl, pdl_lz_flag      ; Point to leading zeros flag
+ 539: 2592+13	01E2' 3A0900  	                ld a, (pdl_ascii)       ; Fetch ASCII digit
+ 540: 2605+4	01E5' 4F      	                ld c, a
+ 541: 2609+7	01E6' FE30    	                cp '0'
+ 542: 2616+7+5	01E8' 2005    	                jr nz, pdl_prdig        ; Non-zero digit, so print it
+ 543: 2623+7	01EA' 7E      	                ld a, (hl)
+ 544: 2630+4	01EB' A7      	                and a
+ 545: 2634+7+5	01EC' 2001    	                jr nz, pdl_prdig        ; Print anyway if flag was set
+ 546:				; Skip leading zeros.
+ 547: 2641+10	01EE' C9      	                ret
+ 548:				;
+ 549: 2651+10	01EF' 36FF    	pdl_prdig       ld (hl), 0xff           ; Flag non-zero found
+ 550: 2661+4	01F1' 79      	                ld a, c
+ 551: 2665+17	01F2' CD7100  	                call conwch
+ 552: 2682+10	01F5' C9      	                ret
  553:				;
- 554:				; Print message <n> in a null terminated list. Nothing is printed if the
- 555:				; terminator is encountered before message <n> is found.
- 556:				; Call with:
- 557:				; A - number of message to print (first is zero)
- 558:				; C - message separator
- 559:				; HL - pointer to start of message
- 560:				; Returns with:
- 561:				; HL - points to the separator at the end of the message printed, or the
- 562:				; terminator (zero).
- 563:				; Carry flag is set if the message was not found (terminator encountered).
- 564: 2692+11	01F6' C5      	conwmn          push bc
- 565: 2703+4	01F7' 47      	                ld b, a                 ; Message number
- 566: 2707+4	01F8' 78      	pmn_msg_lp      ld a, b
- 567: 2711+4	01F9' A7      	                and a
- 568: 2715+7+5	01FA' 280B    	                jr z, pmn_found         ; Jump if this is the one
- 569:				; Skip to next message.
- 570: 2722+7	01FC' 7E      	pmn_sk_lp       ld a, (hl)
- 571: 2729+4	01FD' A7      	                and a
- 572: 2733+7+5	01FE' 2817    	                jr z, pmn_error         ; Error if terminator
- 573: 2740+6	0200' 23      	                inc hl
- 574: 2746+4	0201' B9      	                cp c
- 575: 2750+7+5	0202' 20F8    	                jr nz, pmn_sk_lp        ; Keep going if not separator or terminator
- 576:				; Separator found
- 577: 2757+4	0204' 05      	                dec b
- 578: 2761+12	0205' 18F1    	                jr pmn_msg_lp
- 579:				; HL now points to the requied message. Print it until the separator or
- 580:				; terminator is encountered.
- 581: 2773+7	0207' 7E      	pmn_found       ld a, (hl)
- 582: 2780+4	0208' A7      	                and a
- 583: 2784+7+5	0209' 2809    	                jr z, pmn_done          ; Exit if terminator found
- 584: 2791+4	020B' B9      	                cp c
- 585: 2795+7+5	020C' 2806    	                jr z, pmn_done          ; Exit if separator found
- 586: 2802+17	020E' CD7100  	                call conwch             ; Write character to console
- 587: 2819+6	0211' 23      	                inc hl                  ; Increment character pointer
- 588: 2825+12	0212' 18F3    	                jr pmn_found            ; Transmit next character
- 589:				; Successful completion.
- 590: 2837+10	0214' C1      	pmn_done        pop bc
- 591: 2847+4	0215' A7      	                and a
- 592: 2851+10	0216' C9      	                ret                     ; Return with carry reset (no error)
- 593:				; Terminator encountered before the message was found
- 594: 2861+10	0217' C1      	pmn_error       pop bc                  ; Restore registers
- 595: 2871+4	0218' 37      	                scf
- 596: 2875+10	0219' C9      	                ret                     ; Return with carry set (error)
- 597:				;
+ 554:				;
+ 555:				; Print message <n> in a null terminated list. Nothing is printed if the
+ 556:				; terminator is encountered before message <n> is found.
+ 557:				; Call with:
+ 558:				; A - number of message to print (first is zero)
+ 559:				; C - message separator
+ 560:				; HL - pointer to start of message
+ 561:				; Returns with:
+ 562:				; HL - points to the separator at the end of the message printed, or the
+ 563:				; terminator (zero).
+ 564:				; Carry flag is set if the message was not found (terminator encountered).
+ 565: 2692+11	01F6' C5      	conwmn          push bc
+ 566: 2703+4	01F7' 47      	                ld b, a                 ; Message number
+ 567: 2707+4	01F8' 78      	pmn_msg_lp      ld a, b
+ 568: 2711+4	01F9' A7      	                and a
+ 569: 2715+7+5	01FA' 280B    	                jr z, pmn_found         ; Jump if this is the one
+ 570:				; Skip to next message.
+ 571: 2722+7	01FC' 7E      	pmn_sk_lp       ld a, (hl)
+ 572: 2729+4	01FD' A7      	                and a
+ 573: 2733+7+5	01FE' 2817    	                jr z, pmn_error         ; Error if terminator
+ 574: 2740+6	0200' 23      	                inc hl
+ 575: 2746+4	0201' B9      	                cp c
+ 576: 2750+7+5	0202' 20F8    	                jr nz, pmn_sk_lp        ; Keep going if not separator or terminator
+ 577:				; Separator found
+ 578: 2757+4	0204' 05      	                dec b
+ 579: 2761+12	0205' 18F1    	                jr pmn_msg_lp
+ 580:				; HL now points to the requied message. Print it until the separator or
+ 581:				; terminator is encountered.
+ 582: 2773+7	0207' 7E      	pmn_found       ld a, (hl)
+ 583: 2780+4	0208' A7      	                and a
+ 584: 2784+7+5	0209' 2809    	                jr z, pmn_done          ; Exit if terminator found
+ 585: 2791+4	020B' B9      	                cp c
+ 586: 2795+7+5	020C' 2806    	                jr z, pmn_done          ; Exit if separator found
+ 587: 2802+17	020E' CD7100  	                call conwch             ; Write character to console
+ 588: 2819+6	0211' 23      	                inc hl                  ; Increment character pointer
+ 589: 2825+12	0212' 18F3    	                jr pmn_found            ; Transmit next character
+ 590:				; Successful completion.
+ 591: 2837+10	0214' C1      	pmn_done        pop bc
+ 592: 2847+4	0215' A7      	                and a
+ 593: 2851+10	0216' C9      	                ret                     ; Return with carry reset (no error)
+ 594:				; Terminator encountered before the message was found
+ 595: 2861+10	0217' C1      	pmn_error       pop bc                  ; Restore registers
+ 596: 2871+4	0218' 37      	                scf
+ 597: 2875+10	0219' C9      	                ret                     ; Return with carry set (error)
  598:				;
- 599:				; Match word in a string against list of options. This is intended for matching
- 600:				; a command string against a list of available commands, but it may have other
- 601:				; uses. Strings to match may optionally be abbreviated by a ".", in which case
- 602:				; the first option that matches up to this is returned. This is similar to the
- 603:				; BBC Microcomputer method of abbreviating commands.
- 604:				; Call with:
- 605:				; A - Options (MTWDLI_xxx, e.g. MTWDLI_ABBREV). See cpm_utility.i
- 606:				; HL - points to start of string. Matching stops at a space or end of string.
- 607:				; DE - points to null terminated command list. Options are separated by spaces.
- 608:				; Returns with:
- 609:				; A - index number of word in list that matched, or zero if no match.
- 610:				; HL - points to space or terminator in string.
- 611: 2885+11	021A' C5      	mtwdli          push bc                 ; Preserve BC
- 612: 2896+11	021B' E5      	                push hl                 ; Save start of word in string
- 613: 2907+4	021C' 4F      	                ld c, a                 ; Save options
- 614: 2911+7	021D' 0601    	                ld b, 1                 ; Word count
- 615: 2918+8	021F' CBB9    	mw_char_loop    res MTWDLI_TERM_BIT, c  ; Flag no terminator found (yet)
- 616:				; End of word or end of string?
- 617:				; C - bit 0 is abbreviation enable, bit 1 is terminator found.
- 618: 2926+7	0221' 7E      	                ld a, (hl)              ; Fetch character from string
- 619: 2933+7	0222' FE20    	                cp ' '
- 620: 2940+7+5	0224' 280D    	                jr z, mw_sword_end
- 621: 2947+4	0226' A7      	                and a
- 622: 2951+7+5	0227' 280A    	                jr z, mw_sword_end
- 623:				; Check for abbreviation character if enabled.
- 624: 2958+8	0229' CB41    	                bit MTWDLI_ABBREV_BIT, c    ; Abbreviations enabled?
- 625: 2966+7+5	022B' 2808    	                jr z, mw_str_tm_dn
- 626: 2973+7	022D' FE2E    	                cp '.'
- 627: 2980+7+5	022F' 2840    	                jr z, mw_dot            ; Stop matching if "." found.
- 628: 2987+12	0231' 1802    	                jr mw_str_tm_dn
- 629:				; Flag end of word or end of string found
- 630: 2999+8	0233' CBF9    	mw_sword_end    set MTWDLI_TERM_BIT, c  ; Flag this for later
- 631:				; Repeat test for word list.
- 632: 3007+7	0235' 1A      	mw_str_tm_dn    ld a, (de)              ; Fetch character from list
- 633: 3014+7	0236' FE20    	                cp ' '
- 634: 3021+7+5	0238' 2827    	                jr z, mw_end_lwd        ; End of word in list
- 635: 3028+4	023A' A7      	                and a
- 636: 3032+7+5	023B' 2824    	                jr z, mw_end_lwd        ; End of word in list
- 637: 3039+8	023D' CB49    	                bit MTWDLI_ICASE_BIT, c ; Force lower case?
- 638: 3047+10+7	023F' C4C300  	                call nz, toloca         ; Optionally convert to lower case
- 639:				; There is at least one more character to match in the string and the current word
- 640:				; in the list.
- 641: 3057+11	0242' C5      	                push bc                 ; Save counter
- 642: 3068+4	0243' 47      	                ld b, a
- 643: 3072+7	0244' 7E      	                ld a, (hl)
- 644: 3079+8	0245' CB49    	                bit MTWDLI_ICASE_BIT, c ; Force lower case?
- 645: 3087+10+7	0247' C4C300  	                call nz, toloca         ; Optionally convert to lower case
- 646: 3097+4	024A' B8      	                cp b
- 647: 3101+10	024B' C1      	                pop bc
- 648: 3111+7+5	024C' 2004    	                jr nz, mw_char_mis
- 649:				; Characters matched!
- 650: 3118+6	024E' 23      	                inc hl
- 651: 3124+6	024F' 13      	                inc de
- 652: 3130+12	0250' 18CD    	                jr mw_char_loop
- 653:				; Mismatch. Try the next word in the list, if there is one.
- 654: 3142+10	0252' E1      	mw_char_mis     pop hl                  ; Reset string pointer
- 655: 3152+11	0253' E5      	                push hl
- 656: 3163+4	0254' 04      	                inc b                   ; Keep track of word count
- 657:				; Skip forward until the next item in the list, or the end of the list
- 658: 3167+6	0255' 13      	mw_next_lwd     inc de
- 659: 3173+7	0256' 1A      	                ld a, (de)
- 660: 3180+4	0257' A7      	                and a
- 661: 3184+7+5	0258' 280E    	                jr z, mw_no_match       ; Exit if end of word list encountered
- 662: 3191+7	025A' FE20    	                cp ' '
- 663: 3198+7+5	025C' 20F7    	                jr nz, mw_next_lwd
- 664: 3205+6	025E' 13      	                inc de                  ; Point to first character of next word
- 665: 3211+12	025F' 18BE    	                jr mw_char_loop         ; Try this one
- 666:				;
- 667:				; End of word found in list.
- 668: 3223+8	0261' CB79    	mw_end_lwd      bit MTWDLI_TERM_BIT, c  ; Terminator found?
- 669: 3231+7+5	0263' 2007    	                jr nz, mw_end_both
- 670:				; End of word found in list, but not in the string.
- 671: 3238+6	0265' 1B      	                dec de                  ; Allow for increment later
- 672: 3244+12	0266' 18EA    	                jr mw_char_mis          ; Try next word in list
- 673:				;
- 674:				; End of the word list reached and no match.
- 675: 3256+10	0268' E1      	mw_no_match     pop hl                  ; Fix stack
- 676: 3266+4	0269' AF      	                xor a                   ; Flag no match
- 677: 3270+10	026A' C1      	                pop bc                  ; Restore BC
- 678: 3280+10	026B' C9      	                ret
- 679:				;
- 680:				; End of words in string and list found simultanously. We have a match!                
- 681: 3290+6	026C' 33      	mw_end_both     inc sp                  ; Fix stack
- 682: 3296+6	026D' 33      	                inc sp
- 683: 3302+4	026E' 78      	                ld a, b                 ; Fetch word index number
- 684: 3306+10	026F' C1      	                pop bc                  ; Restore BC
- 685: 3316+10	0270' C9      	                ret
- 686:				;
- 687:				; "." found in string, so accept the current word as the match. We need to skip the
- 688:				; remainder of the string.
- 689: 3326+6	0271' 23      	mw_dot          inc hl                  ; Step past dot
- 690: 3332+12	0272' 18F8    	                jr mw_end_both
- 691:				;
+ 599:				;
+ 600:				; Match word in a string against list of options. This is intended for matching
+ 601:				; a command string against a list of available commands, but it may have other
+ 602:				; uses. Strings to match may optionally be abbreviated by a ".", in which case
+ 603:				; the first option that matches up to this is returned. This is similar to the
+ 604:				; BBC Microcomputer method of abbreviating commands.
+ 605:				; Call with:
+ 606:				; A - Options (MTWDLI_xxx, e.g. MTWDLI_ABBREV). See cpm_utility.i
+ 607:				; HL - points to start of string. Matching stops at a space or end of string.
+ 608:				; DE - points to null terminated command list. Options are separated by spaces.
+ 609:				; Returns with:
+ 610:				; A - index number of word in list that matched, or zero if no match.
+ 611:				; HL - points to space or terminator in string.
+ 612: 2885+11	021A' C5      	mtwdli          push bc                 ; Preserve BC
+ 613: 2896+11	021B' E5      	                push hl                 ; Save start of word in string
+ 614: 2907+4	021C' 4F      	                ld c, a                 ; Save options
+ 615: 2911+7	021D' 0601    	                ld b, 1                 ; Word count
+ 616: 2918+8	021F' CBB9    	mw_char_loop    res MTWDLI_TERM_BIT, c  ; Flag no terminator found (yet)
+ 617:				; End of word or end of string?
+ 618:				; C - bit 0 is abbreviation enable, bit 1 is terminator found.
+ 619: 2926+7	0221' 7E      	                ld a, (hl)              ; Fetch character from string
+ 620: 2933+7	0222' FE20    	                cp ' '
+ 621: 2940+7+5	0224' 280D    	                jr z, mw_sword_end
+ 622: 2947+4	0226' A7      	                and a
+ 623: 2951+7+5	0227' 280A    	                jr z, mw_sword_end
+ 624:				; Check for abbreviation character if enabled.
+ 625: 2958+8	0229' CB41    	                bit MTWDLI_ABBREV_BIT, c    ; Abbreviations enabled?
+ 626: 2966+7+5	022B' 2808    	                jr z, mw_str_tm_dn
+ 627: 2973+7	022D' FE2E    	                cp '.'
+ 628: 2980+7+5	022F' 2840    	                jr z, mw_dot            ; Stop matching if "." found.
+ 629: 2987+12	0231' 1802    	                jr mw_str_tm_dn
+ 630:				; Flag end of word or end of string found
+ 631: 2999+8	0233' CBF9    	mw_sword_end    set MTWDLI_TERM_BIT, c  ; Flag this for later
+ 632:				; Repeat test for word list.
+ 633: 3007+7	0235' 1A      	mw_str_tm_dn    ld a, (de)              ; Fetch character from list
+ 634: 3014+7	0236' FE20    	                cp ' '
+ 635: 3021+7+5	0238' 2827    	                jr z, mw_end_lwd        ; End of word in list
+ 636: 3028+4	023A' A7      	                and a
+ 637: 3032+7+5	023B' 2824    	                jr z, mw_end_lwd        ; End of word in list
+ 638: 3039+8	023D' CB49    	                bit MTWDLI_ICASE_BIT, c ; Force lower case?
+ 639: 3047+10+7	023F' C4C300  	                call nz, toloca         ; Optionally convert to lower case
+ 640:				; There is at least one more character to match in the string and the current word
+ 641:				; in the list.
+ 642: 3057+11	0242' C5      	                push bc                 ; Save counter
+ 643: 3068+4	0243' 47      	                ld b, a
+ 644: 3072+7	0244' 7E      	                ld a, (hl)
+ 645: 3079+8	0245' CB49    	                bit MTWDLI_ICASE_BIT, c ; Force lower case?
+ 646: 3087+10+7	0247' C4C300  	                call nz, toloca         ; Optionally convert to lower case
+ 647: 3097+4	024A' B8      	                cp b
+ 648: 3101+10	024B' C1      	                pop bc
+ 649: 3111+7+5	024C' 2004    	                jr nz, mw_char_mis
+ 650:				; Characters matched!
+ 651: 3118+6	024E' 23      	                inc hl
+ 652: 3124+6	024F' 13      	                inc de
+ 653: 3130+12	0250' 18CD    	                jr mw_char_loop
+ 654:				; Mismatch. Try the next word in the list, if there is one.
+ 655: 3142+10	0252' E1      	mw_char_mis     pop hl                  ; Reset string pointer
+ 656: 3152+11	0253' E5      	                push hl
+ 657: 3163+4	0254' 04      	                inc b                   ; Keep track of word count
+ 658:				; Skip forward until the next item in the list, or the end of the list
+ 659: 3167+6	0255' 13      	mw_next_lwd     inc de
+ 660: 3173+7	0256' 1A      	                ld a, (de)
+ 661: 3180+4	0257' A7      	                and a
+ 662: 3184+7+5	0258' 280E    	                jr z, mw_no_match       ; Exit if end of word list encountered
+ 663: 3191+7	025A' FE20    	                cp ' '
+ 664: 3198+7+5	025C' 20F7    	                jr nz, mw_next_lwd
+ 665: 3205+6	025E' 13      	                inc de                  ; Point to first character of next word
+ 666: 3211+12	025F' 18BE    	                jr mw_char_loop         ; Try this one
+ 667:				;
+ 668:				; End of word found in list.
+ 669: 3223+8	0261' CB79    	mw_end_lwd      bit MTWDLI_TERM_BIT, c  ; Terminator found?
+ 670: 3231+7+5	0263' 2007    	                jr nz, mw_end_both
+ 671:				; End of word found in list, but not in the string.
+ 672: 3238+6	0265' 1B      	                dec de                  ; Allow for increment later
+ 673: 3244+12	0266' 18EA    	                jr mw_char_mis          ; Try next word in list
+ 674:				;
+ 675:				; End of the word list reached and no match.
+ 676: 3256+10	0268' E1      	mw_no_match     pop hl                  ; Fix stack
+ 677: 3266+4	0269' AF      	                xor a                   ; Flag no match
+ 678: 3270+10	026A' C1      	                pop bc                  ; Restore BC
+ 679: 3280+10	026B' C9      	                ret
+ 680:				;
+ 681:				; End of words in string and list found simultanously. We have a match!                
+ 682: 3290+6	026C' 33      	mw_end_both     inc sp                  ; Fix stack
+ 683: 3296+6	026D' 33      	                inc sp
+ 684: 3302+4	026E' 78      	                ld a, b                 ; Fetch word index number
+ 685: 3306+10	026F' C1      	                pop bc                  ; Restore BC
+ 686: 3316+10	0270' C9      	                ret
+ 687:				;
+ 688:				; "." found in string, so accept the current word as the match. We need to skip the
+ 689:				; remainder of the string.
+ 690: 3326+6	0271' 23      	mw_dot          inc hl                  ; Step past dot
+ 691: 3332+12	0272' 18F8    	                jr mw_end_both
  692:				;
- 693:				; Read a 16-bit hexadecimal number from a string. Case is ignored for alphabetic
- 694:				; characters.
- 695:				; Call with:
- 696:				; HL - points to the first character of the number.
- 697:				; Returns with:
- 698:				; HL - points to first character after number.
- 699:				; DE - required number
- 700:				; C flag - set on error (too many or zero valid digits)
- 701: 3344+11	0274' C5      	rdhxwd          push bc
- 702: 3355+10	0275' 110000  	                ld de, 0                ; Initial result
- 703: 3365+7	0278' 0E00    	                ld c, 0                 ; Count characters read
- 704: 3372+7	027A' 7E      	ghn_char_lp     ld a, (hl)
- 705: 3379+17	027B' CDBA00  	                call toupca             ; Convert to upper case.
- 706: 3396+7	027E' FE41    	                cp 'A'
- 707: 3403+7+5	0280' 3808    	                jr c, ghn_not_alpha
- 708: 3410+7	0282' FE47    	                cp 'F' + 1
- 709: 3417+7+5	0284' 3004    	                jr nc, ghn_not_alpha
- 710:				; Character is alphabetic.
- 711: 3424+7	0286' D637    	                sub 'A' - 10
- 712: 3431+12	0288' 1808    	                jr ghn_got_dig
- 713:				; Character is not alphabetic.
- 714: 3443+7	028A' D630    	ghn_not_alpha   sub '0'
- 715: 3450+7+5	028C' 381E    	                jr c, ghn_done          ; End of number if < '0'
- 716: 3457+7	028E' FE0A    	                cp 10
- 717: 3464+7+5	0290' 301A    	                jr nc, ghn_done         ; End of number if not a digit
- 718:				; Value of digit is in LSN of A. Make space for it in the result.
- 719: 3471+4	0292' EB      	ghn_got_dig     ex de, hl
- 720: 3475+11	0293' 29      	                add hl, hl              ; Shift left
- 721: 3486+7+5	0294' 3812    	                jr c, ghn_error_ex      ; No bits should fall off the end
- 722: 3493+11	0296' 29      	                add hl, hl
- 723: 3504+7+5	0297' 380F    	                jr c, ghn_error_ex      ; No bits should fall off the end
- 724: 3511+11	0299' 29      	                add hl, hl
- 725: 3522+7+5	029A' 380C    	                jr c, ghn_error_ex      ; No bits should fall off the end
- 726: 3529+11	029C' 29      	                add hl, hl
- 727: 3540+7+5	029D' 3809    	                jr c, ghn_error_ex      ; No bits should fall off the end
- 728: 3547+4	029F' EB      	                ex de, hl
- 729:				; Insert new digit
- 730: 3551+4	02A0' B3      	                or e
- 731: 3555+4	02A1' 5F      	                ld e, a
- 732:				; Count digits and check limit.
- 733: 3559+6	02A2' 23      	                inc hl                  ; Point to next character
- 734: 3565+4	02A3' 0C      	                inc c                   ; One more digit
- 735: 3569+7+5	02A4' 20D4    	                jr nz, ghn_char_lp      ; Keep going unless over limit
- 736: 3576+12	02A6' 1801    	                jr ghn_error
- 737:				; Too many or zero digits or overflow.
- 738: 3588+4	02A8' EB      	ghn_error_ex    ex de, hl
- 739: 3592+10	02A9' C1      	ghn_error       pop bc
- 740: 3602+4	02AA' 37      	                scf
- 741: 3606+10	02AB' C9      	                ret                     ; Return with carry flag set (error)
- 742:				; Non-hex character found.
- 743: 3616+4	02AC' 79      	ghn_done        ld a, c
- 744: 3620+4	02AD' A7      	                and a
- 745: 3624+7+5	02AE' 28F9    	                jr z, ghn_error         ; Error if no digits read
- 746:				; Normal completion.
- 747: 3631+10	02B0' C1      	                pop bc
- 748: 3641+10	02B1' C9      	                ret                     ; Return with carry flag reset (OK)
- 749:				;
+ 693:				;
+ 694:				; Read a 16-bit hexadecimal number from a string. Case is ignored for alphabetic
+ 695:				; characters.
+ 696:				; Call with:
+ 697:				; HL - points to the first character of the number.
+ 698:				; Returns with:
+ 699:				; HL - points to first character after number.
+ 700:				; DE - required number
+ 701:				; C flag - set on error (too many or zero valid digits)
+ 702: 3344+11	0274' C5      	rdhxwd          push bc
+ 703: 3355+10	0275' 110000  	                ld de, 0                ; Initial result
+ 704: 3365+7	0278' 0E00    	                ld c, 0                 ; Count characters read
+ 705: 3372+7	027A' 7E      	ghn_char_lp     ld a, (hl)
+ 706: 3379+17	027B' CDBA00  	                call toupca             ; Convert to upper case.
+ 707: 3396+7	027E' FE41    	                cp 'A'
+ 708: 3403+7+5	0280' 3808    	                jr c, ghn_not_alpha
+ 709: 3410+7	0282' FE47    	                cp 'F' + 1
+ 710: 3417+7+5	0284' 3004    	                jr nc, ghn_not_alpha
+ 711:				; Character is alphabetic.
+ 712: 3424+7	0286' D637    	                sub 'A' - 10
+ 713: 3431+12	0288' 1808    	                jr ghn_got_dig
+ 714:				; Character is not alphabetic.
+ 715: 3443+7	028A' D630    	ghn_not_alpha   sub '0'
+ 716: 3450+7+5	028C' 381E    	                jr c, ghn_done          ; End of number if < '0'
+ 717: 3457+7	028E' FE0A    	                cp 10
+ 718: 3464+7+5	0290' 301A    	                jr nc, ghn_done         ; End of number if not a digit
+ 719:				; Value of digit is in LSN of A. Make space for it in the result.
+ 720: 3471+4	0292' EB      	ghn_got_dig     ex de, hl
+ 721: 3475+11	0293' 29      	                add hl, hl              ; Shift left
+ 722: 3486+7+5	0294' 3812    	                jr c, ghn_error_ex      ; No bits should fall off the end
+ 723: 3493+11	0296' 29      	                add hl, hl
+ 724: 3504+7+5	0297' 380F    	                jr c, ghn_error_ex      ; No bits should fall off the end
+ 725: 3511+11	0299' 29      	                add hl, hl
+ 726: 3522+7+5	029A' 380C    	                jr c, ghn_error_ex      ; No bits should fall off the end
+ 727: 3529+11	029C' 29      	                add hl, hl
+ 728: 3540+7+5	029D' 3809    	                jr c, ghn_error_ex      ; No bits should fall off the end
+ 729: 3547+4	029F' EB      	                ex de, hl
+ 730:				; Insert new digit
+ 731: 3551+4	02A0' B3      	                or e
+ 732: 3555+4	02A1' 5F      	                ld e, a
+ 733:				; Count digits and check limit.
+ 734: 3559+6	02A2' 23      	                inc hl                  ; Point to next character
+ 735: 3565+4	02A3' 0C      	                inc c                   ; One more digit
+ 736: 3569+7+5	02A4' 20D4    	                jr nz, ghn_char_lp      ; Keep going unless over limit
+ 737: 3576+12	02A6' 1801    	                jr ghn_error
+ 738:				; Too many or zero digits or overflow.
+ 739: 3588+4	02A8' EB      	ghn_error_ex    ex de, hl
+ 740: 3592+10	02A9' C1      	ghn_error       pop bc
+ 741: 3602+4	02AA' 37      	                scf
+ 742: 3606+10	02AB' C9      	                ret                     ; Return with carry flag set (error)
+ 743:				; Non-hex character found.
+ 744: 3616+4	02AC' 79      	ghn_done        ld a, c
+ 745: 3620+4	02AD' A7      	                and a
+ 746: 3624+7+5	02AE' 28F9    	                jr z, ghn_error         ; Error if no digits read
+ 747:				; Normal completion.
+ 748: 3631+10	02B0' C1      	                pop bc
+ 749: 3641+10	02B1' C9      	                ret                     ; Return with carry flag reset (OK)
  750:				;
- 751:				; Read a 16-bit unsigned decimal number from a string.
- 752:				; Call with:
- 753:				; HL - points to the first character of the number.
- 754:				; Returns with:
- 755:				; HL - points to first character after number.
- 756:				; DE - required number
- 757:				; C flag - set on error (too many or zero valid digits)
- 758: 3651+11	02B2' C5      	rdduwd          push bc
- 759: 3662+10	02B3' 110000  	                ld de, 0                ; Initial result
- 760: 3672+7	02B6' 0E00    	                ld c, 0                 ; Count characters read
- 761: 3679+7	02B8' 7E      	gdn_char_lp     ld a, (hl)
- 762: 3686+7	02B9' D630    	                sub '0'
- 763: 3693+7+5	02BB' 3827    	                jr c, gdn_done          ; End of number if < '0'
- 764: 3700+7	02BD' FE0A    	                cp 10
- 765: 3707+7+5	02BF' 3023    	                jr nc, gdn_done         ; End of number if not a digit
- 766:				; Value of digit is in LSN of A. Make space for it in the result.
- 767: 3714+11	02C1' C5      	                push bc                 ; Save counter
- 768: 3725+4	02C2' EB      	                ex de, hl
- 769: 3729+4	02C3' 44      	                ld b, h                 ; Save result x 1
- 770: 3733+4	02C4' 4D      	                ld c, l
- 771: 3737+11	02C5' 29      	                add hl, hl              ; Find result x 2
- 772: 3748+7+5	02C6' 3817    	                jr c, gdn_error_pop     ; No bits should fall off the end
- 773: 3755+11	02C8' 29      	                add hl, hl              ; Find result x 4
- 774: 3766+7+5	02C9' 3814    	                jr c, gdn_error_pop
- 775: 3773+11	02CB' 09      	                add hl, bc              ; Find result x 5
- 776: 3784+7+5	02CC' 3811    	                jr c, gdn_error_pop                
- 777: 3791+11	02CE' 29      	                add hl, hl              ; Find result x 10
- 778: 3802+7+5	02CF' 380E    	                jr c, gdn_error_pop
- 779:				; Insert new digit
- 780: 3809+7	02D1' 0600    	                ld b, 0
- 781: 3816+4	02D3' 4F      	                ld c, a
- 782: 3820+11	02D4' 09      	                add hl, bc              ; Add digit
- 783: 3831+7+5	02D5' 3808    	                jr c, gdn_error_pop
- 784: 3838+4	02D7' EB      	                ex de, hl
- 785: 3842+10	02D8' C1      	                pop bc                  ; Restore counter
- 786:				; Count digits and check limit.
- 787: 3852+6	02D9' 23      	                inc hl                  ; Point to next character
- 788: 3858+4	02DA' 0C      	                inc c                   ; One more digit
- 789: 3862+7+5	02DB' 20DB    	                jr nz, gdn_char_lp      ; Keep going unless 256 digits (unlikely)
- 790: 3869+12	02DD' 1802    	                jr gdn_error
- 791:				; Too many or zero digits or overflow.
- 792: 3881+4	02DF' EB      	gdn_error_pop   ex de, hl               ; Move pointer back to HL
- 793: 3885+10	02E0' C1      	                pop bc                  ; Clean up stack
- 794: 3895+10	02E1' C1      	gdn_error       pop bc                  ; Restore original BC
- 795: 3905+4	02E2' 37      	                scf
- 796: 3909+10	02E3' C9      	                ret                     ; Return with carry flag set (error)
- 797:				; Non-digit character found.
- 798: 3919+4	02E4' 79      	gdn_done        ld a, c
- 799: 3923+4	02E5' A7      	                and a
- 800: 3927+7+5	02E6' 28F9    	                jr z, gdn_error         ; Error if no digits read
- 801:				; Normal completion.
- 802: 3934+10	02E8' C1      	                pop bc
- 803: 3944+10	02E9' C9      	                ret                     ; Return with carry flag reset (OK)
- 804:				;
+ 751:				;
+ 752:				; Read a 16-bit unsigned decimal number from a string.
+ 753:				; Call with:
+ 754:				; HL - points to the first character of the number.
+ 755:				; Returns with:
+ 756:				; HL - points to first character after number.
+ 757:				; DE - required number
+ 758:				; C flag - set on error (too many or zero valid digits)
+ 759: 3651+11	02B2' C5      	rdduwd          push bc
+ 760: 3662+10	02B3' 110000  	                ld de, 0                ; Initial result
+ 761: 3672+7	02B6' 0E00    	                ld c, 0                 ; Count characters read
+ 762: 3679+7	02B8' 7E      	gdn_char_lp     ld a, (hl)
+ 763: 3686+7	02B9' D630    	                sub '0'
+ 764: 3693+7+5	02BB' 3827    	                jr c, gdn_done          ; End of number if < '0'
+ 765: 3700+7	02BD' FE0A    	                cp 10
+ 766: 3707+7+5	02BF' 3023    	                jr nc, gdn_done         ; End of number if not a digit
+ 767:				; Value of digit is in LSN of A. Make space for it in the result.
+ 768: 3714+11	02C1' C5      	                push bc                 ; Save counter
+ 769: 3725+4	02C2' EB      	                ex de, hl
+ 770: 3729+4	02C3' 44      	                ld b, h                 ; Save result x 1
+ 771: 3733+4	02C4' 4D      	                ld c, l
+ 772: 3737+11	02C5' 29      	                add hl, hl              ; Find result x 2
+ 773: 3748+7+5	02C6' 3817    	                jr c, gdn_error_pop     ; No bits should fall off the end
+ 774: 3755+11	02C8' 29      	                add hl, hl              ; Find result x 4
+ 775: 3766+7+5	02C9' 3814    	                jr c, gdn_error_pop
+ 776: 3773+11	02CB' 09      	                add hl, bc              ; Find result x 5
+ 777: 3784+7+5	02CC' 3811    	                jr c, gdn_error_pop                
+ 778: 3791+11	02CE' 29      	                add hl, hl              ; Find result x 10
+ 779: 3802+7+5	02CF' 380E    	                jr c, gdn_error_pop
+ 780:				; Insert new digit
+ 781: 3809+7	02D1' 0600    	                ld b, 0
+ 782: 3816+4	02D3' 4F      	                ld c, a
+ 783: 3820+11	02D4' 09      	                add hl, bc              ; Add digit
+ 784: 3831+7+5	02D5' 3808    	                jr c, gdn_error_pop
+ 785: 3838+4	02D7' EB      	                ex de, hl
+ 786: 3842+10	02D8' C1      	                pop bc                  ; Restore counter
+ 787:				; Count digits and check limit.
+ 788: 3852+6	02D9' 23      	                inc hl                  ; Point to next character
+ 789: 3858+4	02DA' 0C      	                inc c                   ; One more digit
+ 790: 3862+7+5	02DB' 20DB    	                jr nz, gdn_char_lp      ; Keep going unless 256 digits (unlikely)
+ 791: 3869+12	02DD' 1802    	                jr gdn_error
+ 792:				; Too many or zero digits or overflow.
+ 793: 3881+4	02DF' EB      	gdn_error_pop   ex de, hl               ; Move pointer back to HL
+ 794: 3885+10	02E0' C1      	                pop bc                  ; Clean up stack
+ 795: 3895+10	02E1' C1      	gdn_error       pop bc                  ; Restore original BC
+ 796: 3905+4	02E2' 37      	                scf
+ 797: 3909+10	02E3' C9      	                ret                     ; Return with carry flag set (error)
+ 798:				; Non-digit character found.
+ 799: 3919+4	02E4' 79      	gdn_done        ld a, c
+ 800: 3923+4	02E5' A7      	                and a
+ 801: 3927+7+5	02E6' 28F9    	                jr z, gdn_error         ; Error if no digits read
+ 802:				; Normal completion.
+ 803: 3934+10	02E8' C1      	                pop bc
+ 804: 3944+10	02E9' C9      	                ret                     ; Return with carry flag reset (OK)
  805:				;
- 806:				; Read a 32-bit unsigned decimal number from a string.
- 807:				; Call with:
- 808:				; HL - points to the first character of the number.
- 809:				; Returns with:
- 810:				; HL - points to first character after number.
- 811:				; BCDE - required number
- 812:				; C flag - set on error (too many or zero valid digits)
- 813: 3954+10	02EA' 010000  	rddulo          ld bc, 0                ; Initial result
- 814: 3964+4	02ED' 50      	                ld d, b
- 815: 3968+4	02EE' 59      	                ld e, c
- 816: 3972+7	02EF' 3E00    	                ld a, 0                 ; Count characters read
- 817: 3979+11	02F1' F5      	gldn_char_lp    push af                 ; Save counter
- 818: 3990+7	02F2' 7E      	                ld a, (hl)
- 819: 3997+7	02F3' D630    	                sub '0'
- 820: 4004+7+5	02F5' 385E    	                jr c, gldn_done         ; End of number if < '0'
- 821: 4011+7	02F7' FE0A    	                cp 10
- 822: 4018+7+5	02F9' 305A    	                jr nc, gldn_done        ; End of number if not a digit
- 823:				; Value of digit is in LSN of A. Make space for it in the result.
- 824: 4025+11	02FB' E5      	                push hl                 ; Save pointer
- 825: 4036+11	02FC' F5      	                push af                 ; Save digit
- 826:				; Save result x 1 
- 827: 4047+10	02FD' 210000  	                ld hl, gldn_x1
- 828: 4057+7	0300' 73      	                ld (hl), e
- 829: 4064+6	0301' 23      	                inc hl
- 830: 4070+7	0302' 72      	                ld (hl), d
- 831: 4077+6	0303' 23      	                inc hl
- 832: 4083+7	0304' 71      	                ld (hl), c
- 833: 4090+6	0305' 23      	                inc hl
- 834: 4096+7	0306' 70      	                ld (hl), b
- 835:				; Find result x 2
- 836: 4103+8	0307' CB23    	                sla e
- 837: 4111+8	0309' CB12    	                rl d
- 838: 4119+8	030B' CB11    	                rl c
- 839: 4127+8	030D' CB10    	                rl b
- 840: 4135+7+5	030F' 3840    	                jr c, gldn_error_pop    ; No bits should fall off the end
- 841:				; Find result x 4
- 842: 4142+8	0311' CB23    	                sla e
- 843: 4150+8	0313' CB12    	                rl d
- 844: 4158+8	0315' CB11    	                rl c
- 845: 4166+8	0317' CB10    	                rl b
- 846: 4174+7+5	0319' 3836    	                jr c, gldn_error_pop    ; No bits should fall off the end
- 847:				; Add "x 1" to obtain result x 5
- 848: 4181+10	031B' 210000  	                ld hl, gldn_x1
- 849: 4191+4	031E' 7B      	                ld a, e
- 850: 4195+7	031F' 86      	                add (hl)
- 851: 4202+4	0320' 5F      	                ld e, a
- 852: 4206+6	0321' 23      	                inc hl
- 853: 4212+4	0322' 7A      	                ld a, d
- 854: 4216+7	0323' 8E      	                adc (hl)
- 855: 4223+4	0324' 57      	                ld d, a
- 856: 4227+6	0325' 23      	                inc hl
- 857: 4233+4	0326' 79      	                ld a, c
- 858: 4237+7	0327' 8E      	                adc (hl)
- 859: 4244+4	0328' 4F      	                ld c, a
- 860: 4248+6	0329' 23      	                inc hl
- 861: 4254+4	032A' 78      	                ld a, b
- 862: 4258+7	032B' 8E      	                adc (hl)
- 863: 4265+4	032C' 47      	                ld b, a
- 864: 4269+7+5	032D' 3822    	                jr c, gldn_error_pop    ; No bits should fall off the end
- 865:				; Find result x 10
- 866: 4276+8	032F' CB23    	                sla e
- 867: 4284+8	0331' CB12    	                rl d
- 868: 4292+8	0333' CB11    	                rl c
- 869: 4300+8	0335' CB10    	                rl b
- 870: 4308+7+5	0337' 3818    	                jr c, gldn_error_pop    ; No bits should fall off the end
- 871: 4315+10	0339' F1      	                pop af                  ; Restore digit
- 872:				; Insert new digit
- 873: 4325+7	033A' 2E00    	                ld l, 0                 ; Cache zero
- 874: 4332+4	033C' 83      	                add e
- 875: 4336+4	033D' 5F      	                ld e, a
- 876: 4340+4	033E' 7D      	                ld a, l
- 877: 4344+4	033F' 8A      	                adc d
- 878: 4348+4	0340' 57      	                ld d, a
- 879: 4352+4	0341' 7D      	                ld a, l
- 880: 4356+4	0342' 89      	                adc c
- 881: 4360+4	0343' 4F      	                ld c, a
- 882: 4364+4	0344' 7D      	                ld a, l
- 883: 4368+4	0345' 88      	                adc b
- 884: 4372+4	0346' 47      	                ld b, a
- 885: 4376+7+5	0347' 3808    	                jr c, gldn_error_pop    ; No bits should fall off the end
- 886:				; BCDE - required number
- 887: 4383+10	0349' E1      	                pop hl                  ; Restore pointer
- 888:				; Count digits and check limit.
- 889: 4393+6	034A' 23      	                inc hl                  ; Point to next character
- 890: 4399+10	034B' F1      	                pop af                  ; Restore counter
- 891: 4409+4	034C' 3C      	                inc a                   ; One more digit
- 892: 4413+7+5	034D' 20A2    	                jr nz, gldn_char_lp     ; Keep going unless 256 digits (unlikely)
- 893: 4420+12	034F' 1802    	                jr gldn_error
- 894:				; Too many or zero digits or overflow.
- 895: 4432+10	0351' E1      	gldn_error_pop  pop hl                  ; Restore pointer
- 896: 4442+10	0352' F1      	                pop af                  ; Discard counter
- 897: 4452+4	0353' 37      	gldn_error      scf
- 898: 4456+10	0354' C9      	                ret                     ; Return with carry flag set (error)
- 899:				; Non-digit character found.
- 900: 4466+10	0355' F1      	gldn_done       pop af                  ; Restore counter
- 901: 4476+4	0356' A7      	                and a
- 902: 4480+7+5	0357' 28FA    	                jr z, gldn_error        ; Error if no digits read
- 903:				; Normal completion.
- 904: 4487+10	0359' C9      	                ret                     ; Return with carry flag reset (OK)
- 905:				;
+ 806:				;
+ 807:				; Read a 32-bit unsigned decimal number from a string.
+ 808:				; Call with:
+ 809:				; HL - points to the first character of the number.
+ 810:				; Returns with:
+ 811:				; HL - points to first character after number.
+ 812:				; BCDE - required number
+ 813:				; C flag - set on error (too many or zero valid digits)
+ 814: 3954+10	02EA' 010000  	rddulo          ld bc, 0                ; Initial result
+ 815: 3964+4	02ED' 50      	                ld d, b
+ 816: 3968+4	02EE' 59      	                ld e, c
+ 817: 3972+7	02EF' 3E00    	                ld a, 0                 ; Count characters read
+ 818: 3979+11	02F1' F5      	gldn_char_lp    push af                 ; Save counter
+ 819: 3990+7	02F2' 7E      	                ld a, (hl)
+ 820: 3997+7	02F3' D630    	                sub '0'
+ 821: 4004+7+5	02F5' 385E    	                jr c, gldn_done         ; End of number if < '0'
+ 822: 4011+7	02F7' FE0A    	                cp 10
+ 823: 4018+7+5	02F9' 305A    	                jr nc, gldn_done        ; End of number if not a digit
+ 824:				; Value of digit is in LSN of A. Make space for it in the result.
+ 825: 4025+11	02FB' E5      	                push hl                 ; Save pointer
+ 826: 4036+11	02FC' F5      	                push af                 ; Save digit
+ 827:				; Save result x 1 
+ 828: 4047+10	02FD' 210000  	                ld hl, gldn_x1
+ 829: 4057+7	0300' 73      	                ld (hl), e
+ 830: 4064+6	0301' 23      	                inc hl
+ 831: 4070+7	0302' 72      	                ld (hl), d
+ 832: 4077+6	0303' 23      	                inc hl
+ 833: 4083+7	0304' 71      	                ld (hl), c
+ 834: 4090+6	0305' 23      	                inc hl
+ 835: 4096+7	0306' 70      	                ld (hl), b
+ 836:				; Find result x 2
+ 837: 4103+8	0307' CB23    	                sla e
+ 838: 4111+8	0309' CB12    	                rl d
+ 839: 4119+8	030B' CB11    	                rl c
+ 840: 4127+8	030D' CB10    	                rl b
+ 841: 4135+7+5	030F' 3840    	                jr c, gldn_error_pop    ; No bits should fall off the end
+ 842:				; Find result x 4
+ 843: 4142+8	0311' CB23    	                sla e
+ 844: 4150+8	0313' CB12    	                rl d
+ 845: 4158+8	0315' CB11    	                rl c
+ 846: 4166+8	0317' CB10    	                rl b
+ 847: 4174+7+5	0319' 3836    	                jr c, gldn_error_pop    ; No bits should fall off the end
+ 848:				; Add "x 1" to obtain result x 5
+ 849: 4181+10	031B' 210000  	                ld hl, gldn_x1
+ 850: 4191+4	031E' 7B      	                ld a, e
+ 851: 4195+7	031F' 86      	                add (hl)
+ 852: 4202+4	0320' 5F      	                ld e, a
+ 853: 4206+6	0321' 23      	                inc hl
+ 854: 4212+4	0322' 7A      	                ld a, d
+ 855: 4216+7	0323' 8E      	                adc (hl)
+ 856: 4223+4	0324' 57      	                ld d, a
+ 857: 4227+6	0325' 23      	                inc hl
+ 858: 4233+4	0326' 79      	                ld a, c
+ 859: 4237+7	0327' 8E      	                adc (hl)
+ 860: 4244+4	0328' 4F      	                ld c, a
+ 861: 4248+6	0329' 23      	                inc hl
+ 862: 4254+4	032A' 78      	                ld a, b
+ 863: 4258+7	032B' 8E      	                adc (hl)
+ 864: 4265+4	032C' 47      	                ld b, a
+ 865: 4269+7+5	032D' 3822    	                jr c, gldn_error_pop    ; No bits should fall off the end
+ 866:				; Find result x 10
+ 867: 4276+8	032F' CB23    	                sla e
+ 868: 4284+8	0331' CB12    	                rl d
+ 869: 4292+8	0333' CB11    	                rl c
+ 870: 4300+8	0335' CB10    	                rl b
+ 871: 4308+7+5	0337' 3818    	                jr c, gldn_error_pop    ; No bits should fall off the end
+ 872: 4315+10	0339' F1      	                pop af                  ; Restore digit
+ 873:				; Insert new digit
+ 874: 4325+7	033A' 2E00    	                ld l, 0                 ; Cache zero
+ 875: 4332+4	033C' 83      	                add e
+ 876: 4336+4	033D' 5F      	                ld e, a
+ 877: 4340+4	033E' 7D      	                ld a, l
+ 878: 4344+4	033F' 8A      	                adc d
+ 879: 4348+4	0340' 57      	                ld d, a
+ 880: 4352+4	0341' 7D      	                ld a, l
+ 881: 4356+4	0342' 89      	                adc c
+ 882: 4360+4	0343' 4F      	                ld c, a
+ 883: 4364+4	0344' 7D      	                ld a, l
+ 884: 4368+4	0345' 88      	                adc b
+ 885: 4372+4	0346' 47      	                ld b, a
+ 886: 4376+7+5	0347' 3808    	                jr c, gldn_error_pop    ; No bits should fall off the end
+ 887:				; BCDE - required number
+ 888: 4383+10	0349' E1      	                pop hl                  ; Restore pointer
+ 889:				; Count digits and check limit.
+ 890: 4393+6	034A' 23      	                inc hl                  ; Point to next character
+ 891: 4399+10	034B' F1      	                pop af                  ; Restore counter
+ 892: 4409+4	034C' 3C      	                inc a                   ; One more digit
+ 893: 4413+7+5	034D' 20A2    	                jr nz, gldn_char_lp     ; Keep going unless 256 digits (unlikely)
+ 894: 4420+12	034F' 1802    	                jr gldn_error
+ 895:				; Too many or zero digits or overflow.
+ 896: 4432+10	0351' E1      	gldn_error_pop  pop hl                  ; Restore pointer
+ 897: 4442+10	0352' F1      	                pop af                  ; Discard counter
+ 898: 4452+4	0353' 37      	gldn_error      scf
+ 899: 4456+10	0354' C9      	                ret                     ; Return with carry flag set (error)
+ 900:				; Non-digit character found.
+ 901: 4466+10	0355' F1      	gldn_done       pop af                  ; Restore counter
+ 902: 4476+4	0356' A7      	                and a
+ 903: 4480+7+5	0357' 28FA    	                jr z, gldn_error        ; Error if no digits read
+ 904:				; Normal completion.
+ 905: 4487+10	0359' C9      	                ret                     ; Return with carry flag reset (OK)
  906:				;
  907:				;
- 908:				; *************
- 909:				; * Constants *
- 910:				; *************
- 911:				;
- 912:				;
- 913:     -	035A' 0D0A2A2A	panic_1_msg     byte 0x0d, 0x0a, "*** Software panic at PC=", "$"
+ 908:				; Read command line options. Up to 8 option characters are allowed.
+ 909:				; Call with:
+ 910:				; DE - points to a null terminated list of option characters.
+ 911:				; HL - points to the current position in the command line.
+ 912:				; Returns with:
+ 913:				; A - option flags.
+ 914:				; HL - points to first character after options and any trailing spaces.
+ 915:				; C flag - set on error (malformed option string)
+ 916:				; Each bit in A corresponds to one character in the options list. Bit 0 is set
+ 917:				; of the first character is encountered, bit 1 for the second and so on. Options
+ 918:				; may begin with "[", "/" or "$", to match all conventions I have found used
+ 919:				; with CP/M. If no options are included in the command line, A will be set to
+ 920:				; zero (no options set). Option characters may include any printable character
+ 921:				; except space or "]". Lower case is not permitted. Duplicates are ignored.
+ 922: 4497+11	035A' C5      	clopts          push bc
+ 923:				;
+ 924: 4508+7	035B' 0E00    	                ld c, 0                 ; Set default options
+ 925:				; Check for options. These may begin with "[", "/" or "$", to match all
+ 926:				; conventions I have found used with CP/M.
+ 927: 4515+17	035D' CDB300  	                call skpspc             ; Skip spaces
+ 928:				; Options
+ 929: 4532+7	0360' 7E      	                ld a, (hl)
+ 930: 4539+4	0361' 47      	                ld b, a                 ; Save for later
+ 931: 4543+4	0362' A7      	                and a
+ 932: 4547+7+5	0363' 284E    	                jr z, clo_end_opts      ; Jump if no options 
+ 933: 4554+7	0365' FE5B    	                cp "["
+ 934: 4561+7+5	0367' 280B    	                jr z, clo_op_loop
+ 935: 4568+7	0369' FE2F    	                cp "/"
+ 936: 4575+7+5	036B' 2807    	                jr z, clo_op_loop
+ 937: 4582+7	036D' FE24    	                cp "$"
+ 938: 4589+7+5	036F' 2803    	                jr z, clo_op_loop
+ 939:				; We have found a character, but it isn't an option introducer. We return with
+ 940:				; HL pointing to this character we didn't recognise.
+ 941: 4596+4	0371' A7      	                and a
+ 942: 4600+12	0372' 1840    	                jr clo_exit             ; Exit with no options
+ 943:				;
+ 944:				; Option loop. Attempt to match each option character with the list of options.
+ 945:				; B - option introducer character
+ 946:				; C - option flags (initially zero)
+ 947:				; DE - points to a null terminated list of option characters.
+ 948:				; HL - pointer to command line
+ 949: 4612+6	0374' 23      	clo_op_loop     inc hl
+ 950:				; A terminator or space ends the option string. If the introducer is a "[",
+ 951:				; a closing "]" is required.
+ 952: 4618+7	0375' 3E5B    	                ld a, "["
+ 953: 4625+4	0377' B8      	                cp b
+ 954: 4629+7	0378' 7E      	                ld a, (hl)              ; Fetch character from command line
+ 955: 4636+7+5	0379' 200E    	                jr nz, clo_not_brktd    ; Jump if we didn't start with "["
+ 956:				; Options started with a "[" so must finish with a "]".
+ 957: 4643+4	037B' A7      	                and a
+ 958: 4647+7+5	037C' 2832    	                jr z, clo_err
+ 959: 4654+7	037E' FE20    	                cp " "
+ 960: 4661+7+5	0380' 282E    	                jr z, clo_err
+ 961: 4668+7	0382' FE5D    	                cp "]"
+ 962: 4675+7+5	0384' 200A    	                jr nz, clo_do_opt
+ 963: 4682+6	0386' 23      	                inc hl                  ; Step past "]"
+ 964: 4688+12	0387' 182A    	                jr clo_end_opts         ; Exit
+ 965:				; Options were started with "/" or "$" so there is no explicit terminator.
+ 966: 4700+4	0389' A7      	clo_not_brktd   and a
+ 967: 4704+7+5	038A' 2827    	                jr z, clo_end_opts
+ 968: 4711+7	038C' FE20    	                cp " "
+ 969: 4718+7+5	038E' 2823    	                jr z, clo_end_opts
+ 970:				;
+ 971:				; Process option character.
+ 972: 4725+7	0390' 7E      	clo_do_opt      ld a, (hl)              ; Re-fetch character
+ 973: 4732+11	0391' D5      	                push de                 ; Save address of option characters
+ 974: 4743+4	0392' EB      	                ex de, hl
+ 975: 4747+11	0393' C5      	                push bc                 ; Save introducer and flags
+ 976: 4758+4	0394' 4F      	                ld c, a
+ 977: 4762+7	0395' 0601    	                ld b, 1                 ; Flag bit mask
+ 978:				; B - flag bit mask
+ 979:				; C - option character
+ 980:				; HL - points to a null terminated list of option characters.
+ 981:				; DE - pointer to command line
+ 982: 4769+7	0397' 7E      	clo_ch_loop     ld a, (hl)              ; Fetch option character
+ 983: 4776+4	0398' A7      	                and a
+ 984: 4780+7+5	0399' 2813    	                jr z, clo_miss          ; Jump if terminator found
+ 985: 4787+6	039B' 23      	                inc hl
+ 986: 4793+4	039C' B9      	                cp c
+ 987: 4797+7+5	039D' 2807    	                jr z, clo_match
+ 988: 4804+8	039F' CB00    	                rlc b                   ; Update mask
+ 989: 4812+10+7	03A1' DC2000  	                call c, panic           ; Panic if too many options
+ 990: 4822+12	03A4' 18F1    	                jr clo_ch_loop
+ 991:				;
+ 992:				; Match found.
+ 993: 4834+4	03A6' EB      	clo_match       ex de, hl
+ 994: 4838+4	03A7' 78      	                ld a, b                 ; Mask
+ 995: 4842+10	03A8' C1      	                pop bc                  ; Fetch introducer and flags
+ 996: 4852+4	03A9' B1      	                or c                    ; Update flags
+ 997: 4856+4	03AA' 4F      	                ld c, a
+ 998: 4860+10	03AB' D1      	                pop de                  ; Restore pointer to start of list
+ 999: 4870+12	03AC' 18C6    	                jr clo_op_loop          ; Process next character
+1000:				;
+1001:				; We found the terminator while searching the list of possible options.
+1002: 4882+10	03AE' C1      	clo_miss        pop bc                  ; Fetch introducer and flags 
+1003: 4892+10	03AF' D1      	                pop de                  ; Restore pointer to start of list
+1004:				;
+1005:				; Return with error.
+1006: 4902+4	03B0' 37      	clo_err         scf                     ; Flag error
+1007: 4906+12	03B1' 1801    	                jr clo_exit
+1008:				;
+1009:				; Normal return.
+1010: 4918+4	03B3' A7      	clo_end_opts    and a                   ; Flag OK
+1011: 4922+4	03B4' 79      	clo_exit        ld a, c                 ; Move option flags to A
+1012: 4926+10	03B5' C1      	                pop bc
+1013:				; Skip any trailing spaces.
+1014: 4936+11	03B6' F5      	                push af
+1015: 4947+17	03B7' CDB300  	                call skpspc             ; Skip spaces
+1016: 4964+10	03BA' F1      	                pop af
+1017: 4974+10	03BB' C9      	                ret
+1018:				;
+1019:				;
+1020:				;
+1021:				; *************
+1022:				; * Constants *
+1023:				; *************
+1024:				;
+1025:				;
+1026:     -	03BC' 0D0A2A2A	panic_1_msg     byte 0x0d, 0x0a, "*** Software panic at PC=", "$"
 	              2A20536F
 	              66747761
 	              72652070
 	              616E6963
 	              20617420
 	              50433D24
- 914:     -	0376' 202A2A2A	panic_2_msg     byte " ***", 0x0d, 0x0a, "$"
+1027:     -	03D8' 202A2A2A	panic_2_msg     byte " ***", 0x0d, 0x0a, "$"
 	              0D0A24
- 915:     -	037D' 1B5B3F32	curv_seq_msg    byte 0x1b, "[?25$"
+1028:     -	03DF' 1B5B3F32	curv_seq_msg    byte 0x1b, "[?25$"
 	              3524
- 916:     -	0383' 1B5B4A24	ccls_seq_msg    byte 0x1b, "[J$"
- 917:				;
- 918:				;
- 919:				;
- 920:				; *************
- 921:				; * Variables *
- 922:				; *************
- 923:				;
- 924:				; Note: linker "-c" option is used, so no data is initialised here.
- 925:				                dseg                ; Data segment
- 926:				;
- 927:     -	0000"         	gldn_x1         defs 4              ; Read long decimal temporary store
- 928:				; cwpdlo (32-bit decimal print) variables
- 929:     -	0004"         	pdl_reg         defs 4              ; Working store
- 930:     -	0008"         	pdl_lz_flag     defs 1              ; Leading zero flag
- 931:     -	0009"         	pdl_ascii       defs 1              ; ASCII digit
- 932:				;
- 933:     -	000A"         	                end
+1029:     -	03E5' 1B5B4A24	ccls_seq_msg    byte 0x1b, "[J$"
+1030:				;
+1031:				;
+1032:				;
+1033:				; *************
+1034:				; * Variables *
+1035:				; *************
+1036:				;
+1037:				; Note: linker "-c" option is used, so no data is initialised here.
+1038:				                dseg                ; Data segment
+1039:				;
+1040:     -	0000"         	gldn_x1         defs 4              ; Read long decimal temporary store
+1041:				; cwpdlo (32-bit decimal print) variables
+1042:     -	0004"         	pdl_reg         defs 4              ; Working store
+1043:     -	0008"         	pdl_lz_flag     defs 1              ; Leading zero flag
+1044:     -	0009"         	pdl_ascii       defs 1              ; ASCII digit
+1045:				;
+1046:     -	000A"         	                end
 
 
 
@@ -1448,8 +1561,8 @@ Statistics:
 
      4	passes
      0	jr promotions
-   281	symbols
-   903	bytes
+   291	symbols
+  1001	bytes
 
     94	macro calls
   1546	macro bytes
@@ -1658,13 +1771,23 @@ ZKEY_PAGE_UP   =1D        29
 cbdos           00'       0 (public)
 cbios           0C'       12 (public)
 cbios_raw       18'       24
-ccls_seq_msg     383'     899
+ccls_seq_msg     3E5'     997
+clo_ch_loop      397'     919
+clo_do_opt       390'     912
+clo_end_opts     3B3'     947
+clo_err          3B0'     944
+clo_exit         3B4'     948
+clo_match        3A6'     934
+clo_miss         3AE'     942
+clo_not_brktd    389'     905
+clo_op_loop      374'     884
+clopts           35A'     858 (public)
 conrch          7F'       127 (public)
 const           96'       150 (public)
 conwch          71'       113 (public)
 conwmn           1F6'     502 (public)
 conwms          A3'       163 (public)
-curv_seq_msg     37D'     893
+curv_seq_msg     3DF'     991
 cwms_exit       B0'       176
 cwms_loop       A5'       165
 cwnwln          8C'       140 (public)
@@ -1703,8 +1826,8 @@ mw_no_match      268'     616
 mw_str_tm_dn     235'     565
 mw_sword_end     233'     563
 panic           20'       32 (public)
-panic_1_msg      35A'     858
-panic_2_msg      376'     886
+panic_1_msg      3BC'     956
+panic_2_msg      3D8'     984
 pdl_ascii       09"       9
 pdl_digit        1B1'     433
 pdl_digloop      1B6'     438

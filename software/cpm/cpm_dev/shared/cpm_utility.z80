@@ -47,6 +47,7 @@ CPMU            equ 1                   ; Flag module for includes
                 public panic    ; Fatal application error
                 public zrcdet   ; Detect ZARC
                 public z80det   ; Detect Z80 (instead of 8080 / 8085)
+                public clopts   ; Read command line options
 ;
 ; Derived from the monitor's utility.z80.
                 public conwch   ; Write character to console
@@ -902,6 +903,118 @@ gldn_done       pop af                  ; Restore counter
                 jr z, gldn_error        ; Error if no digits read
 ; Normal completion.
                 ret                     ; Return with carry flag reset (OK)
+;
+;
+; Read command line options. Up to 8 option characters are allowed.
+; Call with:
+; DE - points to a null terminated list of option characters.
+; HL - points to the current position in the command line.
+; Returns with:
+; A - option flags.
+; HL - points to first character after options and any trailing spaces.
+; C flag - set on error (malformed option string)
+; Each bit in A corresponds to one character in the options list. Bit 0 is set
+; of the first character is encountered, bit 1 for the second and so on. Options
+; may begin with "[", "/" or "$", to match all conventions I have found used
+; with CP/M. If no options are included in the command line, A will be set to
+; zero (no options set). Option characters may include any printable character
+; except space or "]". Lower case is not permitted. Duplicates are ignored.
+clopts          push bc
+;
+                ld c, 0                 ; Set default options
+; Check for options. These may begin with "[", "/" or "$", to match all
+; conventions I have found used with CP/M.
+                call skpspc             ; Skip spaces
+; Options
+                ld a, (hl)
+                ld b, a                 ; Save for later
+                and a
+                jr z, clo_end_opts      ; Jump if no options 
+                cp "["
+                jr z, clo_op_loop
+                cp "/"
+                jr z, clo_op_loop
+                cp "$"
+                jr z, clo_op_loop
+; We have found a character, but it isn't an option introducer. We return with
+; HL pointing to this character we didn't recognise.
+                and a
+                jr clo_exit             ; Exit with no options
+;
+; Option loop. Attempt to match each option character with the list of options.
+; B - option introducer character
+; C - option flags (initially zero)
+; DE - points to a null terminated list of option characters.
+; HL - pointer to command line
+clo_op_loop     inc hl
+; A terminator or space ends the option string. If the introducer is a "[",
+; a closing "]" is required.
+                ld a, "["
+                cp b
+                ld a, (hl)              ; Fetch character from command line
+                jr nz, clo_not_brktd    ; Jump if we didn't start with "["
+; Options started with a "[" so must finish with a "]".
+                and a
+                jr z, clo_err
+                cp " "
+                jr z, clo_err
+                cp "]"
+                jr nz, clo_do_opt
+                inc hl                  ; Step past "]"
+                jr clo_end_opts         ; Exit
+; Options were started with "/" or "$" so there is no explicit terminator.
+clo_not_brktd   and a
+                jr z, clo_end_opts
+                cp " "
+                jr z, clo_end_opts
+;
+; Process option character.
+clo_do_opt      ld a, (hl)              ; Re-fetch character
+                push de                 ; Save address of option characters
+                ex de, hl
+                push bc                 ; Save introducer and flags
+                ld c, a
+                ld b, 1                 ; Flag bit mask
+; B - flag bit mask
+; C - option character
+; HL - points to a null terminated list of option characters.
+; DE - pointer to command line
+clo_ch_loop     ld a, (hl)              ; Fetch option character
+                and a
+                jr z, clo_miss          ; Jump if terminator found
+                inc hl
+                cp c
+                jr z, clo_match
+                rlc b                   ; Update mask
+                call c, panic           ; Panic if too many options
+                jr clo_ch_loop
+;
+; Match found.
+clo_match       ex de, hl
+                ld a, b                 ; Mask
+                pop bc                  ; Fetch introducer and flags
+                or c                    ; Update flags
+                ld c, a
+                pop de                  ; Restore pointer to start of list
+                jr clo_op_loop          ; Process next character
+;
+; We found the terminator while searching the list of possible options.
+clo_miss        pop bc                  ; Fetch introducer and flags 
+                pop de                  ; Restore pointer to start of list
+;
+; Return with error.
+clo_err         scf                     ; Flag error
+                jr clo_exit
+;
+; Normal return.
+clo_end_opts    and a                   ; Flag OK
+clo_exit        ld a, c                 ; Move option flags to A
+                pop bc
+; Skip any trailing spaces.
+                push af
+                call skpspc             ; Skip spaces
+                pop af
+                ret
 ;
 ;
 ;

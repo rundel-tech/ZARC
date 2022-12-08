@@ -7,11 +7,12 @@
 ; V1.0 - 16/2/2022, initial version.
 ; V1.1 - 4/11/2022, added option to skip the surface scan on request from
 ;        "alank2" at https://forum.vcfed.org/
+; V1.2 - 28/11/2022, added CP/M 3 support.
 ;
-; CP/M 2.2 file system checker. It is intended for ZARC but avoids using
+; CP/M 2.2 and 3 file system checker. It is intended for ZARC but avoids using
 ; any special facilities so should run elsewhere. It reads the DPB to discover
 ; the organisation of the disk, so it should work for any sensible disk size or
-; organisation.
+; organisation. 
 ;
 ; Each directory entry is scanned in turn, and a list (files_info) is
 ; constructed with one entry per file. This contains a bitmap of physical
@@ -41,6 +42,8 @@
 ; S2 = 0 and EX = 3, which gives ((32*0)+3) / (2) = 1
 ; So the above equation gives the physical extent number of a given directory
 ; entry. This is what we want to construct a bitmap of physical extents.
+;
+; CP/M 3 format information came from https://www.seasip.info/Cpm/format31.html
 ;
 ;
                 title CP/M File System Checker
@@ -125,65 +128,85 @@ on_z80          ld hl, signon_msg
 ; A following colon is optional.
                 ld a, (hl)
                 cp ":"
-                jr nz, op_options
+                jr nz, clopt_drive_dn
                 inc hl                  ; Step past colon
-;
-; Set default options. These may be modified as the command tail is processed.
-op_options      xor a
-                ld (scan_enable), a     ; Disable surface scan
 ;
 ; Check for options. These may begin with "[", "/" or "$", to match all
 ; conventions I have found used with CP/M.
-                call skpspc             ; Skip spaces
-; Options 
-                ld a, (hl)
-                inc hl
-                ld c, a                 ; Save for later
-                and a
-                jr z, operands_ok       ; Jump if no options
-                cp "["
-                jr z, op_found
-                cp "/"
-                jr z, op_found
-                cp "$"
-                jr nz, op_error         ; Jump if not an option
-; Option introducer found.
-; C - option character
-; HL - pointer to command tail
-op_found        ld a, (hl)
-                inc hl
-                and a
-                jr z, op_error          ; Error if option missing
-; At present, there is just one option.
-                cp "S"
-                jr nz, op_error         ; C
-; "S" option enables surface scan.
-                ld a, 0xff
-                ld (scan_enable), a     ; Enable surface scan
-; Options processed. Check for "]" if appropriate.
-                ld a, c
-                cp "["
-                jr nz, op_check_term    ; Jump if we didn't start with "["
-                ld a, (hl)
-                inc hl
-                cp "]"
-                jr nz, op_error         ; Jump if terminator or anything else
+clopt_drive_dn  ld de, clopt_list   ; Null-terminated list of options
+                call clopts             ; Read command line options
+                jr c, op_error          ; Error on bad options
+                ld (clopt_flags), a
+; /2 and /3 options are mutually exclusive.
+                bit CLOPT_CPM2_2_BIT, a
+                jr z, clopt_ver_ok
+                bit CLOPT_CPM3_BIT, a
+                jp nz, op_error         ; Operand error if both specified
 ;
+; HL - points to first character after options and any trailing spaces.;
 ; The terminator should follow.
-op_check_term   call skpspc             ; Skip spaces
-                ld a, (hl)
+clopt_ver_ok    ld a, (hl)
                 ifdef DEBUG
                     ld a, 0   ; ***TEMP*** - useful when debugging
                 endif
                 and a
-                jr z, operands_ok
+                jr z, clopt_term
 ;
 ; Go here if we don't like the operands supplied.
 op_error        ld hl, op_err_msg
                 jp msg_exit
 ;
-; Operand processing complete.
-operands_ok     ld c, BDOS_RESET_DISK_SYS   ; Reset Disk System
+; Go here if we don't like the operating system we are running on.
+os_error        ld hl, unsupp_os_msg
+                jp msg_exit
+;
+; Command line terminator found.
+clopt_term      xor a
+                ld (disk_type_flags), a ; Reset option flags
+;
+; Determine whether we should use CP/M 2.2 or 3 rules.
+                ld c, BDOS_VERSION      ; Return BDOS Version Number
+                call cbdos              ; Call BDOS with some registers saved
+; Returns B=H=system type, A=L=version number.
+                ld a, h                 ; MSN=CPU type, LSN=CP/M type
+                and a
+                jr nz, os_error
+; Match version against those supported. It is likely that others are OK too,
+; but I can't test all combinations.
+                ld a, l                 ; OS Version number
+                cp 0x20
+                jr z, cver_cpm2
+                cp 0x21
+                jr z, cver_cpm2
+                cp 0x22
+                jr z, cver_cpm2
+                cp 0x30
+                jr z, cver_cpm3
+                cp 0x31
+                jr z, cver_cpm3
+                jr os_error
+;
+; We are running on CP/M 2.x. Enable CP/M 3 features only if "/3" option is
+; specified.
+cver_cpm2       ld a, (clopt_flags)     ; Fetch command line options
+                and CLOPT_CPM3_MASK
+                jr nz, cver_enable3     ; Enable on /3
+                jr cver_done
+;
+; We are running on CP/M 3 or 3.1. Enable CP/M 3 features unless "/2" option is
+; specified.
+cver_cpm3       ld a, (clopt_flags)     ; Fetch command line options
+                and CLOPT_CPM2_2_MASK
+                jr nz, cver_done        ; Don't set on /2
+; Enable CP/M 3 features.
+cver_enable3    ld hl, disk_type_flags
+                set DTF_CPM3_BIT, (hl)
+                ld hl, cpm3_feat_msg    ; "CPM 3 features enabled"
+                call conwms             ; Print $-terminated string to console
+;
+cver_done
+;
+                ld c, BDOS_RESET_DISK_SYS   ; Reset Disk System
                 call cbdos              ; Call BDOS with some registers saved
 ; Both the above reset and the reboot at the end of this application should
 ; make it safe to test any drive regardless of its logged in status.
@@ -309,17 +332,90 @@ scan_loop       ld (dir_entry_num), hl  ; Loop counter
                 pop iy
                 ld (dire), iy           ; Save pointer to directory entry structure
 ;
+;
 ; *** Examine the directory entry ***
 ; IX - pointer to DPB (DPB_xxx)
 ; IY - pointer to directory entry structure (DIRE_xxx)
                 ld a, (iy + DIRE_USER)
                 cp 0xe5
-                jr nz, sl_not_unused
+                jp z, sl_unused
+                cp 0x20
+                jp z, sl_label          ; CP/M 3 only
+                cp 0x21
+                jp z, sl_date_stamp     ; CP/M 3 only
+                cp 0x2e
+                jp z, sl_hfs4cpm
+                cp MAX_USER + 1
+                jp c, sl_phys_extent    ; Physical extent
+                and 0x10
+                cp MAX_USER + 1         ; 16 + user number (ie 16-31)
+                jp c, sl_password       ; CP/M 3 only
+                ld de, dire_type_msg    ; "unrecognised directory entry ..."
+                call sl_err_cont        ; Report any error and continue
+                jp sl_entry_done        ; Entry done
+;
+;
+; Disk label (CP/M 3 only).
+sl_label        ld hl, disk_type_flags
+                bit DTF_CPM3_BIT, (hl)
+                jr nz, sl_label_cpm3    ; Jump if CP/M 3 features enabled
+                ld de, label_msg        ; "labels not supported on CP/M 2.x"
+                call sl_err_cont        ; Report any error and continue
+                jp sl_entry_done        ; Entry done
+;
+; Label found and CP/M 3 features are enabled.
+sl_label_cpm3   
+
+                jp sl_entry_done        ; Entry done
+;
+;
+; Date stamp (CP/M 3 only).
+sl_date_stamp   ld hl, disk_type_flags
+                bit DTF_CPM3_BIT, (hl)
+                jr nz, sl_date_cpm3     ; Jump if CP/M 3 features enabled
+                ld de, date_msg         ; "date stamps not supported ..."
+                call sl_err_cont        ; Report any error and continue
+                jp sl_entry_done        ; Entry done
+;
+sl_date_cpm3
+
+                jp sl_entry_done        ; Entry done
+;
+;
+; HFS4CPM is a hierarchical file system for CP/M written by George Warner
+; (geowar1).
+sl_hfs4cpm      ld hl, disk_type_flags
+                bit DTF_CPM3_BIT, (hl)
+                jr nz, sl_hfs_cpm3      ; Jump if CP/M 3 features enabled
+                ld de, hfs4cpm_msg      ; "hfs4cpm not supported ..."
+                call sl_err_cont        ; Report any error and continue
+                jp sl_entry_done        ; Entry done
+;
+sl_hfs_cpm3
+
+                jp sl_entry_done        ; Entry done
+;
+;
+; Password control entry.
+sl_password     ld hl, disk_type_flags
+                bit DTF_CPM3_BIT, (hl)
+                jr nz, sl_pwd_cpm3      ; Jump if CP/M 3 features enabled
+                ld de, date_msg         ; "hfs4cpm not supported ..."
+                call sl_err_cont        ; Report any error and continue
+                jp sl_entry_done        ; Entry done
+;
+sl_pwd_cpm3
+
+                jp sl_entry_done        ; Entry done
+; @@
+;
+;
 ; This is an unused entry.
-                ld hl, (unused_count)
+sl_unused       ld hl, (unused_count)
                 inc hl
                 ld (unused_count), hl
                 jp sl_entry_done        ; Entry done
+;
 ;
 ; Calculate physical extent. Adapted from
 ; https://www.seasip.info/Cpm/format22.html:
@@ -330,7 +426,7 @@ scan_loop       ld (dir_entry_num), hl  ; Loop counter
 ; physical extent (directory entry). This is defined by DPB.EXM. The formula
 ; is: directory number (physical extent) = ((32 * S2) + EX) / (exm + 1) where
 ; EXM is the extent mask value from the Disc Parameter Block.
-sl_not_unused   ld l, (iy + DIRE_S2)        ; Extent counter, high byte
+sl_phys_extent  ld l, (iy + DIRE_S2)        ; Extent counter, high byte
                 ld h, 0
                 add hl, hl
                 add hl, hl
@@ -355,7 +451,7 @@ sl_calc_ext_lp  ld a, c
 sl_calc_ext_dn  ld (phys_extent), hl    ; Save calculated extent
 ;
 ; Check user number
-                ld de, bad_user_msg     ; " - bad user number"
+                ld de, bad_user_msg     ; "bad user number"
                 ld a, (iy + DIRE_USER)
                 cp MAX_USER + 1
                 call nc, sl_err_cont    ; Report any error and continue
@@ -399,19 +495,19 @@ sl_name_chk     ld a, (hl)
                 call nc, set_c_reg      ; >= DEL isn't visible either
 ;
 ; Report error if one or more issues were found.
-                ld de, bad_name_msg     ; " - bad file name"
+                ld de, bad_name_msg     ; "bad file name"
                 ld a, c
                 and a
                 call nz, sl_err_cont    ; Report any error and continue
 ;
 ; Check extent counter.
-                ld de, bad_ex_cnt_msg   ; " - bad extent count"
+                ld de, bad_ex_cnt_msg   ; "bad extent count"
                 ld a, (iy + DIRE_EX)    ; Extent counter, low byte (0-31)
                 cp 32
                 call nc, sl_err_cont    ; Report any error and continue
 ;
 ; Check S1.
-                ld de, bad_s1_msg       ; " - bad S1"
+                ld de, bad_s1_msg       ; "bad S1"
                 ld a, (iy + DIRE_S1)    ; Reserved, set to 0
                 and a
                 call nz, sl_err_cont    ; Report any error and continue
@@ -509,7 +605,7 @@ slf_found_fi    ld (fie), ix            ; Save pointer to file information struc
 ; flags if required.
                 ld hl, (phys_extent)    ; Fetch extent number
                 call flag_extent        ; Mark block used
-                ld de, ext_dup_msg      ; " - duplicated physical extent"
+                ld de, ext_dup_msg      ; "duplicated physical extent"
                 jp c, sl_err_stop       ; Error and stop if already used
 ;
 ; Mark the blocks used. Entries may be 8 or 16-bit, depending on the number of
@@ -578,13 +674,13 @@ slf_alu_dn      ld iy, (dire)           ; Restore pointer to directory entry str
                 bit ALLCF_SPARSE_BIT, c
 ; A sparse file (one with a hole) is not necessarily an error, as discussed in
 ; http://www.gaby.de/cpm/manuals/archive/cpm22htm/ch5.htm function 35 (description).
-                ld de, sparse_msg       ; " - is sparse (holed) [warning]"
+                ld de, sparse_msg       ; "is sparse (holed) [warning]"
                 call nz, sl_err_cont    ; Error if hole detected
 ;
 ; Check for blocks with no allocations at all.
                 ld a, c
                 and ALLCF_COUNT         ; Isolate count
-                ld de, no_alloc_msg     ; " - no allocations in physical extent [warning]"
+                ld de, no_alloc_msg     ; "no allocations in physical extent [warning]"
                 call z, sl_err_cont     ; Error if no allocations
 ;
 ; Checking record count (RC). This should be 0x80 (128 * 128 = 18 KB) for
@@ -604,7 +700,7 @@ slf_alu_dn      ld iy, (dire)           ; Restore pointer to directory entry str
 ; Not the highest extent found so far, so RC should be 0x80.
                 ld a, (iy + DIRE_ALLOC)
                 cp 0x80
-                ld de, bad_rc_msg       ; " - RC not 0x80 in intermediate extent"
+                ld de, bad_rc_msg       ; "RC not 0x80 in intermediate extent"
                 call nz, sl_err_cont
                 jr slfrc_done
 ;
@@ -617,7 +713,7 @@ slfrc_not_last  ld a, (ix + FI_LAST_PEXT)   ; Last extent
 ; This isn’t the first extent, so the previous one should have RC = 0x80.
                 ld a, (ix + FI_LAST_RC)
                 cp 0x80
-                ld de, bad_rc_msg       ; " - RC not 0x80 in intermediate extent"
+                ld de, bad_rc_msg       ; "RC not 0x80 in intermediate extent"
                 call nz, sl_err_cont
 ;
 ; RC checks complete. Update the FI_LAST_PEXT and FI_LAST_RC fields for next
@@ -675,7 +771,7 @@ spck_loop       ld de, (free_start)     ; First free location
                 and a
                 jr nz, spck_not_empty
 ;
-                ld de, empty_msg        ; " - has no data"
+                ld de, empty_msg        ; "has no data"
                 call spck_error         ; Error if no extents at all
                 jp spck_file_done
 ;
@@ -717,7 +813,7 @@ spck_bit_loop   srl c                   ; Shift LS bit to carry
 ; B - sparse flag (zero if OK)
 spck_last_ok    ld a, b
                 and a
-                ld de, sparse_msg       ; " - is sparse (holed) [warning]"
+                ld de, sparse_msg       ; "is sparse (holed) [warning]"
                 call nz, spck_error     ; Error if hole detected
 ;
 ; Advance pointer by the length of this structure. We must include the length
@@ -876,8 +972,8 @@ bdis_entry_done ld a, c
                 call cwnwln             ; Write new line characters to console
 ;
 ; Should we perform the surface scan?
-                ld a, (scan_enable)     ; Surface scan enable flag
-                and a
+                ld hl, clopt_flags      ; Command line option flags
+                bit CLOPT_SCAN_BIT, (hl)
                 jr nz, surface_scan
                 ld hl, no_ss_msg        ; "Surface scan skipped ..."
                 jp msg_exit
@@ -889,7 +985,7 @@ bdis_entry_done ld a, c
 ; may cause trouble. Blocks extend from 0 (the beginning of the directory) to
 ; DPB.DSM. Each block consists of DPB.BLM + 1 sectors. Alternatively, shifting
 ; the number of blocks by DPB.BSH gives the number of sectors.
-surface_scan    ld hl, surf_scan_msg    ; "Checking all blocks are readable (surface scan)"
+surface_scan    ld hl, surf_scan_msg    ; "Checking all blocks ..."
                 call conwms             ; Print $-terminated string to console
 ; Find number of sectors in file system.
                 ld e, (ix + DPB_DSM)    ; Maximum block number
@@ -1022,6 +1118,8 @@ sl_err_cont     push de
 ;
                 ld iy, (dire)           ; Pointer to directory entry structure
                 call disp_file          ; Display filename etc.
+                ld hl, dash_msg         ; " - "
+                call conwms             ; Print $-terminated string to console
                 ex de, hl
                 call conwms             ; Print $-terminated string to console
                 call cwnwln             ; Write new line characters to console
@@ -1044,6 +1142,8 @@ spck_error      push de
                 push hl
 ;
                 call disp_file          ; Display filename etc.
+                ld hl, dash_msg         ; " - "
+                call conwms             ; Print $-terminated string to console
                 ex de, hl
                 call conwms             ; Print $-terminated string to console
                 call cwnwln             ; Write new line characters to console
@@ -1583,9 +1683,15 @@ ss_track_done   ld b, h                 ; Move track number to BC
 ; *************
 ;
 ;
-signon_msg      byte "*** CP/M File System Checker V1.1 ***", 0x0d, 0x0a, 0x0d, 0x0a, "$"
+signon_msg      byte "*** CP/M File System Checker V1.2 ***"
+                byte 0x0d, 0x0a, 0x0d, 0x0a, "$"
 no_z80_msg      byte "Z80 CPU required", 0x0d, 0x0a, "$"
-op_err_msg      byte "Operand error. Expected format: fsck <drive>[:] [/s]", 0x0d, 0x0a, "$"
+clopt_list      byte "S23", 0           ; List of option characters 
+op_err_msg      byte "Operand error. Expected format: fsck <drive>[:] [/<options>]"
+                byte 0x0d, 0x0a
+                byte "options: s=surface scan, 2=CP/M 2.x format, 3=CP/M 3.x format"
+                byte 0x0d, 0x0a, "$"
+unsupp_os_msg   byte "Operating system not supported", 0x0d, 0x0a, "$"
 exit_msg        byte "Returning to CP/M.", 0x0d, 0x0a, "$"
 memory_msg      byte "Insufficient memory", 0x0d, 0x0a, "$"
 sel_err_msg     byte "Can't select drive.", 0x0d, 0x0a, "$"
@@ -1594,25 +1700,36 @@ dir_done_msg    byte "Directory checks complete", 0x0d, 0x0a, "$"
 files_msg       byte "Files found: $"
 unused_msg      byte "Unused directory entries: $"
 blocks_used_msg byte "Blocks used: $"
-block_map_msg   byte 0x0d, 0x0a, "Block map ('D': directory, 'F': file and '-': unused).", 0x0d, 0x0a, "$"
+block_map_msg   byte 0x0d, 0x0a
+                byte "Block map ('D': directory, 'F': file and '-': unused)."
+                byte 0x0d, 0x0a, "$"
 errors_msg      byte "Errors and warnings: $"
 no_ss_msg       byte "Surface scan skipped", 0x0d, 0x0a, "$"
-surf_scan_msg   byte 0x0d, 0x0a, "Checking all blocks are readable (surface scan)", 0x0d, 0x0a, "$"
+surf_scan_msg   byte 0x0d, 0x0a
+                byte "Checking all blocks are readable (surface scan)"
+                byte 0x0d, 0x0a, "$"
 track_msg       byte 0x0d, "Track: $"
 sector_msg      byte ", sector: $"
 scan_done_msg   byte 0x0d, 0x0a, "Scan complete", 0x0d, 0x0a, "$"
+dash_msg        byte " - $"
+cpm3_feat_msg   byte "CPM 3 features enabled", 0x0d, 0x0a, "$"
 ; Directory entry error messages
-bad_user_msg    byte " - bad user number$"
-bad_name_msg    byte " - bad file name$"
-bad_ex_cnt_msg  byte " - bad extent count$"
-bad_s1_msg      byte " - bad S1$"
-ext_dup_msg     byte " - duplicated physical extent$"
-dble_blk_msg    byte " - block not unique$"
-sparse_msg      byte " - is sparse (holed) [warning]$"
-blk_too_big_msg byte " - block number out of range$"
-no_alloc_msg    byte " - no allocations in physical extent [warning]$"
-bad_rc_msg      byte " - RC not 0x80 in intermediate extent$"
-empty_msg       byte " - has no data [warning]$"
+dire_type_msg   byte "unrecognised directory entry type$"
+bad_user_msg    byte "bad user number$"
+bad_name_msg    byte "bad file name$"
+bad_ex_cnt_msg  byte "bad extent count$"
+bad_s1_msg      byte "bad S1$"
+ext_dup_msg     byte "duplicated physical extent$"
+dble_blk_msg    byte "block not unique$"
+sparse_msg      byte "is sparse (holed) [warning]$"
+blk_too_big_msg byte "block number out of range$"
+no_alloc_msg    byte "no allocations in physical extent [warning]$"
+bad_rc_msg      byte "RC not 0x80 in intermediate extent$"
+empty_msg       byte "has no data [warning]$"
+label_msg       byte "disk labels not supported on CP/M 2.x$"
+date_msg        byte "date stamps not supported on CP/M 2.x$"
+hfs4cpm_msg     byte "hfs4cpm not supported on CP/M 2.x$"
+;
 ;
 ;
 ; *************
@@ -1625,7 +1742,7 @@ empty_msg       byte " - has no data [warning]$"
 ;
 bdos_sp         defs 2              ; BDOS's stack pointer
 drive           defs 1              ; Drive number (0 to 15)
-scan_enable     defs 1              ; Surface scan enable flag
+clopt_flags     defs 1              ; Command line options
 blk_flags       defs 2              ; Pointer to start of blocks used flags
 blk_flags_size  defs 2              ; Size of block flags buffer
 files_info      defs 2              ; Start address of FI structures
@@ -1649,6 +1766,7 @@ track           defs 2              ; Current track
 disp_track      defs 2              ; Displayed track
 sector          defs 2              ; Current sector
 total_sectors   defs 3              ; Number of sectors in file system
+disk_type_flags defs 1              ; Disk type (see DTF_xxx in fsck.i)
                 defs STACK_SIZE     ; Stack space
 app_stack_top
 ;

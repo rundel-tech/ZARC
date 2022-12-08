@@ -13,6 +13,7 @@
                 extern panic    ; Fatal application error
                 extern zrcdet   ; Detect ZARC
                 extern z80det   ; Detect Z80 (instead of 8080 / 8085)
+                extern clopts   ; Read command line options
 ;
 ; Derived from the monitor's utility.z80.
                 extern conwch   ; Write character to console

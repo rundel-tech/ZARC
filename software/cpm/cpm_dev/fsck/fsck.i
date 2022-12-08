@@ -24,6 +24,14 @@ BITDEF ALLCF_SPARSE, 6                  ; Set file contains a hole
 ; LS bits serve as a counter.
 ALLCF_COUNT     equ 0x0f                ; Used allocation counter
 ;
+; Command line option flags. The order must match clopt_list in fsck.z80.
+BITDEF CLOPT_SCAN, 0                    ; Enable surface scan
+BITDEF CLOPT_CPM2_2, 1                  ; Assume CP/M 2.2 disk format
+BITDEF CLOPT_CPM3, 2                    ; Assume CP/M 3 disk format
+;
+; disk_type_flags.
+BITDEF DTF_CPM3, 0                      ; CP/M 3 rules apply
+;
 ;
 ;
 ; **************
