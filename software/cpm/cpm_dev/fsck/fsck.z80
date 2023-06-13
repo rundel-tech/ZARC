@@ -205,6 +205,7 @@ operands_ok     ld c, BDOS_RESET_DISK_SYS   ; Reset Disk System
 drive_sel_ok
 ;
 ; Find address of DPB.
+                ld (dph), hl            ; Save for later
                 ld de, DPH_DPB          ; Offset to pointer to DPB
                 add hl, de
                 ld e, (hl)              ; Fetch pointer
@@ -1563,6 +1564,14 @@ ss_track_done   ld b, h                 ; Move track number to BC
 ;
 ; Set sector.
                 pop bc                  ; Fetch sector
+                ld hl, (dph)            ; put translate table pointer in DE
+                ld e, (hl)
+                inc hl
+                ld d, (hl)
+                ld hl, BIOS_SECTRAN     ; ask for translation of BC (return in HL)
+                call cbios
+                ld b,h                  ; back into BC for SETSEC
+                ld c,l
                 ld (sector), bc         ; Save sector for status reporting
                 ld hl, BIOS_SETSEC      ; Set sector number
                 call cbios              ; Call BIOS with some registers saved
@@ -1637,6 +1646,7 @@ file_count      defs 2              ; Files count
 unused_count    defs 2              ; Unused entry count
 blocks_used     defs 2              ; Number of blocks used
 phys_extent     defs 2              ; Calculated physical extent
+dph             defs 2              ; Pointer to Disk Parameter Header (DPH_xxx)
 dpb             defs 2              ; Pointer to Disk Parameter Block (DPB_xxx)
 dire            defs 2              ; Pointer to directory entry structure (DIRE_xxx)
 fie             defs 2              ; Pointer to file information structure (FI_xxx)
