@@ -522,7 +522,7 @@ slf_ext_done    ld ix, (dpb)
 ; C - flags and counter
                 ld a, (ix + DPB_DSM + 1)    ; Fetch MS byte of DSM
                 and a
-                jr z, slf_bytes         ; Jump if > 255 blocks
+                jr z, slf_bytes         ; Jump if < 256 blocks
 ;
 ; The maximum block number is >= 256, so the allocation list is in words.
                 ld b, 8
@@ -565,7 +565,7 @@ slf_by_alu_used inc c                   ; Keep count
                 call flag_block         ; Mark block used
                 jp c, sl_err_stop       ; Error if already used
                 bit ALLCF_UNUSED_BIT, c
-                jr z, slf_wd_alu_dn     ; Jump if no unused entries encountered
+                jr z, slf_by_alu_dn     ; Jump if no unused entries encountered
 ; This used entry is preceeded by an unused one. This means we have a holed, or
 ; "sparse" file.
                 set ALLCF_SPARSE_BIT, c ; Hole detected
