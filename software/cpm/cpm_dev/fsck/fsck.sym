@@ -1,36 +1,36 @@
 Addr  Length Typ Name       Module   File
 =====================================================================
-0100   0a1b   P  -          FSCK.Z   fsck.rel
-0b1b   0387   P  -          CPM_UT   ../shared/cpm_utility.rel
-0ea2   006f   D  -          FSCK.Z   fsck.rel
-0f11   000a   D  -          CPM_UT   ../shared/cpm_utility.rel
+0100   0a2c   P  -          FSCK.Z   fsck.rel
+0b2c   0387   P  -          CPM_UT   ../shared/cpm_utility.rel
+0eb3   0071   D  -          FSCK.Z   fsck.rel
+0f24   000a   D  -          CPM_UT   ../shared/cpm_utility.rel
 
 Symbol   Value Module   File
 ======================================================================
-CBDOS    0b1b  CPM_UT   ../shared/cpm_utility.rel
-CBIOS    0b27  CPM_UT   ../shared/cpm_utility.rel
-CONRCH   0b9a  CPM_UT   ../shared/cpm_utility.rel
-CONST    0bb1  CPM_UT   ../shared/cpm_utility.rel
-CONWCH   0b8c  CPM_UT   ../shared/cpm_utility.rel
-CONWMN   0d11  CPM_UT   ../shared/cpm_utility.rel
-CONWMS   0bbe  CPM_UT   ../shared/cpm_utility.rel
-CWNWLN   0ba7  CPM_UT   ../shared/cpm_utility.rel
-CWPDBY   0c2d  CPM_UT   ../shared/cpm_utility.rel
-CWPDLO   0c74  CPM_UT   ../shared/cpm_utility.rel
-CWPDWD   0c37  CPM_UT   ../shared/cpm_utility.rel
-CWPHBY   0c19  CPM_UT   ../shared/cpm_utility.rel
-CWPHNB   0c0c  CPM_UT   ../shared/cpm_utility.rel
-CWPHWD   0c25  CPM_UT   ../shared/cpm_utility.rel
-CWPSPC   0be7  CPM_UT   ../shared/cpm_utility.rel
-CWVICH   0bec  CPM_UT   ../shared/cpm_utility.rel
-FSTFRE   0f1b  CPM_TO   ../shared/cpm_top.rel
-MTWDLI   0d35  CPM_UT   ../shared/cpm_utility.rel
-PANIC    0b3b  CPM_UT   ../shared/cpm_utility.rel
-RDDULO   0e05  CPM_UT   ../shared/cpm_utility.rel
-RDDUWD   0dcd  CPM_UT   ../shared/cpm_utility.rel
-RDHXWD   0d8f  CPM_UT   ../shared/cpm_utility.rel
-SKPSPC   0bce  CPM_UT   ../shared/cpm_utility.rel
-TOLOCA   0bde  CPM_UT   ../shared/cpm_utility.rel
-TOUPCA   0bd5  CPM_UT   ../shared/cpm_utility.rel
-Z80DET   0b72  CPM_UT   ../shared/cpm_utility.rel
-ZRCDET   0b4e  CPM_UT   ../shared/cpm_utility.rel
+CBDOS    0b2c  CPM_UT   ../shared/cpm_utility.rel
+CBIOS    0b38  CPM_UT   ../shared/cpm_utility.rel
+CONRCH   0bab  CPM_UT   ../shared/cpm_utility.rel
+CONST    0bc2  CPM_UT   ../shared/cpm_utility.rel
+CONWCH   0b9d  CPM_UT   ../shared/cpm_utility.rel
+CONWMN   0d22  CPM_UT   ../shared/cpm_utility.rel
+CONWMS   0bcf  CPM_UT   ../shared/cpm_utility.rel
+CWNWLN   0bb8  CPM_UT   ../shared/cpm_utility.rel
+CWPDBY   0c3e  CPM_UT   ../shared/cpm_utility.rel
+CWPDLO   0c85  CPM_UT   ../shared/cpm_utility.rel
+CWPDWD   0c48  CPM_UT   ../shared/cpm_utility.rel
+CWPHBY   0c2a  CPM_UT   ../shared/cpm_utility.rel
+CWPHNB   0c1d  CPM_UT   ../shared/cpm_utility.rel
+CWPHWD   0c36  CPM_UT   ../shared/cpm_utility.rel
+CWPSPC   0bf8  CPM_UT   ../shared/cpm_utility.rel
+CWVICH   0bfd  CPM_UT   ../shared/cpm_utility.rel
+FSTFRE   0f2e  CPM_TO   ../shared/cpm_top.rel
+MTWDLI   0d46  CPM_UT   ../shared/cpm_utility.rel
+PANIC    0b4c  CPM_UT   ../shared/cpm_utility.rel
+RDDULO   0e16  CPM_UT   ../shared/cpm_utility.rel
+RDDUWD   0dde  CPM_UT   ../shared/cpm_utility.rel
+RDHXWD   0da0  CPM_UT   ../shared/cpm_utility.rel
+SKPSPC   0bdf  CPM_UT   ../shared/cpm_utility.rel
+TOLOCA   0bef  CPM_UT   ../shared/cpm_utility.rel
+TOUPCA   0be6  CPM_UT   ../shared/cpm_utility.rel
+Z80DET   0b83  CPM_UT   ../shared/cpm_utility.rel
+ZRCDET   0b5f  CPM_UT   ../shared/cpm_utility.rel

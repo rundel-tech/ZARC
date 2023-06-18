@@ -1,12 +1,16 @@
 ; *******************************************************
 ; * CP/M File System Checker                            *
-; * Version: V1.1                                       *
+; * Version: V1.2                                       *
 ; * Merlin Skinner-Oakes, 16/2/2022                     *
 ; *******************************************************
 ;
 ; V1.0 - 16/2/2022, initial version.
 ; V1.1 - 4/11/2022, added option to skip the surface scan on request from
 ;        "alank2" at https://forum.vcfed.org/
+; V1.2 - 18/6/2023, added support for interleaved discs by Chris Radek (cradek)
+;        plus bugfixes for small disks. These resulted from Chris' tests on real
+;        hardware with 8" disks.
+;
 ;
 ; CP/M 2.2 file system checker. It is intended for ZARC but avoids using
 ; any special facilities so should run elsewhere. It reads the DPB to discover
@@ -1592,7 +1596,7 @@ ss_track_done   ld b, h                 ; Move track number to BC
 ; *************
 ;
 ;
-signon_msg      byte "*** CP/M File System Checker V1.1 ***", 0x0d, 0x0a, 0x0d, 0x0a, "$"
+signon_msg      byte "*** CP/M File System Checker V1.2 ***", 0x0d, 0x0a, 0x0d, 0x0a, "$"
 no_z80_msg      byte "Z80 CPU required", 0x0d, 0x0a, "$"
 op_err_msg      byte "Operand error. Expected format: fsck <drive>[:] [/s]", 0x0d, 0x0a, "$"
 exit_msg        byte "Returning to CP/M.", 0x0d, 0x0a, "$"

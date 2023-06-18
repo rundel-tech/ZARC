@@ -28,7 +28,7 @@
   28:				;
   29:				;
   30:				                include "macros.i"
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//macros.i ****
+**** /home/merlin/Technical/ZARC_Z80_Box/git/software/includes//macros.i ****
    1:				; ***********************************
    2:				; * ZARC Macro Definitions          *
    3:				; * Written by: Merlin Skinner      *
@@ -165,7 +165,7 @@
  134:				
 **** cpm_files.z80 ****
   31:				                include "cpm.i"
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//cpm.i ****
+**** /home/merlin/Technical/ZARC_Z80_Box/git/software/includes//cpm.i ****
    1:				; *******************************************************
    2:				; * ZARC Monitor CP/M Definitions                       *
    3:				; * Written by: Merlin Skinner                          *
@@ -455,7 +455,7 @@
  298:				
 **** cpm_files.z80 ****
   32:				                include "terminal.i"    ; Terminal constants
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//terminal.i ****
+**** /home/merlin/Technical/ZARC_Z80_Box/git/software/includes//terminal.i ****
    1:				; ***********************************
    2:				; * ZARC Terminal Definitions       *
    3:				; * Written by: Merlin Skinner      *
@@ -492,7 +492,7 @@
   34:				
 **** cpm_files.z80 ****
   33:				                include "cpm_utility.i" ; CP/M utilities
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//cpm_utility.i ****
+**** /home/merlin/Technical/ZARC_Z80_Box/git/software/includes//cpm_utility.i ****
    1:				; *******************************************************
    2:				; * Utility Routines for CP/M Applications              *
    3:				; * Version: V1.0                                       *
@@ -544,7 +544,7 @@
   49:				
 **** cpm_files.z80 ****
   34:				                include "cpm_files.i"   ; CP/M file handling
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//cpm_files.i ****
+**** /home/merlin/Technical/ZARC_Z80_Box/git/software/includes//cpm_files.i ****
    1:				; *******************************************************
    2:				; * Utility Routines for CP/M Applications              *
    3:				; * Version: V1.0                                       *

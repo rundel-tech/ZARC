@@ -25,7 +25,7 @@
   25:				;
   26:				;
   27:				                include "macros.i"
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//macros.i ****
+**** /home/merlin/Technical/ZARC_Z80_Box/git/software/includes//macros.i ****
    1:				; ***********************************
    2:				; * ZARC Macro Definitions          *
    3:				; * Written by: Merlin Skinner      *
@@ -162,7 +162,7 @@
  134:				
 **** cpm_utility.z80 ****
   28:				                include "z80.i"
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//z80.i ****
+**** /home/merlin/Technical/ZARC_Z80_Box/git/software/includes//z80.i ****
    1:				; ***********************************
    2:				; * ZARC Z80 Definitions            *
    3:				; * Written by: Merlin Skinner      *
@@ -184,7 +184,7 @@
   19:				
 **** cpm_utility.z80 ****
   29:				                include "terminal.i"    ; Terminal constants
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//terminal.i ****
+**** /home/merlin/Technical/ZARC_Z80_Box/git/software/includes//terminal.i ****
    1:				; ***********************************
    2:				; * ZARC Terminal Definitions       *
    3:				; * Written by: Merlin Skinner      *
@@ -221,7 +221,7 @@
   34:				
 **** cpm_utility.z80 ****
   30:				                include "cpm.i"
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//cpm.i ****
+**** /home/merlin/Technical/ZARC_Z80_Box/git/software/includes//cpm.i ****
    1:				; *******************************************************
    2:				; * ZARC Monitor CP/M Definitions                       *
    3:				; * Written by: Merlin Skinner                          *
@@ -511,7 +511,7 @@
  298:				
 **** cpm_utility.z80 ****
   31:				                include "cpm_utility.i"
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//cpm_utility.i ****
+**** /home/merlin/Technical/ZARC_Z80_Box/git/software/includes//cpm_utility.i ****
    1:				; *******************************************************
    2:				; * Utility Routines for CP/M Applications              *
    3:				; * Version: V1.0                                       *

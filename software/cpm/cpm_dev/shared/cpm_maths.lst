@@ -22,7 +22,7 @@
   22:				;
   23:				;
   24:				                include "macros.i"
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//macros.i ****
+**** /home/merlin/Technical/ZARC_Z80_Box/git/software/includes//macros.i ****
    1:				; ***********************************
    2:				; * ZARC Macro Definitions          *
    3:				; * Written by: Merlin Skinner      *
@@ -159,7 +159,7 @@
  134:				
 **** cpm_maths.z80 ****
   25:				                include "z80.i"
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//z80.i ****
+**** /home/merlin/Technical/ZARC_Z80_Box/git/software/includes//z80.i ****
    1:				; ***********************************
    2:				; * ZARC Z80 Definitions            *
    3:				; * Written by: Merlin Skinner      *
@@ -181,7 +181,7 @@
   19:				
 **** cpm_maths.z80 ****
   26:				                include "cpm.i"
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//cpm.i ****
+**** /home/merlin/Technical/ZARC_Z80_Box/git/software/includes//cpm.i ****
    1:				; *******************************************************
    2:				; * ZARC Monitor CP/M Definitions                       *
    3:				; * Written by: Merlin Skinner                          *
@@ -471,7 +471,7 @@
  298:				
 **** cpm_maths.z80 ****
   27:				                include "cpm_maths.i"
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//cpm_maths.i ****
+**** /home/merlin/Technical/ZARC_Z80_Box/git/software/includes//cpm_maths.i ****
    1:				; *******************************************************
    2:				; * Mathematical Routines for CP/M Applications         *
    3:				; * Version: V1.0                                       *
