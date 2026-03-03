@@ -1,0 +1,61 @@
+; *******************************************************
+; * Test assembler source for lstrel                    *
+; * Version: V1.0                                       *
+; * Merlin Skinner, 20/1/2023                           *
+; *******************************************************
+;
+;
+                name LSTREL
+;
+;
+;
+; *************
+; * Externals *
+; *************
+;
+;
+                extern ext1
+                extern ext2
+;
+;
+;
+; *************
+; * Constants *
+; *************
+;
+;
+; None
+;
+;
+;
+; *************
+; * Main Code *
+; *************
+;
+                cseg                    ; Code segment
+;
+                public FUNC1
+FUNC1           ld hl, var1
+                ld de, ext1
+                ld bc, ext1 + 1         ; External plus offset
+                ld a, high var1         ; Byte relocatable!
+                call ext2
+                ret
+;
+                public FUNC2
+FUNC2           halt
+                jr FUNC2
+;
+;
+;
+; *************
+; * Variables *
+; *************
+;
+;
+                dseg
+var1            defs 1
+var2            defs 1
+;
+                end
+

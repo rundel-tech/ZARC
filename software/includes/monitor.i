@@ -11,22 +11,26 @@
 ;
 ; The following conditionals are intended to allow the same include file to be
 ; used in the defining module and elsewhere as required. Some includes are used
-; for other applications than the monitor, such as the CP/M BIOS. In these cases,
-; the extern and public statements are not desirable.
+; for other applications than the monitor, such as the CP/M BIOS. In these
+; cases, the extern and public statements are not desirable.
 ;
             ifdef monitor           ; Meaningful for monitor build only
                 ifndef main         ; Inhibit for this module
 ; Constants
 ;
-; Variables 
-                extern tikcnt       ; Tick counter
+; Variables
+                extern mscnt            ; Monitor start count
+                extern mcspd            ; Approximate CPU speed in KHz
+                extern mstate           ; Machine state structure
 ;
 ; Functions
-                extern panic        ; System error exception
-                extern rusby        ; Read byte from user space
-                extern ruswd        ; Read 16-bit word from user space
-                extern wusby        ; Write byte to user space
-                extern wuswd        ; Write 16-bit word to user space
+                extern panic            ; System error exception
+                extern rusby            ; Read byte from user space
+                extern ruswd            ; Read 16-bit word from user space
+                extern wusby            ; Write byte to user space
+                extern wuswd            ; Write 16-bit word to user space
+                extern mcrun            ; Switch context to user code
+                extern mdisrg           ; Display registers
 ;
                 endif
             endif
@@ -92,6 +96,8 @@
 ; From cache.z80
     JPTBL_ENTRY MCALL_CACRS         ; CP/M read sector
     JPTBL_ENTRY MCALL_CACWS         ; CP/M write sector
+    JPTBL_ENTRY MCALL_CARS          ; MMC read sector
+    JPTBL_ENTRY MCALL_CAWS          ; MMC write sector
     JPTBL_ENTRY MCALL_CAFLUS        ; Flush cache (write dirty buffers)
 ; From memory.z80
     JPTBL_ENTRY MCALL_MPALL         ; Allocate new page

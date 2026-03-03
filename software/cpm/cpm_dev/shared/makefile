@@ -9,6 +9,7 @@
 
 SRCS := $(wildcard *.z80)
 OBJS := $(SRCS:%.z80=%.rel)
+LSTS := $(SRCS:%.z80=%.lst)
 
 all: ${OBJS}
 
@@ -23,6 +24,6 @@ all: ${OBJS}
 clean:
 	echo "Cleaning up..."
 # "-f" flag prevents the process stopping if a file is missing.
-	rm -f *.rel
-	rm -f *.lst
+	rm -f ${OBJS}
+	rm -f ${LSTS}
 

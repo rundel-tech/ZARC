@@ -532,12 +532,12 @@ cwptm           push bc
                 ld a, (ix + TM_HOURS)
                 call cwpdby             ; Print hours in decimal
                 ld a, ':'
-                call conwch 
+                CON_WR_CHAR 
 ;
                 ld a, (ix + TM_MINS)
                 call cwpdby             ; Print minutes in decimal
                 ld a, ':'
-                call conwch 
+                CON_WR_CHAR 
 ;
                 ld a, (ix + TM_SECS)
                 call cwpdby             ; Print seconds in decimal
@@ -553,12 +553,12 @@ cwptm           push bc
                 ld a, (ix + TM_MDAY)
                 call cwpdby             ; Print day of month in decimal
                 ld a, '/'
-                call conwch 
+                CON_WR_CHAR 
 ;
                 ld a, (ix + TM_MON)
                 call cwpdby             ; Print month in decimal
                 ld a, '/'
-                call conwch
+                CON_WR_CHAR
 ;
                 ld de, 1900
                 ld h, 0

@@ -8,6 +8,9 @@
 ;
             ifndef CPMU         ; Inhibit for this module
 ; CP/M specific.
+                extern init     ; Common initialisation code
+                extern conmod   ; Set console mode (BDOS or BIOS)
+                extern cpmver   ; CP/M version (packed BCD)
                 extern cbdos    ; Call BDOS with some registers saved
                 extern cbios    ; Call BIOS with some registers saved
                 extern panic    ; Fatal application error
@@ -47,4 +50,9 @@
 BITDEF MTWDLI_ABBREV, 0                 ; Enable "." abbreviation
 BITDEF MTWDLI_ICASE, 1                  ; Ignore case when matching
 BITDEF MTWDLI_TERM, 7                   ; Terminator found (internal use only)
+;
+;
+; Console mode (for conmod)
+CONMOD_BDOS     equ 0x00                ; Use BDOS for console I/O
+CONMOD_BIOS     equ 0x01                ; Use BIOS for console I/O
 

@@ -1,0 +1,703 @@
+; *******************************************************
+; * CP/M BIOS Console Translation for ZARC Z80 Computer *
+; * Version: V1.0                                       *
+; * Merlin Skinner, 31/5/2025                           *
+; *******************************************************
+;
+; IMPORTANT: This module is intended for use with both CP/M 2.2 and CP/M 3
+; BIOSes.
+;
+; Console escape codes are are translated so as to provide the appearance of a
+; simple terminal to applications. Translation is useful because few terminal
+; emulators support ADM-3A, and some CP/M programs cannot support VT-100
+; sequences. Codes based on the VT-52 were chosen for output as it offers
+; relatively simple control codes and is the basis for a variety of later CP/M
+; machines such as the Amstrad PCW range and Spectrum +3. An external VT-100 /
+; ANSI terminal or terminal emulator can then be used with a wide range of CP/M
+; software.
+;
+; Input escape codes are translated to single characters where appropriate. This
+; is the approach taken by later CP/M machines such as the Amstrad PCW range and
+; Spectrum +3.
+;
+; Translation may be disabled by starting CP/M from the monitor with the
+; "rawcon" option.
+;
+; For CP/M 3, one option to shrink the common area usage of this code
+; would be to move some of it into the banked area (CP/M bank 0).
+;
+                title "Console Translation for ZARC"
+;
+;
+;
+; ************
+; * Includes *
+; ************
+;
+                include "macros.i"
+                include "z80.i"
+;                include "zarc.i"        ; Hardware definitions
+;                include "monitor.i"
+;                include "io_map.i"      ; I/O addresses mapping
+                include "terminal.i"    ; Terminal constants
+;                include "io.i"          ; I/O routines
+;                include "utility.i"     ; Utility functions
+;                include "maths.i"       ; Mathematical functions
+;                include "interrupts.i"  ; Interrupts
+;                include "time.i"        ; Routines associated with time
+;                include "diags.i"       ; Diagnostics
+;                include "heap.i"
+                include "cpm.i"
+                include "cpm3.i"
+;                include "disks.i"
+                include "mmc.i"
+                include "memory.i"      ; Memory page allocation
+                include "bios.i"        ; Local definitions
+                include "contran.i"     ; Console translation
+;
+;
+;
+; *************
+; * Externals *
+; *************
+;
+;
+                public ctinit           ; Initialise console translation
+                public citr             ; Console translate input
+                extern ciraw            ; Console input raw read
+                public cistm            ; Console input translation state
+                public cotr             ; Console translate output
+                extern coraw            ; Console output raw write 
+                extern CONST            ; Console status
+;
+                extern bpanic           ; BIOS panic
+                public cittmr           ; Console input translation timer
+;
+;
+;
+; *************
+; * Constants *
+; *************
+;
+;
+; None
+;
+;
+;
+; *************
+; * Main Code *
+; *************
+;
+;
+; Use code segment (CP/M 2.2) / common segment (CP/M 3)
+                cseg
+;
+;
+; Initialise console translation.
+ctinit          xor a          
+                ld (cot_state), a       ; Console output translation state
+                ld (cistm), a           ; Console input translation state
+                ld (cit_count), a       ; Number of characters in buffer
+                ld (cot_count), a       ; Number of characters in buffer
+;
+                ret
+;
+;
+; *** Console Input ***
+;
+; Waits if no character is available.
+; Returns with:
+; A - next input character
+;
+; Console input translation. Unrecognised sequences are returned without
+; modification, so applications can still receive VT-100 / ANSI sequences if
+; desired.
+citr            ld a, (cistm)           ; Fetch state
+                and a
+                jr z, cit_norm          ; Jump if COTST_NORM
+                cp CITST_REPLAY         ; Replay unrecognised sequence
+                jp z, cit_replay
+;
+; Panic if state is unknown.
+                call bpanic             ; System error monitor entry
+;
+; Normal state (CITST_NORM).
+cit_norm        call ciraw              ; Fetch next character
+                cp ASCII_ESC
+                ret nz                  ; Return with character unless <Esc>
+;
+                push bc                 ; Save registers
+                push de
+                push hl
+;
+; The <Esc> may be the beginning of a VT-100 / ANSI sequence or a single
+; character. We will allow at least one tick before assuming this is an isolated
+; character. At this point, we can't return as we have to return a character,
+; but may or may not want to translate depending on what follows. We will wait
+; for at least one tick to see what arrives.
+                push af
+                xor a
+                ld (cit_count), a       ; Flush buffer
+                pop af                  ; Restore <Esc>
+                call cit_store          ; Store character
+                ld a, 2
+                ld (cittmr), a          ; Set timer (1 to 2 ticks)
+                call cit_getch          ; Read character or time out
+                jr c, cit_do_replay     ; Replay sequence on timeout
+; Second character received.
+                cp "["
+                jr z, cit_csi
+                cp "O"
+                jr z, cit_ss3           ; Jump if "single-shift-3" SS3
+                jr cit_do_replay
+;
+; CSI (Esc [) received. Read the next character.
+cit_csi         call cit_getch          ; Read character or time out
+                jr c, cit_do_replay     ; Replay sequence on timeout
+                ld c, a
+;                
+; Search table for character.
+                ld hl, cit_csi_list
+cit_srch_lp     ld a, (hl)
+                and a
+                jr z, cit_do_replay     ; End of table found
+                cp c
+                jr z, cit_srch_found
+                inc hl
+                inc hl
+                inc hl
+                inc hl
+                jr cit_srch_lp
+;
+; Code found.
+cit_srch_found  inc hl
+                ld b, (hl)              ; Fetch ZARC key code
+                inc hl
+                ld e, (hl)
+                inc hl
+                ld d, (hl)
+                ex de, hl
+; B - ZARC key code
+; C - VT100 / ANSI code code
+; HL - handling routine address
+                jp (hl)                 ; Jump to handler
+;
+;
+; Return with ZARC code.
+; B - ZARC key code
+; C - VT100 / ANSI key code
+cith_single     ld a, b
+;
+cit_exit        pop hl                  ; Restore registers
+                pop de
+                pop bc
+                ret
+;
+;
+; Consume following tilde and return with ZARC code.
+; B - ZARC key code
+; C - VT100 / ANSI key code
+cith_tilde      push bc
+                call cit_getch          ; Read character or time out
+                pop bc
+                jr c, cit_do_replay     ; Replay sequence on timeout
+                cp "~"
+                jr nz, cit_do_replay
+; We have a sequence of the form <Esc>[<code>~
+                ld a, b
+                jr cit_exit
+;
+;
+; Single-shift-3 (SS3 - Esc O) received. Read the next character.
+cit_ss3         call cit_getch          ; Read character or time out
+                jr c, cit_do_replay     ; Replay sequence on timeout
+                ld c, a
+;
+; Search table for character.
+                ld hl, cit_ss3_list
+cit_ss3_srch_lp ld a, (hl)
+                and a
+                jr z, cit_do_replay     ; End of table found
+                cp c
+                jr z, cit_ss3_srch_fd
+                inc hl
+                inc hl
+                jr cit_ss3_srch_lp
+;
+; Code found.
+cit_ss3_srch_fd inc hl
+                ld b, (hl)              ; Fetch ZARC key code
+; B - ZARC key code
+                jr cith_single          ; Return with code
+;
+;
+; <Esc><something> received, where <something> is not recognised. We will
+; supply the received sequence for possible handling by the application.
+cit_do_replay   ld a, CITST_REPLAY      ; Replay unrecognised sequence
+                ld (cistm), a           ; Set state
+                ld hl, cit_buffer       ; Set pointer to first character
+                ld (cit_buff_ptr), hl
+; Fall into following code to return with the first character from the buffer.
+                pop hl                  ; Restore registers
+                pop de
+                pop bc
+;
+; We are replaying an unrecognised sequence.
+; Find address in sequence buffer.
+cit_replay      push hl
+                ld hl, (cit_buff_ptr)
+                ld a, (hl)              ; Fetch character
+; Update pointer.
+                inc hl
+                ld (cit_buff_ptr), hl
+; Update counter.
+                ld hl, cit_count        ; Number of characters in buffer
+                dec (hl)
+                pop hl
+                ret nz
+; We are about to return the last character. We can stop replaying now.
+                push af
+                xor a
+                ld (cistm), a           ; Set COTST_NORM state
+                pop af
+                ret
+;
+;
+; Read character or time out (cittmr reaches zero). If a character is received,
+; it is stored in cit_buffer and returned. Returns with:
+; A - character received if no timeout.
+; Carry flag - set on timeout
+; Registers are not preserved!
+cit_getch       ld a, (cittmr)          ; Fetch timer
+                add 0xff
+; Carry will be set if timer > 0 (not timed out).
+                ccf
+                ret c
+                call CONST              ; Console status (does not save regs)
+; A - 0xff if character ready, 0x00 if not.
+                and a
+                jr z, cit_getch
+; A character has been received.
+                call ciraw              ; Fetch it
+; A - character received
+                push af
+                call cit_store          ; Store character
+                pop af
+                and a                   ; Reset carry
+                ret                     ; Return (no timeout)
+;
+;
+; Store character in console input buffer.
+; A - character to store.
+cit_store       push bc
+                push hl
+                ld c, a
+                ld a, (cit_count)       ; Number of characters in buffer
+                cp CIT_BUF_MAX_LEN
+                call nc, bpanic         ; System error monitor entry
+; Find address in sequence buffer.
+                ld hl, cit_buffer
+                add l
+                ld l, a
+                ld a, h
+                adc 0                   ; Propagate carry
+                ld h, a
+; HL - address in buffer
+                ld (hl), c              ; Store character
+; Update counter
+                ld hl, cit_count
+                inc (hl)
+                pop hl
+                pop bc
+                ret
+;
+;
+;
+; *** Console Output ***
+;
+; Translates a character. Call with character in C.
+;
+; Console translation is enabled. Unrecognised sequences are
+; transmitted without modification, so applications can still send VT-100 /
+; ANSI sequences if desired. Translations are:
+; Esc A to Esc [ A - Cursor up
+; Esc B to Esc [ B - Cursor down
+; Esc C to Esc [ C - Cursor right
+; Esc D to Esc [ D - Cursor left
+; Esc H to Esc [ H - Cursor home
+; Esc J to Esc [ J - Clear to end of display
+; Esc K to Esc [ K - Clear to end of line
+; Esc Y <y> <x> to Esc [ <y> ; <x> H - Set cursor position
+; Esc p to Esc [ 7 m - Reverse video on
+; Esc q to Esc [ 27 m - Normal (positive) video
+; Esc r to Esc [ 4 m - Underline on
+; Esc u to Esc [ 24 m - Underline off
+; Added 30/5/2025, initially to make the ZDE editor work properly:
+; Esc L to Esc [ L - Insert line at cursor, pushing lines down
+; Esc M to Esc [ M - Delete line at cursor, pulling lines up
+; Esc E to Esc [ H Esc [ J - Home cursor and clear screen
+; Esc d to Esc [ 1 J - Clear to start of display
+; Esc e to Esc [ 25 h - Enable cursor
+; Esc f to Esc [ 25 l - Disable cursor
+cotr            ld a, (cot_state)
+                and a
+                jr z, cot_norm        	; Jump if COTST_NORM
+                cp COTST_ESC
+                jr z, cot_esc
+                cp COTST_LOAD
+                jp z, cot_load
+                cp COTST_Y
+                jp z, cot_y
+; Panic if state is unknown.
+                call bpanic             ; System error monitor entry
+;
+;
+; Normal state (COTST_NORM).
+cot_norm        ld a, c
+                cp ASCII_ESC
+                jp nz, coraw            ; Don't translate if not Esc
+; Escape found.
+                xor a
+                ld (cot_count), a       ; Flush buffer
+                ld a, c
+                call cot_store          ; Store it
+                ld a, COTST_ESC         ; Set state for next character
+                ld (cot_state), a
+                ret
+;
+;
+; Previous character was an escape.
+cot_esc         push bc                 ; Save registers
+                push de
+                push hl
+;
+                ld a, c
+                call cot_store          ; Store it
+;                
+; Search table for character.
+                ld hl, cot_list
+cot_srch_lp     ld a, (hl)
+                and a
+                jr z, cot_pass          ; End of table found
+                cp c
+                jr z, cot_srch_found
+                inc hl
+                inc hl
+                inc hl
+                inc hl
+                jr cot_srch_lp
+;
+; Code found.
+cot_srch_found  inc hl
+                ld b, (hl)              ; Fetch data byte, used for some entries
+                inc hl
+                ld e, (hl)
+                inc hl
+                ld d, (hl)
+                ex de, hl
+; B - data byte
+; C - command character
+; HL - handling routine address
+                jp (hl)                 ; Jump to handler
+;
+; Unrecognised sequence. Send whatever we received. This code assumes that
+; there is at least one character in cot_buffer.
+cot_pass        ld a, (cot_count)       ; Number of characters in buffer
+                ld b, a
+                ld hl, cot_buffer       ; Point to buffer
+cot_pass_lp     ld c, (hl)
+                push bc
+                push hl
+                call coraw
+                pop hl
+                pop bc
+                inc hl
+                djnz cot_pass_lp
+                jr cot_to_norm          ; Set normal state and exit
+;
+;
+; Send CSI followed by command with no further translation.
+; B - data byte (not used)
+; C - command character
+coth_same       push bc
+                call cot_csi            ; Send <Esc>[
+                pop bc
+                call coraw              ; Send command
+; Set state to normal for the next character.
+cot_to_norm     xor a
+                ld (cot_state), a       ; Set state to COTST_NORM
+;
+cot_exit        pop hl                  ; Restore registers
+                pop de
+                pop bc
+                ret
+;
+;
+; Select graphics rendition.
+; B - required ANSI / VT-100 SGR code in decimal
+; C - command character (not used)
+coth_sgr        push bc
+                call cot_csi
+                pop bc
+                ld a, b
+                call cot_dec            ; Send decimal parameter
+                ld c, "m"
+                call coraw
+                jp cot_to_norm          ; Set normal state and exit
+;
+;
+; Set cursor position sequence (Esc Y). The next characters are <y> and <x>.
+; B - data byte (not used)
+; C - command character (not used)
+coth_set_csr    ld a, COTST_LOAD
+                ld (cot_state), a
+                jr cot_exit
+;
+;
+; Home & clear display. Send Esc [ H Esc [ J
+; B - data byte (not used)
+; C - command character (not used)
+coth_cls        call cot_csi
+                ld c, "H"               ; Home
+                call coraw
+                call cot_csi
+                ld c, "J"               ; Clear to end of display
+                call coraw
+                jp cot_to_norm          ; Set normal state and exit
+;
+;
+; Clear display. Send Esc [ <n> J 
+; B - data byte "0" (clear to end of display) or "1" (clear to start of display)
+; C - command character (not used)
+coth_clr        call cot_csi
+                ld c, b
+                call coraw
+                ld c, "J"               ; Clear command
+                call coraw
+                jp cot_to_norm          ; Set normal state and exit
+;
+;
+; Enable or disable cursor. Send Esc [ 25 h (enable) or l (disable).
+; B - data byte "h" or "l"
+; C - command character (not used)
+coth_cur_endis  call cot_csi
+                ld c, "2"
+                call coraw
+                ld c, "5"
+                call coraw
+                ld c, b
+                call coraw
+                jp cot_to_norm          ; Set normal state and exit
+;
+;
+; Cursor load state (COTST_LOAD).
+cot_load        push bc                 ; Save registers
+                push de
+                push hl
+;
+                ld a, c
+                call cot_store          ; Store it
+                ld a, c                 ; Y coordinate
+                cp 0x20
+                jr c, cot_pass          ; Discard if Y is negative
+                ld a, COTST_Y
+                ld (cot_state), a
+                jr cot_exit
+;
+;
+; Cursor load Y state (COTST_Y).
+cot_y           push bc                 ; Save registers
+                push de
+                push hl
+;
+                ld a, c
+                call cot_store          ; Store it
+                ld a, c                 ; X coordinate
+                cp 0x20
+                jp c, cot_pass          ; Discard if X is negative
+; Send VT-100 console load sequence: <ESC> [ pl ; pc H
+                call cot_csi
+                ld a, (cot_buffer + 2)  ; y
+                sub 0x1f                ; Make origin 0x01
+                call cot_dec
+                ld c, ";"
+                call coraw
+                ld a, (cot_buffer + 3)  ; x
+                sub 0x1f                ; Make origin 0x01
+                call cot_dec
+                ld c, "H"
+                call coraw
+                jp cot_to_norm          ; Set normal state and exit
+;
+;
+; Send decimal number in A to console.
+cot_dec         push bc
+                ld b, 100
+                call cot_dec_div
+                ld b, 10
+                call cot_dec_div
+                pop bc
+; Output digit (0 to 9) in A.
+cot_dec_digit   add "0"                 ; Convert to ASCII
+                ld c, a
+                jp coraw                ; Send it and return
+; Divide by A by B using repeated subtraction.
+cot_dec_div     ld c, "0"
+cot_dec_loop    sub b
+                jr c, cot_dec_carry
+                inc c
+                jr cot_dec_loop
+cot_dec_carry   add b                   ; Reverse subtract that carried
+; Now A is the remainder and C is the digit.
+                push af
+                ld a, c
+                cp "0"
+                call nz, coraw          ; Output if not zero
+                pop af
+                ret
+;
+;
+; Store character in console output buffer.
+; A - character to store.
+cot_store       push bc
+                push hl
+                ld c, a
+                ld a, (cot_count)       ; Number of characters in buffer
+                cp COT_BUF_MAX_LEN
+                call nc, bpanic         ; System error monitor entry
+; Find address in sequence buffer.
+                ld hl, cot_buffer
+                add l
+                ld l, a
+                ld a, h
+                adc 0                   ; Propagate carry
+                ld h, a
+; HL - address in buffer
+                ld (hl), c              ; Store character
+; Update counter
+                ld hl, cot_count
+                inc (hl)
+                pop hl
+                pop bc
+                ret
+;
+;
+; Send VT-100 CSI sequence ("<Esc>[") to console.
+cot_csi         ld c, ASCII_ESC
+                call coraw
+                ld c, "["
+                jp coraw
+;
+;
+;
+; **********
+; * Tables *
+; **********
+;
+;
+; Console output translation table. Each entry consists of four bytes:
+; 0 - character received after Esc. Zero terminates table.
+; 1 - data byte, used for some entries
+; 2 & 3 - vector to handling routine
+cot_list        byte "A", 0     ; Cursor up
+                word coth_same
+                byte "B", 0     ; Cursor down
+                word coth_same
+                byte "C", 0     ; Cursor right
+                word coth_same
+                byte "D", 0     ; Cursor left
+                word coth_same
+                byte "E", 0     ; Home cursor and clear screen
+                word coth_cls
+                byte "H", 0     ; Cursor home
+                word coth_same
+                byte "J", "0"   ; Clear to end of display
+                word coth_clr
+                byte "K", 0     ; Clear to end of line
+                word coth_same
+                byte "L", 0     ; Insert line at cursor, pushing lines down
+                word coth_same
+                byte "M", 0     ; Delete line at cursor, pulling lines up
+                word coth_same
+                byte "Y", 0     ; Set cursor position
+                word coth_set_csr
+                byte "d", "1"   ; Clear to start of display
+                word coth_clr
+                byte "e", "h"   ; Enable cursor
+                word coth_cur_endis
+                byte "f", "l"   ; Disable cursor
+                word coth_cur_endis
+                byte "p", 7     ; Reverse video on
+                word coth_sgr
+                byte "q", 27    ; Normal (positive) video
+                word coth_sgr
+                byte "r", 4     ; Underline on
+                word coth_sgr
+                byte "u", 24    ; Underline off
+                word coth_sgr
+                byte 0          ; End of table
+;
+;
+; Console CSI code input translation table. Each entry consists of four bytes:
+; 0 - character received after CSI ("Esc ["). Zero terminates table.
+; 1 - ZARC code
+; 2 & 3 - vector to handling routine
+cit_csi_list    byte "A", ZKEY_CSR_UP       ; Cursor up
+                word cith_single
+                byte "B", ZKEY_CSR_DOWN     ; Cursor down
+                word cith_single
+                byte "C", ZKEY_CSR_RIGHT    ; Cursor right
+                word cith_single
+                byte "D", ZKEY_CSR_LEFT     ; Cursor left
+                word cith_single
+                byte "2", ZKEY_INSERT       ; Ins
+                word cith_tilde
+                byte "3", ZKEY_DELETE       ; Del
+                word cith_tilde
+                byte "5", ZKEY_PAGE_UP      ; Page up
+                word cith_tilde
+                byte "6", ZKEY_PAGE_DOWN    ; Page down
+                word cith_tilde
+                byte "1", ZKEY_HOME         ; Home ("Esc [1~")
+                word cith_tilde
+                byte "H", ZKEY_HOME         ; Home ("Esc [H")
+                word cith_single
+                byte "4", ZKEY_END          ; End ("Esc [4~")
+                word cith_tilde
+                byte "F", ZKEY_END          ; End ("Esc [F")
+                word cith_single
+                byte 0                      ; End of table
+;
+;
+; Console SS3 input translation table. Each entry consists of two bytes:
+; 0 - character received after SS3 ("Esc O"). Zero terminates table.
+; 1 - ZARC code
+cit_ss3_list    byte "H", ZKEY_HOME         ; Home ("Esc OH")
+                byte "F", ZKEY_END          ; End ("Esc OF")
+                byte 0                      ; End of table
+;
+;
+; *************
+; * Variables *
+; *************
+;
+;
+; For CP/M 2.2, use the data segment. For CP/M 3, remain in the code (common)
+; segment.
+                if BIOS_CPM_VER = 2
+; Note: linker "-c" option is used, so no data is initialised here.
+                dseg                ; Data segment
+                endif
+;
+; Console output translation.
+cot_state       defs 1              ; Console output translation state
+cot_buffer      defs COT_BUF_MAX_LEN    ; Sequence buffer
+cot_count       defs 1              ; Number of characters in buffer
+; Console input translation.
+cistm           defs 1              ; Console input translation state
+cit_buffer      defs CIT_BUF_MAX_LEN    ; Sequence buffer
+cit_count       defs 1              ; Number of characters in buffer
+cittmr          defs 1              ; Console input translation timer
+cit_buff_ptr    defs 2              ; Pointer within cit_buffer
+;
+                end

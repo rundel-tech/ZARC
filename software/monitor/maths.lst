@@ -1,5 +1,5 @@
    1:				; *******************************************************
-   2:				; * Basic I/O for ZARC Z80 Computer                     *
+   2:				; * Mathematical routines for ZARC Z80 Computer         *
    3:				; * Written by: Merlin Skinner                          *
    4:				; * Date Started: 29/5/2020                             *
    5:				; *******************************************************
@@ -21,7 +21,7 @@
   21:				; ************
   22:				;
   23:				                include "macros.i"
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//macros.i ****
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/macros.i ****
    1:				; ***********************************
    2:				; * ZARC Macro Definitions          *
    3:				; * Written by: Merlin Skinner      *
@@ -100,46 +100,128 @@
   76:				                endm
   77:				;
   78:				;
-  79:				; Calculate offsets into jump tables.
-  80:				; The absolute segment is used so the offsets are not marked as relocatable. This
-  81:				; avoids "Not relocatable" errors.
-  82:				JPTBL_START     macro x
+  79:				; Allocate space. This is used to generate variable addresses, affectively
+  80:				; providing a new variables segment. Allocated size is kept track of separately
+  81:				; to the address as the latter may overflow in certain error cases.
+  82:				ALLOC           macro x
   83:				                .aseg
-  84:				jptbl_addr      set x               ; Set start address
-  85:				                endm
-  86:				;
-  87:				; Invoke for each item.
-  88:				JPTBL_ENTRY     macro x
-  89:				x               equ jptbl_addr
-  90:				jptbl_addr      set jptbl_addr + 3
-  91:				                endm
-  92:				;
-  93:				; Invoke for a data block in the jump table
-  94:				JPTBL_BLOCK     macro x, size   ; <name>, <size>
-  95:				x               equ jptbl_addr
-  96:				jptbl_addr      set jptbl_addr + size
-  97:				                endm
-  98:				;
-  99:				JPTBL_END       macro x
- 100:				x               set jptbl_addr      ; Set label to next address
- 101:				                .cseg
- 102:				                endm
- 103:				;
- 104:				;
- 105:				; Define bits and masks. This is inspired by the Commodore Amiga BITDEF mechanism.
- 106:				; Given:
- 107:				; BITDEF I2C_CSR_STOP, 2
- 108:				; Yields:
- 109:				; I2C_CSR_STOP_BIT  EQU 2       ; Bit number
- 110:				; I2C_CSR_STOP_MASK EQU 1<<2    ; Bit mask
- 111:				BITDEF          macro n, b      ; <Name>, <bit>
- 112:				n`_BIT          equ b
- 113:				n`_MASK         equ 1 << b
+  84:				all_addr        set x
+  85:				all_size        set 0
+  86:				                endm
+  87:				;
+  88:				; Add a byte entry.
+  89:				ALL_BYTE        macro x
+  90:				x               equ all_addr
+  91:				all_addr        set all_addr + 1
+  92:				all_size        set all_size + 1
+  93:				                endm
+  94:				;
+  95:				; Add a word (16-bit) entry.
+  96:				ALL_WORD        macro x
+  97:				x               equ all_addr
+  98:				all_addr        set all_addr + 2
+  99:				all_size        set all_size + 2
+ 100:				                endm
+ 101:				;
+ 102:				; Add a 3 byte (24-bit) entry.
+ 103:				ALL_24BIT       macro x
+ 104:				x               equ all_addr
+ 105:				all_addr        set all_addr + 3
+ 106:				all_size        set all_size + 3
+ 107:				                endm
+ 108:				;
+ 109:				; Add a long (32-bit) entry.
+ 110:				ALL_LONG        macro x
+ 111:				x               equ all_addr
+ 112:				all_addr        set all_addr + 4
+ 113:				all_size        set all_size + 4
  114:				                endm
- 115:				
+ 115:				;
+ 116:				; Add an arbitrary length entry.
+ 117:				ALL_BLOCK       macro x, size   ; <name>, <size>
+ 118:				x               equ all_addr
+ 119:				all_addr        set all_addr + size
+ 120:				all_size        set all_size + size
+ 121:				                endm
+ 122:				;
+ 123:				; End of allocated space. Returns size of block.
+ 124:				ALL_END         macro x
+ 125:				x               equ all_size
+ 126:				                .cseg
+ 127:				                endm
+ 128:				;
+ 129:				;
+ 130:				; Calculate offsets into jump tables.
+ 131:				; The absolute segment is used so the offsets are not marked as relocatable. This
+ 132:				; avoids "Not relocatable" errors.
+ 133:				JPTBL_START     macro x
+ 134:				                .aseg
+ 135:				jptbl_addr      set x               ; Set start address
+ 136:				                endm
+ 137:				;
+ 138:				; Invoke for each item.
+ 139:				JPTBL_ENTRY     macro x
+ 140:				x               equ jptbl_addr
+ 141:				jptbl_addr      set jptbl_addr + 3
+ 142:				                endm
+ 143:				;
+ 144:				; Invoke for a data block in the jump table
+ 145:				JPTBL_BLOCK     macro x, size   ; <name>, <size>
+ 146:				x               equ jptbl_addr
+ 147:				jptbl_addr      set jptbl_addr + size
+ 148:				                endm
+ 149:				;
+ 150:				JPTBL_END       macro x
+ 151:				x               set jptbl_addr      ; Set label to next address
+ 152:				                .cseg
+ 153:				                endm
+ 154:				;
+ 155:				;
+ 156:				; Define bits and masks. This is inspired by the Commodore Amiga BITDEF mechanism.
+ 157:				; Given:
+ 158:				; BITDEF I2C_CSR_STOP, 2
+ 159:				; Yields:
+ 160:				; I2C_CSR_STOP_BIT  EQU 2       ; Bit number
+ 161:				; I2C_CSR_STOP_MASK EQU 1<<2    ; Bit mask
+ 162:				BITDEF          macro n, b      ; <Name>, <bit>
+ 163:				n`_BIT          equ b
+ 164:				n`_MASK         equ 1 << b
+ 165:				                endm
+ 166:				;
+ 167:				;
+ 168:				; Force alignment. This asserts an appropriate number of zero bytes to achieve
+ 169:				; the required alignment. Note that these macros cannot work for relocatable
+ 170:				; files.
+ 171:				; 16-bit
+ 172:				ALIGN_WORD      macro
+ 173:				                if $ and 1
+ 174:				                    byte 0
+ 175:				                endif
+ 176:				                endm
+ 177:				;
+ 178:				; 32-bit
+ 179:				ALIGN_LONG      macro
+ 180:				                ALIGN_WORD
+ 181:				                if $ and 2
+ 182:				                    byte 0, 0
+ 183:				                endif
+ 184:				                endm
+ 185:				;
+ 186:				;
+ 187:				; Write message to console (short for "call conwms").
+ 188:				CON_WR_MSG      macro
+ 189:				                rst 08
+ 190:				                endm
+ 191:				;
+ 192:				;
+ 193:				; Write character to console (short for "call conwch").
+ 194:				CON_WR_CHAR     macro
+ 195:				                rst 16
+ 196:				                endm
+ 197:				
 **** maths.z80 ****
   24:				                include "z80.i"
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//z80.i ****
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/z80.i ****
    1:				; ***********************************
    2:				; * ZARC Z80 Definitions            *
    3:				; * Written by: Merlin Skinner      *
@@ -161,7 +243,7 @@
   19:				
 **** maths.z80 ****
   25:				                include "monitor.i"
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//monitor.i ****
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/monitor.i ****
    1:				; *******************************************************
    2:				; * ZARC Monitor Definitions                            *
    3:				; * Written by: Merlin Skinner                          *
@@ -175,147 +257,153 @@
   11:				;
   12:				; The following conditionals are intended to allow the same include file to be
   13:				; used in the defining module and elsewhere as required. Some includes are used
-  14:				; for other applications than the monitor, such as the CP/M BIOS. In these cases,
-  15:				; the extern and public statements are not desirable.
+  14:				; for other applications than the monitor, such as the CP/M BIOS. In these
+  15:				; cases, the extern and public statements are not desirable.
   16:				;
   17:     -	0001'         	            ifdef monitor           ; Meaningful for monitor build only
   18:     -	0001'         	                ifndef main         ; Inhibit for this module
   19:				; Constants
   20:				;
-  21:				; Variables 
-  22:				                extern tikcnt       ; Tick counter
-  23:				;
-  24:				; Functions
-  25:				                extern panic        ; System error exception
-  26:				                extern rusby        ; Read byte from user space
-  27:				                extern ruswd        ; Read 16-bit word from user space
-  28:				                extern wusby        ; Write byte to user space
-  29:				                extern wuswd        ; Write 16-bit word to user space
-  30:				;
-  31:				                endif
-  32:				            endif
-  33:				;
+  21:				; Variables
+  22:				                extern mscnt            ; Monitor start count
+  23:				                extern mcspd            ; Approximate CPU speed in KHz
+  24:				                extern mstate           ; Machine state structure
+  25:				;
+  26:				; Functions
+  27:				                extern panic            ; System error exception
+  28:				                extern rusby            ; Read byte from user space
+  29:				                extern ruswd            ; Read 16-bit word from user space
+  30:				                extern wusby            ; Write byte to user space
+  31:				                extern wuswd            ; Write 16-bit word to user space
+  32:				                extern mcrun            ; Switch context to user code
+  33:				                extern mdisrg           ; Display registers
   34:				;
-  35:				;
-  36:				; *****************
-  37:				; * Monitor Calls *
-  38:				; *****************
+  35:				                endif
+  36:				            endif
+  37:				;
+  38:				;
   39:				;
-  40:				;
-  41:				; Calculate offsets into jump tables. Entries here must match the jump table in
-  42:				; monitor.z80.
-  43:     -	        	    JPTBL_START %(Z80_NMI_VEC + 3)   ; Start after NMI vector
+  40:				; *****************
+  41:				; * Monitor Calls *
+  42:				; *****************
+  43:				;
   44:				;
-  45:				; From monitor.z80
-  46:     -	        	    JPTBL_ENTRY MCALL_MON_ENTRY     ; Normal monitor entry
-  47:     -	        	    JPTBL_ENTRY MCALL_PANIC         ; System error monitor entry
-  48:				; From io.z80
-  49:     -	        	    JPTBL_ENTRY MCALL_CONWCH        ; Write character to the console port
-  50:     -	        	    JPTBL_ENTRY MCALL_CONRCH        ; Read character from the console port
-  51:     -	        	    JPTBL_ENTRY MCALL_CONSTA        ; Fetch console port status
-  52:     -	        	    JPTBL_ENTRY MCALL_S1WCH         ; Write character to serial port 1
-  53:     -	        	    JPTBL_ENTRY MCALL_S1RCH         ; Read character from serial port 1
-  54:     -	        	    JPTBL_ENTRY MCALL_S1STA         ; Fetch serial port 1 status
-  55:     -	        	    JPTBL_ENTRY MCALL_S2WCH         ; Write character to serial port 2
-  56:     -	        	    JPTBL_ENTRY MCALL_S2RCH         ; Read character from serial port 2
-  57:     -	        	    JPTBL_ENTRY MCALL_S2STA         ; Fetch serial port 2 status
-  58:				; From utility.z80
-  59:     -	        	    JPTBL_ENTRY MCALL_CWNWLN        ; Write new line characters to console
-  60:     -	        	    JPTBL_ENTRY MCALL_CONWMS        ; Print null-terminated string to the console
-  61:     -	        	    JPTBL_ENTRY MCALL_CONWMN        ; Print message <n> in a list
-  62:     -	        	    JPTBL_ENTRY MCALL_SKPSPC        ; Step hl past spaces
-  63:     -	        	    JPTBL_ENTRY MCALL_TOUPCA        ; Convert character in A to upper case
-  64:     -	        	    JPTBL_ENTRY MCALL_TOLOCA        ; Convert character in A to lower case
-  65:     -	        	    JPTBL_ENTRY MCALL_CWVICH        ; Print only visible 7-bit characters
-  66:     -	        	    JPTBL_ENTRY MCALL_CWPSPC        ; Print a space
-  67:     -	        	    JPTBL_ENTRY MCALL_MTWDLI        ; Match word in a string against list of options
-  68:     -	        	    JPTBL_ENTRY MCALL_CWPHNB        ; Print least-significant nibble in A in hexadecimal
-  69:     -	        	    JPTBL_ENTRY MCALL_CWPHBY        ; Print A in hexadecimal
-  70:     -	        	    JPTBL_ENTRY MCALL_CWPHWD        ; Print HL in hexadecimal
-  71:     -	        	    JPTBL_ENTRY MCALL_CWPDBY        ; Print A in decimal. Leading zeros are suppressed.
-  72:     -	        	    JPTBL_ENTRY MCALL_CWPDWD        ; Print HL in decimal. Leading zeros are suppressed.
-  73:     -	        	    JPTBL_ENTRY MCALL_CWPDLO        ; Print DEHL in decimal. Leading zeros are suppressed
-  74:     -	        	    JPTBL_ENTRY MCALL_RDHXWD        ; Read a 16-bit hexadecimal number from a string
-  75:     -	        	    JPTBL_ENTRY MCALL_RDDUWD        ; Read a 16-bit unsigned decimal number from a string
-  76:     -	        	    JPTBL_ENTRY MCALL_RDDULO        ; Read a 32-bit unsigned decimal number from a string
-  77:				; From maths.z80
-  78:     -	        	    JPTBL_ENTRY MCALL_MADLBU        ; 32-bit / 8-bit unsigned divide
-  79:     -	        	    JPTBL_ENTRY MCALL_MADWBU        ; 16-bit / 8-bit unsigned divide
-  80:     -	        	    JPTBL_ENTRY MCALL_MADBBU        ; 8-bit / 8-bit unsigned divide
-  81:     -	        	    JPTBL_ENTRY MCALL_MAMWWU        ; 16-bit * 16-bit unsigned multiply
-  82:     -	        	    JPTBL_ENTRY MCALL_MAMLBU        ; 32-bit * 8-bit unsigned multiply
-  83:     -	        	    JPTBL_ENTRY MCALL_CRC16X        ; CRC-16 (XMODEM)
-  84:				; From time.z80
-  85:     -	        	    JPTBL_ENTRY MCALL_TIRD          ; Read current time and date
-  86:     -	        	    JPTBL_ENTRY MCALL_TIWR          ; Set time and date
-  87:     -	        	    JPTBL_ENTRY MCALL_TIITOS        ; Convert integer time to structure
-  88:     -	        	    JPTBL_ENTRY MCALL_TISTOI        ; Convert structure time to integer
-  89:     -	        	    JPTBL_ENTRY MCALL_CWPTM         ; Print time structure to console
-  90:				; From mmc.z80
-  91:     -	        	    JPTBL_ENTRY MCALL_MCPRER        ; Print memory card error text
-  92:				; From cache.z80
-  93:     -	        	    JPTBL_ENTRY MCALL_CACRS         ; CP/M read sector
-  94:     -	        	    JPTBL_ENTRY MCALL_CACWS         ; CP/M write sector
-  95:     -	        	    JPTBL_ENTRY MCALL_CAFLUS        ; Flush cache (write dirty buffers)
-  96:				; From memory.z80
-  97:     -	        	    JPTBL_ENTRY MCALL_MPALL         ; Allocate new page
-  98:     -	        	    JPTBL_ENTRY MCALL_MPFREE        ; Free allocated page
-  99:     -	        	    JPTBL_ENTRY MCALL_MPSTAT        ; Allocation status
- 100:				;
- 101:     -	        	    JPTBL_END MCALL_JPTBL_NEXT
- 102:				;
- 103:				;
- 104:				;
- 105:				; **************
- 106:				; * Structures *
- 107:				; **************
+  45:				; Calculate offsets into jump tables. Entries here must match the jump table in
+  46:				; monitor.z80.
+  47:     -	        	    JPTBL_START %(Z80_NMI_VEC + 3)   ; Start after NMI vector
+  48:				;
+  49:				; From monitor.z80
+  50:     -	        	    JPTBL_ENTRY MCALL_MON_ENTRY     ; Normal monitor entry
+  51:     -	        	    JPTBL_ENTRY MCALL_PANIC         ; System error monitor entry
+  52:				; From io.z80
+  53:     -	        	    JPTBL_ENTRY MCALL_CONWCH        ; Write character to the console port
+  54:     -	        	    JPTBL_ENTRY MCALL_CONRCH        ; Read character from the console port
+  55:     -	        	    JPTBL_ENTRY MCALL_CONSTA        ; Fetch console port status
+  56:     -	        	    JPTBL_ENTRY MCALL_S1WCH         ; Write character to serial port 1
+  57:     -	        	    JPTBL_ENTRY MCALL_S1RCH         ; Read character from serial port 1
+  58:     -	        	    JPTBL_ENTRY MCALL_S1STA         ; Fetch serial port 1 status
+  59:     -	        	    JPTBL_ENTRY MCALL_S2WCH         ; Write character to serial port 2
+  60:     -	        	    JPTBL_ENTRY MCALL_S2RCH         ; Read character from serial port 2
+  61:     -	        	    JPTBL_ENTRY MCALL_S2STA         ; Fetch serial port 2 status
+  62:				; From utility.z80
+  63:     -	        	    JPTBL_ENTRY MCALL_CWNWLN        ; Write new line characters to console
+  64:     -	        	    JPTBL_ENTRY MCALL_CONWMS        ; Print null-terminated string to the console
+  65:     -	        	    JPTBL_ENTRY MCALL_CONWMN        ; Print message <n> in a list
+  66:     -	        	    JPTBL_ENTRY MCALL_SKPSPC        ; Step hl past spaces
+  67:     -	        	    JPTBL_ENTRY MCALL_TOUPCA        ; Convert character in A to upper case
+  68:     -	        	    JPTBL_ENTRY MCALL_TOLOCA        ; Convert character in A to lower case
+  69:     -	        	    JPTBL_ENTRY MCALL_CWVICH        ; Print only visible 7-bit characters
+  70:     -	        	    JPTBL_ENTRY MCALL_CWPSPC        ; Print a space
+  71:     -	        	    JPTBL_ENTRY MCALL_MTWDLI        ; Match word in a string against list of options
+  72:     -	        	    JPTBL_ENTRY MCALL_CWPHNB        ; Print least-significant nibble in A in hexadecimal
+  73:     -	        	    JPTBL_ENTRY MCALL_CWPHBY        ; Print A in hexadecimal
+  74:     -	        	    JPTBL_ENTRY MCALL_CWPHWD        ; Print HL in hexadecimal
+  75:     -	        	    JPTBL_ENTRY MCALL_CWPDBY        ; Print A in decimal. Leading zeros are suppressed.
+  76:     -	        	    JPTBL_ENTRY MCALL_CWPDWD        ; Print HL in decimal. Leading zeros are suppressed.
+  77:     -	        	    JPTBL_ENTRY MCALL_CWPDLO        ; Print DEHL in decimal. Leading zeros are suppressed
+  78:     -	        	    JPTBL_ENTRY MCALL_RDHXWD        ; Read a 16-bit hexadecimal number from a string
+  79:     -	        	    JPTBL_ENTRY MCALL_RDDUWD        ; Read a 16-bit unsigned decimal number from a string
+  80:     -	        	    JPTBL_ENTRY MCALL_RDDULO        ; Read a 32-bit unsigned decimal number from a string
+  81:				; From maths.z80
+  82:     -	        	    JPTBL_ENTRY MCALL_MADLBU        ; 32-bit / 8-bit unsigned divide
+  83:     -	        	    JPTBL_ENTRY MCALL_MADWBU        ; 16-bit / 8-bit unsigned divide
+  84:     -	        	    JPTBL_ENTRY MCALL_MADBBU        ; 8-bit / 8-bit unsigned divide
+  85:     -	        	    JPTBL_ENTRY MCALL_MAMWWU        ; 16-bit * 16-bit unsigned multiply
+  86:     -	        	    JPTBL_ENTRY MCALL_MAMLBU        ; 32-bit * 8-bit unsigned multiply
+  87:     -	        	    JPTBL_ENTRY MCALL_CRC16X        ; CRC-16 (XMODEM)
+  88:				; From time.z80
+  89:     -	        	    JPTBL_ENTRY MCALL_TIRD          ; Read current time and date
+  90:     -	        	    JPTBL_ENTRY MCALL_TIWR          ; Set time and date
+  91:     -	        	    JPTBL_ENTRY MCALL_TIITOS        ; Convert integer time to structure
+  92:     -	        	    JPTBL_ENTRY MCALL_TISTOI        ; Convert structure time to integer
+  93:     -	        	    JPTBL_ENTRY MCALL_CWPTM         ; Print time structure to console
+  94:				; From mmc.z80
+  95:     -	        	    JPTBL_ENTRY MCALL_MCPRER        ; Print memory card error text
+  96:				; From cache.z80
+  97:     -	        	    JPTBL_ENTRY MCALL_CACRS         ; CP/M read sector
+  98:     -	        	    JPTBL_ENTRY MCALL_CACWS         ; CP/M write sector
+  99:     -	        	    JPTBL_ENTRY MCALL_CARS          ; MMC read sector
+ 100:     -	        	    JPTBL_ENTRY MCALL_CAWS          ; MMC write sector
+ 101:     -	        	    JPTBL_ENTRY MCALL_CAFLUS        ; Flush cache (write dirty buffers)
+ 102:				; From memory.z80
+ 103:     -	        	    JPTBL_ENTRY MCALL_MPALL         ; Allocate new page
+ 104:     -	        	    JPTBL_ENTRY MCALL_MPFREE        ; Free allocated page
+ 105:     -	        	    JPTBL_ENTRY MCALL_MPSTAT        ; Allocation status
+ 106:				;
+ 107:     -	        	    JPTBL_END MCALL_JPTBL_NEXT
  108:				;
  109:				;
- 110:				; Machine state structure.
- 111:     -	        	                STRUCT
- 112:     -	        	                STR_BYTE MST_IEN        ; Non-zero if interrupts enabled
- 113:     -	        	                STR_BYTE MST_MMAP_EN    ; Non-zero if memory mapping enabled
- 114:     -	        	                STR_BYTE MST_MMAP0      ; Memory mapping registers
- 115:     -	        	                STR_BYTE MST_MMAP1
- 116:     -	        	                STR_BYTE MST_MMAP2
- 117:     -	        	                STR_BYTE MST_MMAP3
- 118:     -	        	                STR_WORD MST_SP
- 119:     -	        	                STR_WORD MST_PC
- 120:				; The sequence of the following entries must match those in the state save and
- 121:				; load routines.
- 122:     -	        	                STR_WORD MST_IY
- 123:     -	        	                STR_WORD MST_IX
- 124:     -	        	                STR_WORD MST_HL_P
- 125:     -	        	                STR_WORD MST_DE_P
- 126:     -	        	                STR_WORD MST_BC_P
- 127:     -	        	                STR_WORD MST_AF_P       ; Alternate ("prime") registers
- 128:     -	        	                STR_WORD MST_HL
- 129:     -	        	                STR_WORD MST_DE
- 130:     -	        	                STR_WORD MST_BC
- 131:     -	        	                STR_WORD MST_AF
- 132:				; End of sequence critical entries.
- 133:     -	        	                STR_BYTE MST_I
- 134:     -	        	                STR_BYTE MST_R
- 135:     -	        	                STR_END MST_SIZE
- 136:				;
- 137:				;
- 138:				;
- 139:				; *************
- 140:				; * Constants *
- 141:				; *************
+ 110:				;
+ 111:				; **************
+ 112:				; * Structures *
+ 113:				; **************
+ 114:				;
+ 115:				;
+ 116:				; Machine state structure.
+ 117:     -	        	                STRUCT
+ 118:     -	        	                STR_BYTE MST_IEN        ; Non-zero if interrupts enabled
+ 119:     -	        	                STR_BYTE MST_MMAP_EN    ; Non-zero if memory mapping enabled
+ 120:     -	        	                STR_BYTE MST_MMAP0      ; Memory mapping registers
+ 121:     -	        	                STR_BYTE MST_MMAP1
+ 122:     -	        	                STR_BYTE MST_MMAP2
+ 123:     -	        	                STR_BYTE MST_MMAP3
+ 124:     -	        	                STR_WORD MST_SP
+ 125:     -	        	                STR_WORD MST_PC
+ 126:				; The sequence of the following entries must match those in the state save and
+ 127:				; load routines.
+ 128:     -	        	                STR_WORD MST_IY
+ 129:     -	        	                STR_WORD MST_IX
+ 130:     -	        	                STR_WORD MST_HL_P
+ 131:     -	        	                STR_WORD MST_DE_P
+ 132:     -	        	                STR_WORD MST_BC_P
+ 133:     -	        	                STR_WORD MST_AF_P       ; Alternate ("prime") registers
+ 134:     -	        	                STR_WORD MST_HL
+ 135:     -	        	                STR_WORD MST_DE
+ 136:     -	        	                STR_WORD MST_BC
+ 137:     -	        	                STR_WORD MST_AF
+ 138:				; End of sequence critical entries.
+ 139:     -	        	                STR_BYTE MST_I
+ 140:     -	        	                STR_BYTE MST_R
+ 141:     -	        	                STR_END MST_SIZE
  142:				;
  143:				;
- 144:				; Trace mode states for trace_mode.
- 145:     -	        	                ENUM_START
- 146:     -	        	                ENUM TRM_NONE
- 147:     -	        	                ENUM TRM_SINGLE
- 148:     -	        	                ENUM TRM_TO_ADDR        ; Trace to address
- 149:     -	        	                ENUM TRM_XPT            ; Exception - start running normally
- 150:     -	        	                ENUM_END TRM_STATES     ; Number of states
- 151:				
+ 144:				;
+ 145:				; *************
+ 146:				; * Constants *
+ 147:				; *************
+ 148:				;
+ 149:				;
+ 150:				; Trace mode states for trace_mode.
+ 151:     -	        	                ENUM_START
+ 152:     -	        	                ENUM TRM_NONE
+ 153:     -	        	                ENUM TRM_SINGLE
+ 154:     -	        	                ENUM TRM_TO_ADDR        ; Trace to address
+ 155:     -	        	                ENUM TRM_XPT            ; Exception - start running normally
+ 156:     -	        	                ENUM_END TRM_STATES     ; Number of states
+ 157:				
 **** maths.z80 ****
   26:				                include "zarc.i"        ; Hardware definitions
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//zarc.i ****
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/zarc.i ****
    1:				; ***********************************
    2:				; * ZARC Definitions                *
    3:				; * Written by: Merlin Skinner      *
@@ -343,7 +431,7 @@
   25:				
 **** maths.z80 ****
   27:				                include "io_map.i"      ; I/O addresses mapping
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//io_map.i ****
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/io_map.i ****
    1:				; ***********************************
    2:				; * ZARC I/O Definitions            *
    3:				; * Written by: Merlin Skinner      *
@@ -508,7 +596,7 @@
  162:				
 **** maths.z80 ****
   28:				                include "terminal.i"    ; Terminal constants
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//terminal.i ****
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/terminal.i ****
    1:				; ***********************************
    2:				; * ZARC Terminal Definitions       *
    3:				; * Written by: Merlin Skinner      *
@@ -545,7 +633,7 @@
   34:				
 **** maths.z80 ****
   29:				                include "io.i"          ; I/O routines
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//io.i ****
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/io.i ****
    1:				; ***********************************
    2:				; * ZARC Basic I/O Extern Symbols   *
    3:				; * Written by: Merlin Skinner      *
@@ -598,7 +686,7 @@
   50:				
 **** maths.z80 ****
   30:				                include "utility.i"     ; Utility functions
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//utility.i ****
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/utility.i ****
    1:				; ***********************************
    2:				; * ZARC Monitor Utility Routines   *
    3:				; * Written by: Merlin Skinner      *
@@ -657,246 +745,457 @@
   40:				                public mamwwu   ; 16-bit * 16-bit unsigned multiply
   41:				                public mamlbu   ; 32-bit * 8-bit unsigned multiply
   42:				                public crc16x   ; Software CRC-16 (XMODEM)
-  43:				;
-  44:				;
-  45:				; *************
-  46:				; * Constants *
-  47:				; *************
-  48:				;
-  49:				; None
+  43:				;                public malclr   ; 32-bit clear (HL)
+  44:				                public malinc   ; 32-bit increment (HL)
+  45:				                public mapcnt   ; Calculate percentage of two 32-bit values
+  46:				                public malld	    ; Load a 32-bit number from memory
+  47:				                public malst    ; Store 32-bit number to memory
+  48:				                public maladd   ; 32-bit add
+  49:				;
   50:				;
-  51:				;
-  52:				; *************
-  53:				; * Main Code *
-  54:				; *************
-  55:				;
-  56:				                cseg                ; Code segment
+  51:				; *************
+  52:				; * Constants *
+  53:				; *************
+  54:				;
+  55:				; None
+  56:				;
   57:				;
-  58:				; 32-bit / 8-bit unsigned divide. Uses restoring algorithm. Derived from code at
-  59:				; https://wikiti.brandonw.net/index.php?title=Z80_Routines:Math:Division
-  60:				; Call with:
-  61:				; DEHL - dividend
-  62:				; C - divisor
-  63:				; Returns with:
-  64:				; DEHL - quotient
-  65:				; A - remainder
-  66:    0+11	0000' C5      	madlbu          push bc
-  67:   11+7	0001' 0620    	                ld b, 32            ; Loop counter
-  68:   18+4	0003' AF      	                xor a
-  69:   22+11	0004' 29      	dulb_bitloop    add	hl, hl          ; Shift MS bit of dividend into carry
-  70:   33+8	0005' CB13    	                rl e
-  71:   41+8	0007' CB12    	                rl d
-  72:   49+4	0009' 17      	                rla                 ; Collect bit in LS of A
-  73:   53+7+5	000A' 3803    	                jr c, dulb_dosub
-  74:   60+4	000C' B9      	                cp c
-  75:   64+7+5	000D' 3802    	                jr c, dulb_nextbit
-  76:   71+4	000F' 91      	dulb_dosub      sub	a, c
-  77:   75+4	0010' 2C      	                inc	l
-  78:   79+8+5	0011' 10F1    	dulb_nextbit    djnz	dulb_bitloop
-  79:   87+10	0013' C1      	                pop bc
-  80:   97+10	0014' C9      	                ret
-  81:				;
-  82:				;
-  83:				; 16-bit / 8-bit unsigned divide. Uses restoring algorithm. Derived from code at
-  84:				; https://wikiti.brandonw.net/index.php?title=Z80_Routines:Math:Division
-  85:				; Call with:
-  86:				; HL - dividend
-  87:				; C - divisor
-  88:				; Returns with:
-  89:				; HL - quotient
-  90:				; A - remainder
-  91:  107+11	0015' C5      	madwbu          push bc
-  92:  118+7	0016' 0610    	                ld b, 16            ; Loop counter
-  93:  125+4	0018' AF      	                xor a
-  94:  129+11	0019' 29      	duwb_bitloop    add hl, hl          ; Shift MS bit of dividend into carry
-  95:  140+4	001A' 17      	                rla                 ; Collect bit in LS of A
-  96:  144+7+5	001B' 3803    	                jr c, duwb_dosub
-  97:  151+4	001D' B9      	                cp c
-  98:  155+7+5	001E' 3802    	                jr c, duwb_nextbit
-  99:  162+4	0020' 91      	duwb_dosub      sub	a, c
- 100:  166+4	0021' 2C      	                inc	l
- 101:  170+8+5	0022' 10F5    	duwb_nextbit    djnz duwb_bitloop
- 102:  178+10	0024' C1      	                pop bc
- 103:  188+10	0025' C9      	                ret
- 104:				;
- 105:				;
- 106:				; 8-bit / 8-bit unsigned divide. Uses restoring algorithm. Derived from code at
- 107:				; https://wikiti.brandonw.net/index.php?title=Z80_Routines:Math:Division
- 108:				; Call with:
- 109:				; L - dividend
- 110:				; C - divisor
- 111:				; Returns with:
- 112:				; L - quotient
- 113:				; A - remainder
- 114:  198+11	0026' C5      	madbbu          push bc
- 115:  209+7	0027' 0608    	                ld b, 8             ; Loop counter
- 116:  216+4	0029' AF      	                xor a
- 117:  220+8	002A' CB25    	dubb_bitloop    sla l               ; Shift MS bit of dividend into carry
- 118:  228+4	002C' 17      	                rla                 ; Collect bit in LS of A
- 119:  232+4	002D' B9      	                cp c
- 120:  236+7+5	002E' 3802    	                jr c, dubb_nextbit
- 121:  243+4	0030' 91      	dubb_dosub      sub c
- 122:  247+4	0031' 2C      	                inc l
- 123:  251+8+5	0032' 10F6    	dubb_nextbit    djnz dubb_bitloop
- 124:  259+10	0034' C1      	                pop bc
- 125:  269+10	0035' C9      	                ret
- 126:				;
- 127:				;
- 128:				; 16-bit * 16-bit unsigned multiply. Uses restoring algorithm. Derived from code at
- 129:				; https://wikiti.brandonw.net/index.php?title=Z80_Routines:Math:Multiplication
- 130:				; Call with:
- 131:				; BC - multiplicand
- 132:				; DE - multiplier
- 133:				; Returns with:
- 134:				; DEHL - result
- 135:  279+10	0036' 210000  	mamwwu          ld hl, 0            ; Zero LSW of result
- 136:				; Optimised 1st iteration
- 137:  289+8	0039' CB23    	                sla	e               ; Shift multiplier
- 138:  297+8	003B' CB12    	                rl d
- 139:  305+7+5	003D' 3002    	                jr nc, muww_sk_ld
- 140:				; Set result to multiplicand if the MS bit of the multiplier was set.
- 141:  312+4	003F' 60      	                ld h, b
- 142:  316+4	0040' 69      	                ld l, c
- 143:  320+7	0041' 3E0F    	muww_sk_ld      ld a, 15
- 144:				; A - loop counter
- 145:				; BC - multiplicand
- 146:				; DE - multiplier (MS bits) and result (LS bits).
- 147:				; HL - LSW of result
- 148:  327+11	0043' 29      	muww_loop       add hl, hl          ; Shift result (DEHL) left
- 149:  338+8	0044' CB13    	                rl e
- 150:  346+8	0046' CB12    	                rl d
- 151:  354+7+5	0048' 3004    	                jr nc, muww_nc      ; Jump if multiplier bit is zero
- 152:  361+11	004A' 09      	                add hl, bc          ; Add multiplicand to result
- 153:  372+7+5	004B' 3001    	                jr nc, muww_nc
- 154:  379+6	004D' 13      	                inc de              ; Propagate the carry into DE
- 155:  385+4	004E' 3D      	muww_nc         dec a
- 156:  389+7+5	004F' 20F2    	                jr nz, muww_loop
- 157:  396+10	0051' C9      	                ret
- 158:				;
- 159:				;
- 160:				; 32-bit * 8-bit unsigned multiply. Uses restoring algorithm. Derived from mamwwu
- 161:				; above.
- 162:				; Call with:
- 163:				; DEHL - multiplicand
- 164:				; C - multiplier
- 165:				; Returns with:
- 166:				; CDEHL - result
- 167:  406+4	0052' 79      	mamlbu          ld a, c
- 168:				; Save some registers.
- 169:  410+11	0053' C5      	                push bc
- 170:  421+4	0054' D9      	                exx
- 171:  425+11	0055' C5      	                push bc
- 172:  436+11	0056' E5      	                push hl
- 173:  447+4	0057' D9      	                exx
- 174:				; Setup registers for the multiply.
- 175:  451+11	0058' D5      	                push de
- 176:  462+11	0059' E5      	                push hl
- 177:  473+10	005A' C1      	                pop bc              ; LSW of multiplicand
- 178:  483+4	005B' A7      	                and a               ; Reset carry
- 179:  487+15	005C' ED62    	                sbc hl, hl          ; Zero LS 32-bits of result
- 180:  502+4	005E' D9      	                exx
- 181:  506+10	005F' C1      	                pop bc              ; MSW of multiplicand
- 182:  516+15	0060' ED62    	                sbc hl, hl          ; Zero MS 32-bits of result
- 183:  531+4	0062' D9      	                exx
- 184:  535+4	0063' 5F      	                ld e, a             ; Multiplier
- 185:				; B'C'BC - multiplicand
- 186:				; E - multiplier
- 187:				; H'L'HL - result
- 188:				; Optimised 1st iteration
- 189:  539+8	0064' CB23    	                sla	e		        ; Shift multiplier
- 190:  547+7+5	0066' 3006    	                jr nc, mulb_sk_ld
- 191:				; Set result to multiplicand if the MS bit of the multiplier was set.
- 192:  554+4	0068' 69      	                ld l, c
- 193:  558+4	0069' 60      	                ld h, b
- 194:  562+4	006A' D9      	                exx
- 195:  566+4	006B' 69      	                ld l, c
- 196:  570+4	006C' 60      	                ld h, b
- 197:  574+4	006D' D9      	                exx
- 198:  578+7	006E' 3E07    	mulb_sk_ld      ld a, 7
- 199:				; A - loop counter
- 200:				; B'C'BC - multiplicand
- 201:				; E - multiplier (MS bits) and result (LS bits).
- 202:				; H'L'HL - result
- 203:  585+11	0070' 29      	mulb_loop       add hl, hl          ; Shift result (CH'L'HL) left
- 204:  596+4	0071' D9      	                exx
- 205:  600+15	0072' ED6A    	                adc hl, hl
- 206:  615+4	0074' D9      	                exx
- 207:  619+8	0075' CB13    	                rl e
- 208:  627+7+5	0077' 3008    	                jr nc, mulb_nc      ; Jump if multiplier bit is zero
- 209:  634+11	0079' 09      	                add hl, bc          ; Add multiplicand to result
- 210:  645+4	007A' D9      	                exx
- 211:  649+15	007B' ED4A    	                adc hl, bc
- 212:  664+4	007D' D9      	                exx
- 213:  668+7+5	007E' 3001    	                jr nc, mulb_nc
- 214:  675+4	0080' 1C      	                inc e               ; Propagate the carry into result
- 215:  679+4	0081' 3D      	mulb_nc         dec a
- 216:  683+7+5	0082' 20EC    	                jr nz, mulb_loop
- 217:  690+4	0084' 7B      	                ld a, e             ; Top bits of result
- 218:  694+4	0085' D9      	                exx
- 219:  698+11	0086' E5      	                push hl             ; MSW of result
- 220:  709+4	0087' D9      	                exx
- 221:  713+10	0088' D1      	                pop de
- 222:				; Restore registers
- 223:  723+4	0089' D9      	                exx
- 224:  727+10	008A' E1      	                pop hl
- 225:  737+10	008B' C1      	                pop bc
- 226:  747+4	008C' D9      	                exx
- 227:  751+10	008D' C1      	                pop bc
- 228:  761+4	008E' 4F      	                ld c, a
- 229:				; CDEHL - result
- 230:  765+10	008F' C9      	                ret
- 231:				;
- 232:				;
- 233:				; Update CRC according to the CRC16 / XMODEM and MultiMediaCard CRC16 algorithm.
- 234:				; Adapted from http://regregex.bbcmicro.net/crc-code.htm#crc-code.16.8080
- 235:				; Note: this has now be replaced by the hardware CRC, but the code remains as it
- 236:				; may be useful in other applications.
- 237:				; Call with:
- 238:				; A - byte to be included
- 239:				; HL - CRC
- 240:				; Returns with:
- 241:				; HL - updated CRC;
- 242:  775+11	0090' C5      	crc16x          push bc
- 243:				;
- 244:  786+4	0091' AC      	                xor h
- 245:  790+4	0092' 47      	                ld b, a
- 246:  794+4	0093' 4D      	                ld c, l
- 247:  798+4	0094' 0F      	                rrca
- 248:  802+4	0095' 0F      	                rrca
- 249:  806+4	0096' 0F      	                rrca
- 250:  810+4	0097' 0F      	                rrca
- 251:  814+4	0098' 6F      	                ld l, a
- 252:  818+7	0099' E60F    	                and 0x0f
- 253:  825+4	009B' 67      	                ld h, a
- 254:  829+4	009C' A8      	                xor b
- 255:  833+4	009D' 47      	                ld b, a
- 256:  837+4	009E' AD      	                xor l
- 257:  841+7	009F' E6F0    	                and 0xf0
- 258:  848+4	00A1' 6F      	                ld l, a
- 259:  852+4	00A2' A9      	                xor c
- 260:  856+11	00A3' 29      	                add hl, hl
- 261:  867+4	00A4' AC      	                xor h
- 262:  871+4	00A5' 67      	                ld h, a
- 263:  875+4	00A6' 7D      	                ld a, l
- 264:  879+4	00A7' A8      	                xor b
- 265:  883+4	00A8' 6F      	                ld l, a
- 266:				;
- 267:  887+10	00A9' C1      	                pop bc
- 268:  897+10	00AA' C9      	                ret
- 269:				;
- 270:				;
- 271:				;
- 272:				; *************
- 273:				; * Variables *
- 274:				; *************
+  58:				; *************
+  59:				; * Main Code *
+  60:				; *************
+  61:				;
+  62:				                cseg                    ; Code segment
+  63:				;
+  64:				; 32-bit / 8-bit unsigned divide. Uses restoring algorithm. Derived from code at
+  65:				; https://wikiti.brandonw.net/index.php?title=Z80_Routines:Math:Division
+  66:				; Call with:
+  67:				; DEHL - dividend
+  68:				; C - divisor
+  69:				; Returns with:
+  70:				; DEHL - quotient
+  71:				; A - remainder
+  72:    0+11	0000' C5      	madlbu          push bc
+  73:   11+7	0001' 0620    	                ld b, 32                ; Loop counter
+  74:   18+4	0003' AF      	                xor a
+  75:   22+11	0004' 29      	dulb_bitloop    add	hl, hl              ; Shift MS bit of dividend into carry
+  76:   33+8	0005' CB13    	                rl e
+  77:   41+8	0007' CB12    	                rl d
+  78:   49+4	0009' 17      	                rla                     ; Collect bit in LS of A
+  79:   53+7+5	000A' 3803    	                jr c, dulb_dosub
+  80:   60+4	000C' B9      	                cp c
+  81:   64+7+5	000D' 3802    	                jr c, dulb_nextbit
+  82:   71+4	000F' 91      	dulb_dosub      sub	a, c
+  83:   75+4	0010' 2C      	                inc	l
+  84:   79+8+5	0011' 10F1    	dulb_nextbit    djnz	dulb_bitloop
+  85:   87+10	0013' C1      	                pop bc
+  86:   97+10	0014' C9      	                ret
+  87:				;
+  88:				;
+  89:				; 16-bit / 8-bit unsigned divide. Uses restoring algorithm. Derived from code at
+  90:				; https://wikiti.brandonw.net/index.php?title=Z80_Routines:Math:Division
+  91:				; Call with:
+  92:				; HL - dividend
+  93:				; C - divisor
+  94:				; Returns with:
+  95:				; HL - quotient
+  96:				; A - remainder
+  97:  107+11	0015' C5      	madwbu          push bc
+  98:  118+7	0016' 0610    	                ld b, 16                ; Loop counter
+  99:  125+4	0018' AF      	                xor a
+ 100:  129+11	0019' 29      	duwb_bitloop    add hl, hl              ; Shift MS bit of dividend into carry
+ 101:  140+4	001A' 17      	                rla                     ; Collect bit in LS of A
+ 102:  144+7+5	001B' 3803    	                jr c, duwb_dosub
+ 103:  151+4	001D' B9      	                cp c
+ 104:  155+7+5	001E' 3802    	                jr c, duwb_nextbit
+ 105:  162+4	0020' 91      	duwb_dosub      sub	a, c
+ 106:  166+4	0021' 2C      	                inc	l
+ 107:  170+8+5	0022' 10F5    	duwb_nextbit    djnz duwb_bitloop
+ 108:  178+10	0024' C1      	                pop bc
+ 109:  188+10	0025' C9      	                ret
+ 110:				;
+ 111:				;
+ 112:				; 8-bit / 8-bit unsigned divide. Uses restoring algorithm. Derived from code at
+ 113:				; https://wikiti.brandonw.net/index.php?title=Z80_Routines:Math:Division
+ 114:				; Call with:
+ 115:				; L - dividend
+ 116:				; C - divisor
+ 117:				; Returns with:
+ 118:				; L - quotient
+ 119:				; A - remainder
+ 120:  198+11	0026' C5      	madbbu          push bc
+ 121:  209+7	0027' 0608    	                ld b, 8                 ; Loop counter
+ 122:  216+4	0029' AF      	                xor a
+ 123:  220+8	002A' CB25    	dubb_bitloop    sla l                   ; Shift MS bit of dividend into carry
+ 124:  228+4	002C' 17      	                rla                     ; Collect bit in LS of A
+ 125:  232+4	002D' B9      	                cp c
+ 126:  236+7+5	002E' 3802    	                jr c, dubb_nextbit
+ 127:  243+4	0030' 91      	dubb_dosub      sub c
+ 128:  247+4	0031' 2C      	                inc l
+ 129:  251+8+5	0032' 10F6    	dubb_nextbit    djnz dubb_bitloop
+ 130:  259+10	0034' C1      	                pop bc
+ 131:  269+10	0035' C9      	                ret
+ 132:				;
+ 133:				;
+ 134:				; 16-bit * 16-bit unsigned multiply. Uses restoring algorithm. Derived from code at
+ 135:				; https://wikiti.brandonw.net/index.php?title=Z80_Routines:Math:Multiplication
+ 136:				; Call with:
+ 137:				; BC - multiplicand
+ 138:				; DE - multiplier
+ 139:				; Returns with:
+ 140:				; DEHL - result
+ 141:  279+10	0036' 210000  	mamwwu          ld hl, 0                ; Zero LSW of result
+ 142:				; Optimised 1st iteration
+ 143:  289+8	0039' CB23    	                sla	e                   ; Shift multiplier
+ 144:  297+8	003B' CB12    	                rl d
+ 145:  305+7+5	003D' 3002    	                jr nc, muww_sk_ld
+ 146:				; Set result to multiplicand if the MS bit of the multiplier was set.
+ 147:  312+4	003F' 60      	                ld h, b
+ 148:  316+4	0040' 69      	                ld l, c
+ 149:  320+7	0041' 3E0F    	muww_sk_ld      ld a, 15
+ 150:				; A - loop counter
+ 151:				; BC - multiplicand
+ 152:				; DE - multiplier (MS bits) and result (LS bits).
+ 153:				; HL - LSW of result
+ 154:  327+11	0043' 29      	muww_loop       add hl, hl              ; Shift result (DEHL) left
+ 155:  338+8	0044' CB13    	                rl e
+ 156:  346+8	0046' CB12    	                rl d
+ 157:  354+7+5	0048' 3004    	                jr nc, muww_nc          ; Jump if multiplier bit is zero
+ 158:  361+11	004A' 09      	                add hl, bc              ; Add multiplicand to result
+ 159:  372+7+5	004B' 3001    	                jr nc, muww_nc
+ 160:  379+6	004D' 13      	                inc de                  ; Propagate the carry into DE
+ 161:  385+4	004E' 3D      	muww_nc         dec a
+ 162:  389+7+5	004F' 20F2    	                jr nz, muww_loop
+ 163:  396+10	0051' C9      	                ret
+ 164:				;
+ 165:				;
+ 166:				; 32-bit * 8-bit unsigned multiply. Uses restoring algorithm. Derived from mamwwu
+ 167:				; above.
+ 168:				; Call with:
+ 169:				; DEHL - multiplicand
+ 170:				; C - multiplier
+ 171:				; Returns with:
+ 172:				; CDEHL - result
+ 173:  406+4	0052' 79      	mamlbu          ld a, c
+ 174:				; Save some registers.
+ 175:  410+11	0053' C5      	                push bc
+ 176:  421+4	0054' D9      	                exx
+ 177:  425+11	0055' C5      	                push bc
+ 178:  436+11	0056' E5      	                push hl
+ 179:  447+4	0057' D9      	                exx
+ 180:				; Setup registers for the multiply.
+ 181:  451+11	0058' D5      	                push de
+ 182:  462+11	0059' E5      	                push hl
+ 183:  473+10	005A' C1      	                pop bc                  ; LSW of multiplicand
+ 184:  483+4	005B' A7      	                and a                   ; Reset carry
+ 185:  487+15	005C' ED62    	                sbc hl, hl              ; Zero LS 32-bits of result
+ 186:  502+4	005E' D9      	                exx
+ 187:  506+10	005F' C1      	                pop bc                  ; MSW of multiplicand
+ 188:  516+15	0060' ED62    	                sbc hl, hl              ; Zero MS 32-bits of result
+ 189:  531+4	0062' D9      	                exx
+ 190:  535+4	0063' 5F      	                ld e, a                 ; Multiplier
+ 191:				; B'C'BC - multiplicand
+ 192:				; E - multiplier
+ 193:				; H'L'HL - result
+ 194:				; Optimised 1st iteration
+ 195:  539+8	0064' CB23    	                sla	e                            ; Shift multiplier
+ 196:  547+7+5	0066' 3006    	                jr nc, mulb_sk_ld
+ 197:				; Set result to multiplicand if the MS bit of the multiplier was set.
+ 198:  554+4	0068' 69      	                ld l, c
+ 199:  558+4	0069' 60      	                ld h, b
+ 200:  562+4	006A' D9      	                exx
+ 201:  566+4	006B' 69      	                ld l, c
+ 202:  570+4	006C' 60      	                ld h, b
+ 203:  574+4	006D' D9      	                exx
+ 204:  578+7	006E' 3E07    	mulb_sk_ld      ld a, 7
+ 205:				; A - loop counter
+ 206:				; B'C'BC - multiplicand
+ 207:				; E - multiplier (MS bits) and result (LS bits).
+ 208:				; H'L'HL - result
+ 209:  585+11	0070' 29      	mulb_loop       add hl, hl              ; Shift result (CH'L'HL) left
+ 210:  596+4	0071' D9      	                exx
+ 211:  600+15	0072' ED6A    	                adc hl, hl
+ 212:  615+4	0074' D9      	                exx
+ 213:  619+8	0075' CB13    	                rl e
+ 214:  627+7+5	0077' 3008    	                jr nc, mulb_nc          ; Jump if multiplier bit is zero
+ 215:  634+11	0079' 09      	                add hl, bc              ; Add multiplicand to result
+ 216:  645+4	007A' D9      	                exx
+ 217:  649+15	007B' ED4A    	                adc hl, bc
+ 218:  664+4	007D' D9      	                exx
+ 219:  668+7+5	007E' 3001    	                jr nc, mulb_nc
+ 220:  675+4	0080' 1C      	                inc e                   ; Propagate the carry into result
+ 221:  679+4	0081' 3D      	mulb_nc         dec a
+ 222:  683+7+5	0082' 20EC    	                jr nz, mulb_loop
+ 223:  690+4	0084' 7B      	                ld a, e                 ; Top bits of result
+ 224:  694+4	0085' D9      	                exx
+ 225:  698+11	0086' E5      	                push hl                 ; MSW of result
+ 226:  709+4	0087' D9      	                exx
+ 227:  713+10	0088' D1      	                pop de
+ 228:				; Restore registers
+ 229:  723+4	0089' D9      	                exx
+ 230:  727+10	008A' E1      	                pop hl
+ 231:  737+10	008B' C1      	                pop bc
+ 232:  747+4	008C' D9      	                exx
+ 233:  751+10	008D' C1      	                pop bc
+ 234:  761+4	008E' 4F      	                ld c, a
+ 235:				; CDEHL - result
+ 236:  765+10	008F' C9      	                ret
+ 237:				;
+ 238:				;
+ 239:				; Update CRC according to the CRC16 / XMODEM and MultiMediaCard CRC16 algorithm.
+ 240:				; Adapted from http://regregex.bbcmicro.net/crc-code.htm#crc-code.16.8080
+ 241:				; Note: this has now be replaced by the hardware CRC, but the code remains as it
+ 242:				; may be useful in other applications.
+ 243:				; Call with:
+ 244:				; A - byte to be included
+ 245:				; HL - CRC
+ 246:				; Returns with:
+ 247:				; HL - updated CRC;
+ 248:  775+11	0090' C5      	crc16x          push bc
+ 249:				;
+ 250:  786+4	0091' AC      	                xor h
+ 251:  790+4	0092' 47      	                ld b, a
+ 252:  794+4	0093' 4D      	                ld c, l
+ 253:  798+4	0094' 0F      	                rrca
+ 254:  802+4	0095' 0F      	                rrca
+ 255:  806+4	0096' 0F      	                rrca
+ 256:  810+4	0097' 0F      	                rrca
+ 257:  814+4	0098' 6F      	                ld l, a
+ 258:  818+7	0099' E60F    	                and 0x0f
+ 259:  825+4	009B' 67      	                ld h, a
+ 260:  829+4	009C' A8      	                xor b
+ 261:  833+4	009D' 47      	                ld b, a
+ 262:  837+4	009E' AD      	                xor l
+ 263:  841+7	009F' E6F0    	                and 0xf0
+ 264:  848+4	00A1' 6F      	                ld l, a
+ 265:  852+4	00A2' A9      	                xor c
+ 266:  856+11	00A3' 29      	                add hl, hl
+ 267:  867+4	00A4' AC      	                xor h
+ 268:  871+4	00A5' 67      	                ld h, a
+ 269:  875+4	00A6' 7D      	                ld a, l
+ 270:  879+4	00A7' A8      	                xor b
+ 271:  883+4	00A8' 6F      	                ld l, a
+ 272:				;
+ 273:  887+10	00A9' C1      	                pop bc
+ 274:  897+10	00AA' C9      	                ret
  275:				;
  276:				;
- 277:				; Note: linker "-c" option is used, so no data is initialised here.
- 278:				                dseg                ; Data segment
- 279:				;
- 280:				; match         defs 1              ; Current command length
- 281:				;
- 282:     -	0000"         	                end
+ 277:				; 32-bit clear (HL). Call with:
+ 278:				; HL - address of first byte
+ 279:				;malclr          xor a
+ 280:				;                ld (hl), a
+ 281:				;                inc hl
+ 282:				;                ld (hl), a
+ 283:				;                inc hl
+ 284:				;                ld (hl), a
+ 285:				;                inc hl
+ 286:				;                ld (hl), a
+ 287:				;                ret
+ 288:				;
+ 289:				;
+ 290:				; 32-bit increment (HL). Call with:
+ 291:				; HL - address of first byte
+ 292:  907+11	00AB' 34      	malinc          inc (hl)
+ 293:  918+5+6	00AC' C0      	                ret nz
+ 294:  923+6	00AD' 23      	                inc hl
+ 295:  929+11	00AE' 34      	                inc (hl)
+ 296:  940+5+6	00AF' C0      	                ret nz
+ 297:  945+6	00B0' 23      	                inc hl
+ 298:  951+11	00B1' 34      	                inc (hl)
+ 299:  962+5+6	00B2' C0      	                ret nz
+ 300:  967+6	00B3' 23      	                inc hl
+ 301:  973+11	00B4' 34      	                inc (hl)
+ 302:  984+10	00B5' C9      	                ret
+ 303:				;
+ 304:				;
+ 305:				; Calculate percentage of two 32-bit values. Call with:
+ 306:				; HL - points to 32-bit total count
+ 307:				; DE - points to 32-bit fraction count
+ 308:				; Returns with:
+ 309:				; A - 8-bit integer result or 0xff on error.
+ 310:				; Assumes total >= fraction.
+ 311:  994+11	00B6' C5      	mapcnt          push bc
+ 312: 1005+11	00B7' D5      	                push de
+ 313:				;
+ 314:				; Copy total to working area.
+ 315: 1016+10	00B8' 110000  	                ld de, pcnt_sc_tot
+ 316: 1026+10	00BB' 010400  	                ld bc, 4
+ 317: 1036+16+5	00BE' EDB0    	                ldir
+ 318:				;
+ 319:				; Find fraction * 100.
+ 320: 1052+10	00C0' E1      	                pop hl
+ 321: 1062+17	00C1' CD2601  	                call malld              ; Load 32-bit number from memory
+ 322:				; DEHL - fraction
+ 323: 1079+7	00C4' 0E64    	                ld c, 100
+ 324:				; DEHL - multiplicand (fraction)
+ 325:				; C - multiplier
+ 326: 1086+17	00C6' CD5200  	                call mamlbu             ; 32-bit * 8-bit unsigned multiply
+ 327:				; CDEHL - result
+ 328: 1103+11	00C9' C5      	                push bc                 ; Save bits 32 to 39
+ 329:				; Store result.
+ 330: 1114+10	00CA' 010400  	                ld bc, pcnt_sc_frac     ; Address
+ 331: 1124+17	00CD' CD3201  	                call malst	            ; Store 32-bit number to memory
+ 332: 1141+10	00D0' C1      	                pop bc
+ 333: 1151+7	00D1' 71      	                ld (hl), c              ; Store bits 32 to 39
+ 334:				;
+ 335:				; Scale to make sure that fraction * 100 fits in 32 bits AND the total fits in
+ 336:				; 8 bits so we can use the 32 bit by 8 bit divide routine later.
+ 337: 1158+13	00D2' 3A0800  	pcnt_sc_lp      ld a, (pcnt_sc_frac + 4) ; Bits 32 to 39 of fraction * 100
+ 338: 1171+4	00D5' A7      	                and a
+ 339: 1175+7+5	00D6' 2011    	                jr nz, pcnt_scale       ; Scale if fraction * 100 > 32 bits
+ 340:				;
+ 341:				; We need to scale if any of bits 8 to 31 are non-zero.
+ 342: 1182+10	00D8' 210100  	                ld hl, pcnt_sc_tot + 1  ; Scaled total
+ 343: 1192+7	00DB' 7E      	                ld a, (hl)
+ 344: 1199+4	00DC' A7      	                and a
+ 345: 1203+7+5	00DD' 200A    	                jr nz, pcnt_scale
+ 346: 1210+6	00DF' 23      	                inc hl
+ 347: 1216+7	00E0' 7E      	                ld a, (hl)
+ 348: 1223+4	00E1' A7      	                and a
+ 349: 1227+7+5	00E2' 2005    	                jr nz, pcnt_scale
+ 350: 1234+6	00E4' 23      	                inc hl
+ 351: 1240+7	00E5' 7E      	                ld a, (hl)
+ 352: 1247+4	00E6' A7      	                and a
+ 353: 1251+7+5	00E7' 2812    	                jr z, pcnt_fr_sc_dn     ; Jump if all is scaled appropriately
+ 354:				;
+ 355:				; Divide both total and fraction by two.
+ 356: 1258+10	00E9' 210000  	pcnt_scale      ld hl, pcnt_sc_tot      ; Start
+ 357: 1268+7	00EC' 0604    	                ld b, 4                 ; Length
+ 358: 1275+17	00EE' CD1801  	                call shr_mb_value       ; Shift right multi-byte value
+ 359: 1292+10	00F1' 210400  	                ld hl, pcnt_sc_frac     ; Start
+ 360: 1302+7	00F4' 0605    	                ld b, 5                 ; Length
+ 361: 1309+17	00F6' CD1801  	                call shr_mb_value       ; Shift right multi-byte value
+ 362: 1326+12	00F9' 18D7    	                jr pcnt_sc_lp           ; Keep going
+ 363:				;
+ 364:				; Scaling complete.
+ 365: 1338+10	00FB' 210400  	pcnt_fr_sc_dn   ld hl, pcnt_sc_frac
+ 366: 1348+17	00FE' CD2601  	                call malld              ; Load 32-bit number from memory
+ 367:				; DEHL - dividend (scaled fraction)
+ 368: 1365+13	0101' 3A0000  	                ld a, (pcnt_sc_tot)
+ 369: 1378+4	0104' 4F      	                ld c, a
+ 370:				; C - divisor (scaled total)
+ 371: 1382+17	0105' CD0000  	                call madlbu             ; 32-bit / 8-bit unsigned divide
+ 372:				; DEHL - quotient
+ 373:				; A - remainder
+ 374:				; Error if result > 100
+ 375: 1399+4	0108' 7A      	                ld a, d
+ 376: 1403+4	0109' B3      	                or e
+ 377: 1407+4	010A' B4      	                or h
+ 378: 1411+7+5	010B' 2007    	                jr nz, pcnt_err
+ 379: 1418+4	010D' 7D      	                ld a, l
+ 380: 1422+7	010E' FE65    	                cp 101
+ 381: 1429+7+5	0110' 3002    	                jr nc, pcnt_err
+ 382:				;
+ 383: 1436+10	0112' C1      	pcnt_exit       pop bc
+ 384:				;
+ 385: 1446+10	0113' C9      	                ret
+ 386:				;
+ 387: 1456+7	0114' 3EFF    	pcnt_err        ld a, 0xff              ; Error code
+ 388: 1463+12	0116' 18FA    	                jr pcnt_exit
+ 389:				;
+ 390:				;
+ 391:				; Shift right a multi-byte value in memory. Call with:
+ 392:				; HL - points to value
+ 393:				; B - length of value in bytes
+ 394:				; Returns with:
+ 395:				; Carry flag - set to bit that "falls off" the end of the value.
+ 396: 1475+11	0118' C5      	shr_mb_value    push bc
+ 397: 1486+4	0119' 48      	                ld c, b
+ 398: 1490+7	011A' 0600    	                ld b, 0
+ 399: 1497+11	011C' 09      	                add hl, bc
+ 400: 1508+6	011D' 2B      	                dec hl
+ 401: 1514+10	011E' C1      	                pop bc
+ 402:				; HL - points to last byte of value.
+ 403: 1524+4	011F' A7      	                and a                   ; Shift in a zero
+ 404: 1528+15	0120' CB1E    	shrmb_loop      rr (hl)
+ 405: 1543+6	0122' 2B      	                dec hl
+ 406: 1549+8+5	0123' 10FB    	                djnz shrmb_loop
+ 407: 1557+10	0125' C9      	                ret
+ 408:				;
+ 409:				;
+ 410:				; Load a 32-bit number from memory into registers. Call with:
+ 411:				; HL - pointer to number
+ 412:				; Returns with:
+ 413:				; DEHL - 32-bit number
+ 414: 1567+11	0126' C5      	malld           push bc
+ 415:				;
+ 416: 1578+7	0127' 4E      	                ld c, (hl)
+ 417: 1585+6	0128' 23      	                inc hl
+ 418: 1591+7	0129' 46      	                ld b, (hl)
+ 419: 1598+6	012A' 23      	                inc hl
+ 420: 1604+7	012B' 5E      	                ld e, (hl)
+ 421: 1611+6	012C' 23      	                inc hl
+ 422: 1617+7	012D' 56      	                ld d, (hl)
+ 423: 1624+4	012E' 69      	                ld l, c
+ 424: 1628+4	012F' 60      	                ld h, b
+ 425:				;
+ 426: 1632+10	0130' C1      	                pop bc
+ 427: 1642+10	0131' C9      	                ret
+ 428:				;
+ 429:				;
+ 430:				; Store a 32-bit number from register into memory. Call with:
+ 431:				; BC - pointer to store
+ 432:				; DEHL - 32-bit number
+ 433:				; Returns with:
+ 434:				; HL - points to location after last memory address used.
+ 435: 1652+11	0132' E5      	malst           push hl
+ 436:				;
+ 437: 1663+4	0133' 69      	                ld l, c
+ 438: 1667+4	0134' 60      	                ld h, b
+ 439: 1671+10	0135' C1      	                pop bc
+ 440:				; DEBC - number
+ 441:				; HL - pointer
+ 442: 1681+7	0136' 71      	                ld (hl), c
+ 443: 1688+6	0137' 23      	                inc hl
+ 444: 1694+7	0138' 70      	                ld (hl), b
+ 445: 1701+6	0139' 23      	                inc hl
+ 446: 1707+7	013A' 73      	                ld (hl), e
+ 447: 1714+6	013B' 23      	                inc hl
+ 448: 1720+7	013C' 72      	                ld (hl), d
+ 449: 1727+6	013D' 23      	                inc hl
+ 450:				;
+ 451: 1733+10	013E' C9      	                ret
+ 452:				;
+ 453:				;
+ 454:				; 32-bit add. (HL) = (HL) + (DE). Call with:
+ 455:				; DE - pointer to first addend
+ 456:				; HL - pointer to second addend and sum (result)
+ 457:				; Returns with:
+ 458:				; Carry flag - set if carry occurs.
+ 459: 1743+7	013F' 1A      	maladd          ld a, (de)
+ 460: 1750+7	0140' 86      	                add (hl)
+ 461: 1757+7	0141' 77      	                ld (hl), a
+ 462: 1764+6	0142' 13      	                inc de
+ 463: 1770+6	0143' 23      	                inc hl
+ 464: 1776+7	0144' 1A      	                ld a, (de)
+ 465: 1783+7	0145' 8E      	                adc (hl)
+ 466: 1790+7	0146' 77      	                ld (hl), a
+ 467: 1797+6	0147' 13      	                inc de
+ 468: 1803+6	0148' 23      	                inc hl
+ 469: 1809+7	0149' 1A      	                ld a, (de)
+ 470: 1816+7	014A' 8E      	                adc (hl)
+ 471: 1823+7	014B' 77      	                ld (hl), a
+ 472: 1830+6	014C' 13      	                inc de
+ 473: 1836+6	014D' 23      	                inc hl
+ 474: 1842+7	014E' 1A      	                ld a, (de)
+ 475: 1849+7	014F' 8E      	                adc (hl)
+ 476: 1856+7	0150' 77      	                ld (hl), a
+ 477: 1863+10	0151' C9      	                ret
+ 478:				;
+ 479:				;
+ 480:				;
+ 481:				; *************
+ 482:				; * Variables *
+ 483:				; *************
+ 484:				;
+ 485:				;
+ 486:				; Note: linker "-c" option is used, so no data is initialised here.
+ 487:				                dseg                ; Data segment
+ 488:				;
+ 489:				; Percentage calculations.
+ 490:     -	0000"         	pcnt_sc_tot     defs 4              ; 32-bit scaled total
+ 491:     -	0004"         	pcnt_sc_frac    defs 5              ; 40-bit scaled fraction
+ 492:				;
+ 493:     -	0009"         	                end
 
 
 
@@ -904,11 +1203,11 @@ Statistics:
 
      4	passes
      0	jr promotions
-   281	symbols
-   171	bytes
+   301	symbols
+   338	bytes
 
-   117	macro calls
-  1320	macro bytes
+   119	macro calls
+  2391	macro bytes
      0	invented symbols
 
 
@@ -975,7 +1274,9 @@ IOA_SPI_CSR    =20        32
 IOA_SPI_DATA   =21        33
 MCALL_CACRS    =E4        228
 MCALL_CACWS    =E7        231
-MCALL_CAFLUS   =EA        234
+MCALL_CAFLUS   =F0        240
+MCALL_CARS     =EA        234
+MCALL_CAWS     =ED        237
 MCALL_CONRCH   =72        114
 MCALL_CONSTA   =75        117
 MCALL_CONWCH   =6F        111
@@ -992,7 +1293,7 @@ MCALL_CWPHWD   =AB        171
 MCALL_CWPSPC   =9F        159
 MCALL_CWPTM    =DE        222
 MCALL_CWVICH   =9C        156
-MCALL_JPTBL_NEXT=F6        246
+MCALL_JPTBL_NEXT=FC        252
 MCALL_MADBBU   =C6        198
 MCALL_MADLBU   =C0        192
 MCALL_MADWBU   =C3        195
@@ -1000,9 +1301,9 @@ MCALL_MAMLBU   =CC        204
 MCALL_MAMWWU   =C9        201
 MCALL_MCPRER   =E1        225
 MCALL_MON_ENTRY=69        105
-MCALL_MPALL    =ED        237
-MCALL_MPFREE   =F0        240
-MCALL_MPSTAT   =F3        243
+MCALL_MPALL    =F3        243
+MCALL_MPFREE   =F6        246
+MCALL_MPSTAT   =F9        249
 MCALL_MTWDLI   =A2        162
 MCALL_PANIC    =6C        108
 MCALL_RDDULO   =BD        189
@@ -1156,14 +1457,24 @@ duwb_nextbit    22'       34
 enum_counter   =02        2
 i2crd           00        0 (extern)
 i2cwr           00        0 (extern)
-jptbl_addr     =F6        246
+jptbl_addr     =FC        252
 madbbu          26'       38 (public)
 madlbu          00'       0 (public)
 madwbu          15'       21 (public)
+maladd           13F'     319 (public)
+malinc          AB'       171 (public)
+malld            126'     294 (public)
+malst            132'     306 (public)
 mamlbu          52'       82 (public)
 mamwwu          36'       54 (public)
+mapcnt          B6'       182 (public)
 maths          =01        1
+mcrun           00        0 (extern)
+mcspd           00        0 (extern)
+mdisrg          00        0 (extern)
 monitor        =01        1
+mscnt           00        0 (extern)
+mstate          00        0 (extern)
 mtwdli          00        0 (extern)
 mulb_loop       70'       112
 mulb_nc         81'       129
@@ -1172,6 +1483,13 @@ muww_loop       43'       67
 muww_nc         4E'       78
 muww_sk_ld      41'       65
 panic           00        0 (extern)
+pcnt_err         114'     276
+pcnt_exit        112'     274
+pcnt_fr_sc_dn   FB'       251
+pcnt_sc_frac    04"       4
+pcnt_sc_lp      D2'       210
+pcnt_sc_tot     00"       0
+pcnt_scale      E9'       233
 rddulo          00        0 (extern)
 rdduwd          00        0 (extern)
 rdhxwd          00        0 (extern)
@@ -1183,12 +1501,13 @@ s1wch           00        0 (extern)
 s2rch           00        0 (extern)
 s2sta           00        0 (extern)
 s2wch           00        0 (extern)
+shr_mb_value     118'     280
+shrmb_loop       120'     288
 skpspc          00        0 (extern)
 spiini          00        0 (extern)
 spiss           00        0 (extern)
 spitr           00        0 (extern)
 str_offset     =20        32
-tikcnt          00        0 (extern)
 toloca          00        0 (extern)
 toupca          00        0 (extern)
 trarch          00        0 (extern)

@@ -31,11 +31,13 @@
                 STRUCT
                 STR_BLOCK FCBR_FCB, FCB_SIZE    ; FCB structure
                 STR_BYTE FCBR_FLAGS             ; Status flags
-                STR_BYTE FCBR_CONTENTS          ; No. of bytes in RBUFF (*)
+                STR_BYTE FCBR_CONTENTS          ; No. of bytes in RBUFF
                 STR_BLOCK FCBR_RBUFF, CPM_SECTOR_SIZE   ; Record buffer
                 STR_END FCBR_SIZE               ; Structure size
 ;
-; Flags are active if the bit is zero.
+; Flag bits in FCBR_FLAGS. This is zeroed by finit.
 BITDEF FCBR_FL_OPEN, 0          ; File is open
 BITDEF FCBR_FL_DIRTY, 1         ; RBUFF contains data to write
+BITDEF FCBR_FL_BYTES, 2         ; Byte access
+BITDEF FCBR_FL_RECS, 3          ; Record access
 

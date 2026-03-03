@@ -1,23 +1,26 @@
    1:				; *******************************************************
    2:				; * Bitcoin Mining for CP/M                             *
-   3:				; * Version: V1.0                                       *
-   4:				; * Merlin Skinner, 5/9/2022                            *
+   3:				; * Version: V1.1                                       *
+   4:				; * Merlin Skinner, 1/3/2026                            *
    5:				; *******************************************************
    6:				;
-   7:				; This program is intended to run under CP/M 2.2. It should run under any such
-   8:				; system, though timing is only available when run on ZARC.
+   7:				; V1.0 - 5/9/2022, initial version.
+   8:				; V1.1 - 1/3/2026, added CP/M 3 support. Use BDOS console I/O.
    9:				;
-  10:				                title Bitcoin Mining for CP/M
-  11:				;
+  10:				; This program is intended to run under CP/M 2.2 or CP/M 3. It should run under
+  11:				; any such system, though timing is only available when run on ZARC.
   12:				;
-  13:				;
-  14:				; ************
-  15:				; * Includes *
-  16:				; ************
-  17:				;
-  18:				;
-  19:				                include "macros.i"
-**** /home/merlin/Technical/HardwareProjects/ZARC_Z80_Box/software/includes//macros.i ****
+  13:				                title Bitcoin Mining for CP/M
+  14:				;
+  15:				;
+  16:				;
+  17:				; ************
+  18:				; * Includes *
+  19:				; ************
+  20:				;
+  21:				;
+  22:				                include "macros.i"
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/macros.i ****
    1:				; ***********************************
    2:				; * ZARC Macro Definitions          *
    3:				; * Written by: Merlin Skinner      *
@@ -96,355 +99,455 @@
   76:				                endm
   77:				;
   78:				;
-  79:				; Calculate offsets into jump tables.
-  80:				; The absolute segment is used so the offsets are not marked as relocatable. This
-  81:				; avoids "Not relocatable" errors.
-  82:				JPTBL_START     macro x
+  79:				; Allocate space. This is used to generate variable addresses, affectively
+  80:				; providing a new variables segment. Allocated size is kept track of separately
+  81:				; to the address as the latter may overflow in certain error cases.
+  82:				ALLOC           macro x
   83:				                .aseg
-  84:				jptbl_addr      set x               ; Set start address
-  85:				                endm
-  86:				;
-  87:				; Invoke for each item.
-  88:				JPTBL_ENTRY     macro x
-  89:				x               equ jptbl_addr
-  90:				jptbl_addr      set jptbl_addr + 3
-  91:				                endm
-  92:				;
-  93:				; Invoke for a data block in the jump table
-  94:				JPTBL_BLOCK     macro x, size   ; <name>, <size>
-  95:				x               equ jptbl_addr
-  96:				jptbl_addr      set jptbl_addr + size
-  97:				                endm
-  98:				;
-  99:				JPTBL_END       macro x
- 100:				x               set jptbl_addr      ; Set label to next address
- 101:				                .cseg
- 102:				                endm
- 103:				;
- 104:				;
- 105:				; Define bits and masks. This is inspired by the Commodore Amiga BITDEF mechanism.
- 106:				; Given:
- 107:				; BITDEF I2C_CSR_STOP, 2
- 108:				; Yields:
- 109:				; I2C_CSR_STOP_BIT  EQU 2       ; Bit number
- 110:				; I2C_CSR_STOP_MASK EQU 1<<2    ; Bit mask
- 111:				BITDEF          macro n, b      ; <Name>, <bit>
- 112:				n`_BIT          equ b
- 113:				n`_MASK         equ 1 << b
+  84:				all_addr        set x
+  85:				all_size        set 0
+  86:				                endm
+  87:				;
+  88:				; Add a byte entry.
+  89:				ALL_BYTE        macro x
+  90:				x               equ all_addr
+  91:				all_addr        set all_addr + 1
+  92:				all_size        set all_size + 1
+  93:				                endm
+  94:				;
+  95:				; Add a word (16-bit) entry.
+  96:				ALL_WORD        macro x
+  97:				x               equ all_addr
+  98:				all_addr        set all_addr + 2
+  99:				all_size        set all_size + 2
+ 100:				                endm
+ 101:				;
+ 102:				; Add a 3 byte (24-bit) entry.
+ 103:				ALL_24BIT       macro x
+ 104:				x               equ all_addr
+ 105:				all_addr        set all_addr + 3
+ 106:				all_size        set all_size + 3
+ 107:				                endm
+ 108:				;
+ 109:				; Add a long (32-bit) entry.
+ 110:				ALL_LONG        macro x
+ 111:				x               equ all_addr
+ 112:				all_addr        set all_addr + 4
+ 113:				all_size        set all_size + 4
  114:				                endm
  115:				;
- 116:				;
- 117:				; Force alignment. This asserts an appropriate number of zero bytes to achieve
- 118:				; the required alignment. Note that these macros cannot work for relocatable
- 119:				; files.
- 120:				; 16-bit
- 121:				ALIGN_WORD      macro
- 122:				                if $ and 1
- 123:				                    byte 0
- 124:				                endif
- 125:				                endm
- 126:				;
- 127:				; 32-bit
- 128:				ALIGN_LONG      macro
- 129:				                ALIGN_WORD
- 130:				                if $ and 2
- 131:				                    byte 0, 0
- 132:				                endif
- 133:				                endm
- 134:				
+ 116:				; Add an arbitrary length entry.
+ 117:				ALL_BLOCK       macro x, size   ; <name>, <size>
+ 118:				x               equ all_addr
+ 119:				all_addr        set all_addr + size
+ 120:				all_size        set all_size + size
+ 121:				                endm
+ 122:				;
+ 123:				; End of allocated space. Returns size of block.
+ 124:				ALL_END         macro x
+ 125:				x               equ all_size
+ 126:				                .cseg
+ 127:				                endm
+ 128:				;
+ 129:				;
+ 130:				; Calculate offsets into jump tables.
+ 131:				; The absolute segment is used so the offsets are not marked as relocatable. This
+ 132:				; avoids "Not relocatable" errors.
+ 133:				JPTBL_START     macro x
+ 134:				                .aseg
+ 135:				jptbl_addr      set x               ; Set start address
+ 136:				                endm
+ 137:				;
+ 138:				; Invoke for each item.
+ 139:				JPTBL_ENTRY     macro x
+ 140:				x               equ jptbl_addr
+ 141:				jptbl_addr      set jptbl_addr + 3
+ 142:				                endm
+ 143:				;
+ 144:				; Invoke for a data block in the jump table
+ 145:				JPTBL_BLOCK     macro x, size   ; <name>, <size>
+ 146:				x               equ jptbl_addr
+ 147:				jptbl_addr      set jptbl_addr + size
+ 148:				                endm
+ 149:				;
+ 150:				JPTBL_END       macro x
+ 151:				x               set jptbl_addr      ; Set label to next address
+ 152:				                .cseg
+ 153:				                endm
+ 154:				;
+ 155:				;
+ 156:				; Define bits and masks. This is inspired by the Commodore Amiga BITDEF mechanism.
+ 157:				; Given:
+ 158:				; BITDEF I2C_CSR_STOP, 2
+ 159:				; Yields:
+ 160:				; I2C_CSR_STOP_BIT  EQU 2       ; Bit number
+ 161:				; I2C_CSR_STOP_MASK EQU 1<<2    ; Bit mask
+ 162:				BITDEF          macro n, b      ; <Name>, <bit>
+ 163:				n`_BIT          equ b
+ 164:				n`_MASK         equ 1 << b
+ 165:				                endm
+ 166:				;
+ 167:				;
+ 168:				; Force alignment. This asserts an appropriate number of zero bytes to achieve
+ 169:				; the required alignment. Note that these macros cannot work for relocatable
+ 170:				; files.
+ 171:				; 16-bit
+ 172:				ALIGN_WORD      macro
+ 173:				                if $ and 1
+ 174:				                    byte 0
+ 175:				                endif
+ 176:				                endm
+ 177:				;
+ 178:				; 32-bit
+ 179:				ALIGN_LONG      macro
+ 180:				                ALIGN_WORD
+ 181:				                if $ and 2
+ 182:				                    byte 0, 0
+ 183:				                endif
+ 184:				                endm
+ 185:				;
+ 186:				;
+ 187:				; Write message to console (short for "call conwms").
+ 188:				CON_WR_MSG      macro
+ 189:				                rst 08
+ 190:				                endm
+ 191:				;
+ 192:				;
+ 193:				; Write character to console (short for "call conwch").
+ 194:				CON_WR_CHAR     macro
+ 195:				                rst 16
+ 196:				                endm
+ 197:				
 **** bitcoin.z80 ****
-  20:				                include "cpm.i"
-**** /home/merlin/Technical/HardwareProjects/ZARC_Z80_Box/software/includes//cpm.i ****
+  23:				                include "cpm.i"
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/cpm.i ****
    1:				; *******************************************************
-   2:				; * ZARC Monitor CP/M Definitions                       *
+   2:				; * ZARC Monitor CP/M 2.2 Definitions                   *
    3:				; * Written by: Merlin Skinner                          *
    4:				; * Date Started: 26/5/2020                             *
    5:				; *******************************************************
    6:				;
-   7:				; Definitions related CP/M running under the monitor programme.
-   8:				;
-   9:				; Note that ld80 only considers the first six characters of labels significant.
-  10:				;
-  11:				; The following conditionals are intended to allow the same include file to be
-  12:				; used in the defining module and elsewhere as required. Some includes are used
-  13:				; for other applications than the monitor, such as the CP/M BIOS. In these cases,
-  14:				; the extern and public statements are not desirable.
-  15:				;
-  16:     -	0000'         	            ifdef monitor           ; Meaningful for monitor build only
-  28:				            endif
-  29:				;
-  30:				;
+   7:				; Definitions related to CP/M running under the monitor programme. It may also
+   8:				; be used for CP/M applications.
+   9:				;
+  10:				; Note that ld80 only considers the first six characters of labels significant.
+  11:				;
+  12:				; The following conditionals are intended to allow the same include file to be
+  13:				; used in the defining module and elsewhere as required. Some includes are used
+  14:				; for other applications than the monitor, such as the CP/M BIOS. In these cases,
+  15:				; the extern and public statements are not desirable.
+  16:				;
+  17:     -	0000'         	            ifdef monitor           ; Meaningful for monitor build only
+  30:				            endif
   31:				;
-  32:				; ****************
-  33:				; * Memory Usage *
+  32:				;
+  33:				;
   34:				; ****************
-  35:				;
-  36:				;
-  37:				; Note: memory banks are allocated by the monitor's initialisation code.
-  38:     -	0004'         	MMAP_CPM_PAGES      equ 4               ; Number of 16 kB pages
-  39:				;
-  40:				; The MS byte of INT_VEC_TABLE comes from the Z80 I register, and the LS byte
-  41:				; from the FPGA. The 0xe0 offset is chosen to allow the table to reside at the
-  42:				; top of memory (0xffe0 to 0xffff).
-  43:     -	FFE0'         	INT_VEC_TABLE   equ 0xffe0              ; Interrupt mode 2 vector table
-  44:				;
-  45:				; Copied from CP/M manual appendix A.
-  46:				; MSIZE             equ 64              ; CP/M version memory size in kilobytes
-  47:				;
-  48:				; "BIAS" is the address offset from 0x3400 for memory systems other than 16 K.
-  49:				;BIAS               equ (MSIZE-20) * 1024
-  50:     -	A200'         	CPM_BIAS            equ 0xa200          ; For CompuPro64K_CPM
-  51:     -	D600'         	CCP_START           equ 0x3400 + CPM_BIAS   ; Base of CCP
-  52:     -	DE06'         	BDOS_START          equ CCP_START + 0x0806  ; Base of BDOS
-  53:     -	EC00'         	BIOS_START          equ CCP_START + 0x1600  ; Base of BIOS
-  54:     -	002C'         	BIOS_CPM_START_SEC  equ 44              ; First CP/M sector of BIOS
-  55:     -	1000'         	BIOS_MAX_SIZE       equ 4096            ; 2 KB allocation for BIOS stored on MMC (ZARC)
-  56:     -	0100'         	TPA_START           equ 0x0100          ; Transient Programme Area
-  57:				;
-  58:				; Page zero.
-  59:     -	0003'         	IOBYTE              equ 0x0003          ; Intel I/O byte
-  60:     -	0004'         	CDISK               equ 0x0004          ; Current disk (0="A") & user no. (in high nibble)
-  61:     -	005C'         	FCB1                equ 0x005c          ; Default FCB 1
-  62:     -	006C'         	FCB2                equ 0x006c          ; Default FCB 2 (overwritten if FCB 1 is opened)
-  63:				; Default 128-byte disk buffer, also filled with the command line when a transient
-  64:				; is loaded under the CCP.
-  65:     -	0080'         	DEF_BUFFER          equ 0x80
-  66:     -	0080'         	DEF_BUFFER_SIZE     equ 0x80
-  67:				;
-  68:				; IOBYTE bit definitions.
-  69:     -	0003'         	IOB_CON_MASK        equ 0x03
-  70:     -	000C'         	IOB_RDR_MASK        equ 0x0c
-  71:     -	0030'         	IOB_PUN_MASK        equ 0x30
-  72:     -	00C0'         	IOB_LST_MASK        equ 0xc0
-  73:				;
-  74:				; BIOS option bits.
-  75:     -	        	BITDEF BIOS_OPT_DEBUG, 0                ; Enable BIOS debugging messages
-  76:     -	        	BITDEF BIOS_OPT_NOINTS, 1               ; Disables interrupts (use basic I/O mode)
-  77:     -	        	BITDEF BIOS_OPT_RAWCON, 2               ; Disables ADM-3A to VT-100 translation
-  78:				;
-  79:				;
+  35:				; * Memory Usage *
+  36:				; ****************
+  37:				;
+  38:				;
+  39:				; Note: memory banks are allocated by the monitor's initialisation code.
+  40:     -	0004'         	MMAP_CPM_PAGES      equ 4               ; Number of 16 kB pages
+  41:				;
+  42:				; The MS byte of INT_VEC_TABLE comes from the Z80 I register, and the LS byte
+  43:				; from the FPGA. The 0xe0 offset is chosen to allow the table to reside at the
+  44:				; top of memory (0xffe0 to 0xffff).
+  45:     -	FFE0'         	INT_VEC_TABLE   equ 0xffe0              ; Interrupt mode 2 vector table
+  46:				;
+  47:				; Copied from CP/M manual appendix A.
+  48:				; MSIZE             equ 64              ; CP/M version memory size in kilobytes
+  49:				;
+  50:				; "BIAS" is the address offset from 0x3400 for memory systems other than 16 K.
+  51:				;BIAS               equ (MSIZE-20) * 1024
+  52:     -	A200'         	CPM_BIAS            equ 0xa200          ; For CompuPro64K_CPM
+  53:     -	D600'         	CCP_START           equ 0x3400 + CPM_BIAS   ; Base of CCP
+  54:     -	DE06'         	BDOS_START          equ CCP_START + 0x0806  ; Base of BDOS
+  55:     -	EC00'         	BIOS_START          equ CCP_START + 0x1600  ; Base of BIOS
+  56:     -	002C'         	BIOS_CPM_START_SEC  equ 44              ; First CP/M sector of BIOS
+  57:     -	1000'         	BIOS_MAX_SIZE       equ 4096            ; 2 KB allocation for BIOS stored on MMC (ZARC)
+  58:     -	0100'         	TPA_START           equ 0x0100          ; Transient Programme Area
+  59:				;
+  60:				; Page zero.
+  61:     -	0003'         	IOBYTE              equ 0x0003          ; Intel I/O byte
+  62:     -	0004'         	CDISK               equ 0x0004          ; Current disk (0="A") & user no. (in high nibble)
+  63:     -	005C'         	FCB1                equ 0x005c          ; Default FCB 1
+  64:     -	006C'         	FCB2                equ 0x006c          ; Default FCB 2 (overwritten if FCB 1 is opened)
+  65:				; Default 128-byte disk buffer, also filled with the command line when a transient
+  66:				; is loaded under the CCP.
+  67:     -	0080'         	DEF_BUFFER          equ 0x80
+  68:     -	0080'         	DEF_BUFFER_SIZE     equ 0x80
+  69:				;
+  70:				; IOBYTE bit definitions.
+  71:     -	0003'         	IOB_CON_MASK        equ 0x03
+  72:     -	000C'         	IOB_RDR_MASK        equ 0x0c
+  73:     -	0030'         	IOB_PUN_MASK        equ 0x30
+  74:     -	00C0'         	IOB_LST_MASK        equ 0xc0
+  75:				;
+  76:				; BIOS option bits.
+  77:     -	        	BITDEF BIOS_OPT_DEBUG, 0                ; Enable BIOS debugging messages
+  78:     -	        	BITDEF BIOS_OPT_NOINTS, 1               ; Disables interrupts (use basic I/O mode)
+  79:     -	        	BITDEF BIOS_OPT_RAWCON, 2               ; Disables ADM-3A to VT-100 translation
   80:				;
-  81:				; ***************
-  82:				; * Disk System *
+  81:				;
+  82:				;
   83:				; ***************
-  84:				;
-  85:				;
-  86:     -	0080'         	CPM_SECTOR_SIZE     equ 128             ; CP/M disk sector size
-  87:     -	0010'         	NUM_DISKS           equ 16              ; Number of disk drives
-  88:     -	0010'         	NUM_DISKS_MAX       equ 16              ; Maximum number of disk drives
-  89:     -	0000'         	CPM_SYS_SIZE        equ 1024 * 1024     ; System area size (bytes)
-  90:     -	0000'         	CPM_DISK_SIZE       equ 1024 * 1024     ; Disk size (bytes)
-  91:     -	0008'         	FILENAME_SIZE       equ 8               ; Filename size
-  92:     -	0003'         	FILEEXT_SIZE        equ 3               ; File extension size
-  93:     -	001A'         	FILE_EOF            equ 0x1a            ; End of file (^Z)
-  94:     -	000F'         	MAX_USER            equ 15              ; Maximum user number
-  95:				;
-  96:     -	0001'         	BDOS_READ_SEQ_EOF   equ 1               ; Sequential read EOF error code
-  97:				;
-  98:				; Disk Parameter Header (DPH) structure.
-  99:     -	        	                STRUCT
- 100:     -	        	                STR_WORD DPH_XLT        ; Address of sector translation table
- 101:     -	        	                STR_WORD DPH_SCRATCH0   ; BDOS scratch area
- 102:     -	        	                STR_WORD DPH_SCRATCH1
- 103:     -	        	                STR_WORD DPH_SCRATCH2
- 104:     -	        	                STR_WORD DPH_DIRBF      ; BDOS directory scratch area
- 105:     -	        	                STR_WORD DPH_DPB        ; Pointer to DPB
- 106:     -	        	                STR_WORD DPH_CSV        ; Pointer to the directory checksum vector
- 107:     -	        	                STR_WORD DPH_ALV        ; Pointer to the allocation vector
- 108:     -	        	                STR_END DPH_SIZE
- 109:				;
- 110:				;
- 111:				; Disk Parameter Block (DPB) structure.
- 112:     -	        	                STRUCT
- 113:     -	        	                STR_WORD DPB_SPT        ; Number of 128-byte records per track
- 114:     -	        	                STR_BYTE DPB_BSH        ; Block shift. 3 => 1k, 4 => 2k, 5 => 4k....
- 115:     -	        	                STR_BYTE DPB_BLM        ; Block mask. 7 => 1k, 0Fh => 2k, 1Fh => 4k...
- 116:     -	        	                STR_BYTE DPB_EXM        ; Extent mask
- 117:     -	        	                STR_WORD DPB_DSM        ; Maximum block number
- 118:     -	        	                STR_WORD DPB_DRM        ; Maximum directory entry number
- 119:     -	        	                STR_BYTE DPB_AL0        ; Directory allocation bitmap
- 120:     -	        	                STR_BYTE DPB_AL1
- 121:     -	        	                STR_WORD DPB_CKS        ; Checksum vector size, 0 for a fixed disc
- 122:     -	        	                STR_WORD DPB_OFF        ; Offset, number of reserved tracks
- 123:     -	        	                STR_END DPB_SIZE
- 124:				;
- 125:				;
- 126:				; Directory entry structure.
- 127:     -	        	                STRUCT
- 128:     -	        	                STR_BYTE DIRE_USER      ; User number. 0xe5 if entry unused
- 129:     -	        	                STR_BLOCK DIRE_NAME, FILENAME_SIZE  ; Filename
- 130:     -	        	                STR_BLOCK DIRE_TYP, FILEEXT_SIZE    ; File type
- 131:     -	        	                STR_BYTE DIRE_EX        ; Extent counter, low byte (0-31)
- 132:     -	        	                STR_BYTE DIRE_S1        ; Reserved, set to 0
- 133:     -	        	                STR_BYTE DIRE_S2        ; Extent counter, high byte
- 134:     -	        	                STR_BYTE DIRE_RC        ; Record count (low byte)
- 135:     -	        	                STR_BLOCK DIRE_ALLOC, 16 ; Associated block numbers
- 136:     -	        	                STR_END DIRE_SIZE
- 137:				;
- 138:				;
- 139:				; File Control Block (FCB) structure.
- 140:     -	        	                STRUCT
- 141:     -	        	                STR_BYTE FCB_DRIVE      ; Drive. 0 for default, 1-16 for A-P
- 142:     -	        	                STR_BLOCK FCB_NAME, FILENAME_SIZE   ; Filename in ASCII upper-case
- 143:     -	        	                STR_BLOCK FCB_TYP, FILEEXT_SIZE     ; File type
- 144:     -	        	                STR_BYTE FCB_EX         ; Current extent (*)
- 145:     -	        	                STR_BYTE FCB_S1         ; Reserved (*)
- 146:     -	        	                STR_BYTE FCB_S2         ; Reserved (*)
- 147:     -	        	                STR_BYTE FCB_RC         ; Reserved (*)
- 148:     -	        	                STR_BLOCK FCB_ALLOC, 16 ; Associated block numbers
- 149:     -	        	                STR_BYTE FCB_CR         ; Current record within extent
- 150:     -	        	                STR_BLOCK FCB_RECORD, 3 ; Record number (low byte first)
- 151:     -	        	                STR_END FCB_SIZE
- 152:				;
- 153:				; * - Set this to 0 when opening a file and then leave it to CP/M. You can rewind
- 154:				; a file by setting EX, RC, S2 and CR to 0.
- 155:				;
- 156:				;
- 157:				;
- 158:				; **************
- 159:				; * BIOS Calls *
- 160:				; **************
- 161:				;
+  84:				; * Disk System *
+  85:				; ***************
+  86:				;
+  87:				;
+  88:				; Note: NUM_DISKS reduced to 9 from 16 in preparation for adding CP/M 3 support.
+  89:     -	0080'         	CPM_SECTOR_SIZE     equ 128             ; CP/M disk sector size
+  90:     -	0009'         	NUM_DISKS           equ 9               ; Number of disk drives
+  91:     -	0010'         	NUM_DISKS_MAX       equ 16              ; Maximum number of disk drives
+  92:     -	0000'         	CPM_SYS_SIZE        equ 1024 * 1024     ; System area size (bytes)
+  93:     -	0000'         	CPM_DISK_SIZE       equ 1024 * 1024     ; Disk size (bytes)
+  94:     -	0800'         	CPM_BLOCK_SIZE      equ 2048            ; Allocation block size (bytes)
+  95:     -	0200'         	CPM_DIR_ENTRIES     equ 512             ; Number of directory entries
+  96:     -	0008'         	FILENAME_SIZE       equ 8               ; Filename size
+  97:     -	0003'         	FILEEXT_SIZE        equ 3               ; File extension size
+  98:     -	001A'         	FILE_EOF            equ 0x1a            ; End of file (^Z)
+  99:     -	000F'         	MAX_USER            equ 15              ; Maximum user number
+ 100:				;
+ 101:     -	0001'         	BDOS_READ_SEQ_EOF   equ 1               ; Sequential read EOF error code
+ 102:				;
+ 103:				; CP/M 2.2 Disk Parameter Header (DPH) structure.
+ 104:     -	        	                STRUCT
+ 105:     -	        	                STR_WORD DPH_XLT        ; Address of sector translation table
+ 106:     -	        	                STR_WORD DPH_SCRATCH0   ; BDOS scratch area
+ 107:     -	        	                STR_WORD DPH_SCRATCH1
+ 108:     -	        	                STR_WORD DPH_SCRATCH2
+ 109:     -	        	                STR_WORD DPH_DIRBF      ; BDOS directory scratch area
+ 110:     -	        	                STR_WORD DPH_DPB        ; Pointer to DPB
+ 111:     -	        	                STR_WORD DPH_CSV        ; Pointer to the directory checksum vector
+ 112:     -	        	                STR_WORD DPH_ALV        ; Pointer to the allocation vector
+ 113:     -	        	                STR_END DPH_SIZE
+ 114:				;
+ 115:				;
+ 116:				; CP/M 2.2 Disk Parameter Block (DPB) structure.
+ 117:     -	        	                STRUCT
+ 118:     -	        	                STR_WORD DPB_SPT        ; Number of 128-byte records per track
+ 119:     -	        	                STR_BYTE DPB_BSH        ; Block shift. 3 => 1k, 4 => 2k, 5 => 4k....
+ 120:     -	        	                STR_BYTE DPB_BLM        ; Block mask. 7 => 1k, 0Fh => 2k, 1Fh => 4k...
+ 121:     -	        	                STR_BYTE DPB_EXM        ; Extent mask
+ 122:     -	        	                STR_WORD DPB_DSM        ; Maximum block number
+ 123:     -	        	                STR_WORD DPB_DRM        ; Maximum directory entry number
+ 124:     -	        	                STR_BYTE DPB_AL0        ; Directory allocation bitmap
+ 125:     -	        	                STR_BYTE DPB_AL1
+ 126:     -	        	                STR_WORD DPB_CKS        ; Checksum vector size, 0 for a fixed disc
+ 127:     -	        	                STR_WORD DPB_OFF        ; Offset, number of reserved tracks
+ 128:     -	        	                STR_END DPB_SIZE
+ 129:				;
+ 130:				;
+ 131:				; Directory entry structure.
+ 132:     -	        	                STRUCT
+ 133:     -	        	                STR_BYTE DIRE_USER      ; User number. 0xe5 if entry unused
+ 134:     -	        	                STR_BLOCK DIRE_NAME, FILENAME_SIZE  ; Filename
+ 135:     -	        	                STR_BLOCK DIRE_TYP, FILEEXT_SIZE    ; File type
+ 136:     -	        	                STR_BYTE DIRE_EX        ; Extent counter, low byte (0-31)
+ 137:     -	        	                STR_BYTE DIRE_S1        ; Reserved, set to 0
+ 138:     -	        	                STR_BYTE DIRE_S2        ; Extent counter, high byte
+ 139:     -	        	                STR_BYTE DIRE_RC        ; Record count (low byte)
+ 140:     -	        	                STR_BLOCK DIRE_ALLOC, 16 ; Associated block numbers
+ 141:     -	        	                STR_END DIRE_SIZE
+ 142:				;
+ 143:     -	0001'         	                assert DIRE_SIZE = 0x20
+ 144:				;
+ 145:				;
+ 146:				; File Control Block (FCB) structure.
+ 147:     -	        	                STRUCT
+ 148:     -	        	                STR_BYTE FCB_DRIVE      ; Drive. 0 for default, 1-16 for A-P
+ 149:     -	        	                STR_BLOCK FCB_NAME, FILENAME_SIZE   ; Filename in ASCII upper-case
+ 150:     -	        	                STR_BLOCK FCB_TYP, FILEEXT_SIZE     ; File type
+ 151:     -	        	                STR_BYTE FCB_EX         ; Current extent (*)
+ 152:     -	        	                STR_BYTE FCB_S1         ; Reserved (*)
+ 153:     -	        	                STR_BYTE FCB_S2         ; Extent high byte (*)
+ 154:     -	        	                STR_BYTE FCB_RC         ; Record count (*)
+ 155:     -	        	                STR_BLOCK FCB_ALLOC, 16 ; Associated block numbers
+ 156:     -	        	                STR_BYTE FCB_CR         ; Current record within extent
+ 157:     -	        	                STR_BLOCK FCB_RECORD, 3 ; Record number (low byte first)
+ 158:     -	        	                STR_END FCB_SIZE
+ 159:				;
+ 160:				; * - Set this to 0 when opening a file and then leave it to CP/M. You can
+ 161:				; rewind a file by setting EX, RC, S2 and CR to 0.
  162:				;
- 163:				; Calculate offsets into jump tables. Entries here must match the jump table in
- 164:				; the BIOS. The base address of the BIOS must be added to these addresses. A call
- 165:				; routine might look like:
- 166:				;
- 167:				; Call BIOS, allowing for its unknown base address.
- 168:				; Call with:
- 169:				; BC - operand (depends on BIOS function called)
- 170:				; DE - operand (depends on BIOS function called)
- 171:				; HL - offset for the routine (e.g. BIOS_CONIN)
- 172:				; call_bios       push de
- 173:				;                 ex de, hl
- 174:				;                 ld hl, (1)              ; Find WBOOT (warm boot) address
- 175:				;                 add hl, de              ; Add offset
- 176:				;                 pop de
- 177:				;                 jp (hl)                 ; Jump to BIOS then return to caller
- 178:				;
- 179:				; The above method is a bit clumsy, but then application code shouldn't normally
- 180:				; call the BIOS directly.
- 181:				;
- 182:     -	        	    JPTBL_START 0                   ; Generate offsets as BIOS_START isn't always known
- 183:				;
- 184:				; From monitor.z80
- 185:				; Note - cold start routine omitted to align with use of address at (1) to find BIOS.
- 186:     -	        	    JPTBL_ENTRY BIOS_WBOOT          ; Warm boot - reload command processor
- 187:     -	        	    JPTBL_ENTRY BIOS_CONST          ; Console status
- 188:     -	        	    JPTBL_ENTRY BIOS_CONIN          ; Console input
- 189:     -	        	    JPTBL_ENTRY BIOS_CONOUT         ; Console output
- 190:     -	        	    JPTBL_ENTRY BIOS_PLIST          ; Printer output
- 191:     -	        	    JPTBL_ENTRY BIOS_PUNCH          ; Paper tape punch output
- 192:     -	        	    JPTBL_ENTRY BIOS_READER         ; Paper tape reader input
- 193:     -	        	    JPTBL_ENTRY BIOS_HOME           ; Move disc head to track 0
- 194:     -	        	    JPTBL_ENTRY BIOS_SELDSK         ; Select disc drive
- 195:     -	        	    JPTBL_ENTRY BIOS_SETTRK         ; Set track number
- 196:     -	        	    JPTBL_ENTRY BIOS_SETSEC         ; Set sector number
- 197:     -	        	    JPTBL_ENTRY BIOS_SETDMA         ; Set DMA address
- 198:     -	        	    JPTBL_ENTRY BIOS_READ           ; Read a sector
- 199:     -	        	    JPTBL_ENTRY BIOS_WRITE          ; Write a sector
- 200:				; CP/M 2 functions.
- 201:     -	        	    JPTBL_ENTRY BIOS_LISTST         ; Status of list device
- 202:     -	        	    JPTBL_ENTRY BIOS_SECTRAN        ; Sector translation for skewing
- 203:				; CP/M 3 functions (not supported yet). From https://www.seasip.info/Cpm/bios.html
- 204:     -	        	    JPTBL_ENTRY BIOS_CONOST         ; Status of console output
- 205:     -	        	    JPTBL_ENTRY BIOS_AUXIST         ; Status of auxiliary input
- 206:     -	        	    JPTBL_ENTRY BIOS_AUXOST         ; Status of auxiliary output
- 207:     -	        	    JPTBL_ENTRY BIOS_DEVTBL         ; Address of devices table
- 208:     -	        	    JPTBL_ENTRY BIOS_DEVINI         ; Initialise a device
- 209:     -	        	    JPTBL_ENTRY BIOS_DRVTBL         ; Address of discs table
- 210:     -	        	    JPTBL_ENTRY BIOS_MULTIO         ; Read/write multiple sectors
- 211:     -	        	    JPTBL_ENTRY BIOS_FLUSH          ; Flush host buffers
- 212:     -	        	    JPTBL_ENTRY BIOS_MOVE           ; Move a block of memory
- 213:     -	        	    JPTBL_ENTRY BIOS_TIME           ; Real time clock
- 214:     -	        	    JPTBL_ENTRY BIOS_SELMEM         ; Select memory bank
- 215:     -	        	    JPTBL_ENTRY BIOS_SETBNK         ; Select bank for DMA operation
- 216:     -	        	    JPTBL_ENTRY BIOS_XMOVE          ; Preload banks for MOVE
- 217:     -	        	    JPTBL_ENTRY BIOS_USERF          ; System-depedent functions
- 218:     -	        	    JPTBL_ENTRY BIOS_RESERV1        ; Reserved
- 219:     -	        	    JPTBL_ENTRY BIOS_RESERV2        ; Reserved
- 220:				; ZARC-specific items.
- 221:     -	        	    JPTBL_BLOCK BIOS_ID, 3          ; BIOS ID ("ZRC")
- 222:     -	        	    JPTBL_BLOCK BIOS_VER, 3         ; Version (see below)
- 223:     -	        	    JPTBL_ENTRY BIOS_STARTUP        ; CP/M startup entry point
- 224:     -	        	    JPTBL_ENTRY BIOS_MON_CALL       ; Call monitor function
- 225:     -	        	    JPTBL_ENTRY BIOS_SUPER          ; Set supervisor state
- 226:     -	        	    JPTBL_ENTRY BIOS_INT_DISABLE    ; Disable interrupts and keep count
- 227:     -	        	    JPTBL_ENTRY BIOS_INT_ENABLE     ; Enable interrupts if safe
- 228:     -	        	    JPTBL_ENTRY BIOS_TIRD           ; Read time and date
- 229:     -	        	    JPTBL_ENTRY BIOS_SET_TIMER      ; Set timer
- 230:     -	        	    JPTBL_ENTRY BIOS_GET_TIMER      ; Get timer
- 231:				;
- 232:     -	        	    JPTBL_END BIOS_JPTBL_NEXT
- 233:				;
- 234:				; BIOS_VER is <reserved (zero)>, <major version>, <minor version>. The reserved
- 235:				; byte may flag capabilities at some point.
- 236:				;
+ 163:				;
+ 164:				;
+ 165:				; **************
+ 166:				; * BIOS Calls *
+ 167:				; **************
+ 168:				;
+ 169:				;
+ 170:				; Calculate offsets into jump tables. Entries here must match the jump table in
+ 171:				; the BIOS. The base address of the BIOS must be added to these addresses. A
+ 172:				; call routine might look like:
+ 173:				;
+ 174:				; Call BIOS, allowing for its unknown base address.
+ 175:				; Call with:
+ 176:				; BC - operand (depends on BIOS function called)
+ 177:				; DE - operand (depends on BIOS function called)
+ 178:				; HL - offset for the routine (e.g. BIOS_CONIN)
+ 179:				; call_bios       push de
+ 180:				;                 ex de, hl
+ 181:				;                 ld hl, (1)              ; Find WBOOT (warm boot) address
+ 182:				;                 add hl, de              ; Add offset
+ 183:				;                 pop de
+ 184:				;                 jp (hl)                 ; Jump to BIOS then return to caller
+ 185:				;
+ 186:				; The above method is a bit clumsy, but then application code shouldn't normally
+ 187:				; call the BIOS directly.
+ 188:				;
+ 189:     -	        	    JPTBL_START 0                   ; Generate offsets as BIOS_START isn't always known
+ 190:				;
+ 191:				; Note - cold start routine omitted to align with use of address at (1) to find BIOS.
+ 192:     -	        	    JPTBL_ENTRY BIOS_WBOOT          ; Warm boot - reload command processor
+ 193:     -	        	    JPTBL_ENTRY BIOS_CONST          ; Console status
+ 194:     -	        	    JPTBL_ENTRY BIOS_CONIN          ; Console input
+ 195:     -	        	    JPTBL_ENTRY BIOS_CONOUT         ; Console output
+ 196:     -	        	    JPTBL_ENTRY BIOS_PLIST          ; Printer output
+ 197:     -	        	    JPTBL_ENTRY BIOS_PUNCH          ; Paper tape punch output
+ 198:     -	        	    JPTBL_ENTRY BIOS_READER         ; Paper tape reader input
+ 199:     -	        	    JPTBL_ENTRY BIOS_HOME           ; Move disc head to track 0
+ 200:     -	        	    JPTBL_ENTRY BIOS_SELDSK         ; Select disc drive
+ 201:     -	        	    JPTBL_ENTRY BIOS_SETTRK         ; Set track number
+ 202:     -	        	    JPTBL_ENTRY BIOS_SETSEC         ; Set sector number
+ 203:     -	        	    JPTBL_ENTRY BIOS_SETDMA         ; Set DMA address
+ 204:     -	        	    JPTBL_ENTRY BIOS_READ           ; Read a sector
+ 205:     -	        	    JPTBL_ENTRY BIOS_WRITE          ; Write a sector
+ 206:				; CP/M 2 functions.
+ 207:     -	        	    JPTBL_ENTRY BIOS_LISTST         ; Status of list device
+ 208:     -	        	    JPTBL_ENTRY BIOS_SECTRAN        ; Sector translation for skewing
+ 209:				; CP/M 3 functions. From https://www.seasip.info/Cpm/bios.html
+ 210:     -	        	    JPTBL_ENTRY BIOS_CONOST         ; Status of console output
+ 211:     -	        	    JPTBL_ENTRY BIOS_AUXIST         ; Status of auxiliary input
+ 212:     -	        	    JPTBL_ENTRY BIOS_AUXOST         ; Status of auxiliary output
+ 213:     -	        	    JPTBL_ENTRY BIOS_DEVTBL         ; Address of devices table
+ 214:     -	        	    JPTBL_ENTRY BIOS_DEVINI         ; Initialise a device
+ 215:     -	        	    JPTBL_ENTRY BIOS_DRVTBL         ; Address of discs table
+ 216:     -	        	    JPTBL_ENTRY BIOS_MULTIO         ; Read/write multiple sectors
+ 217:     -	        	    JPTBL_ENTRY BIOS_FLUSH          ; Flush host buffers
+ 218:     -	        	    JPTBL_ENTRY BIOS_MOVE           ; Move a block of memory
+ 219:     -	        	    JPTBL_ENTRY BIOS_TIME           ; Real time clock
+ 220:     -	        	    JPTBL_ENTRY BIOS_SELMEM         ; Select memory bank
+ 221:     -	        	    JPTBL_ENTRY BIOS_SETBNK         ; Select bank for DMA operation
+ 222:     -	        	    JPTBL_ENTRY BIOS_XMOVE          ; Preload banks for MOVE
+ 223:     -	        	    JPTBL_ENTRY BIOS_USERF          ; System-depedent functions
+ 224:     -	        	    JPTBL_ENTRY BIOS_RESERV1        ; Reserved
+ 225:     -	        	    JPTBL_ENTRY BIOS_RESERV2        ; Reserved
+ 226:				; ZARC-specific items.
+ 227:     -	        	    JPTBL_BLOCK BIOS_ID, 3          ; BIOS ID ("ZRC")
+ 228:     -	        	    JPTBL_BLOCK BIOS_VER, 3         ; Version (see below)
+ 229:     -	        	    JPTBL_ENTRY BIOS_STARTUP        ; CP/M startup entry point
+ 230:     -	        	    JPTBL_ENTRY BIOS_MON_CALL       ; Call monitor function
+ 231:     -	        	    JPTBL_ENTRY BIOS_SUPER          ; Set supervisor state
+ 232:     -	        	    JPTBL_ENTRY BIOS_INT_DISABLE    ; Disable interrupts and keep count
+ 233:     -	        	    JPTBL_ENTRY BIOS_INT_ENABLE     ; Enable interrupts if safe
+ 234:     -	        	    JPTBL_ENTRY BIOS_TIRD           ; Read time and date (ZARC format)
+ 235:     -	        	    JPTBL_ENTRY BIOS_SET_TIMER      ; Set timer
+ 236:     -	        	    JPTBL_ENTRY BIOS_GET_TIMER      ; Get timer
  237:				;
- 238:				;
- 239:				; **************
- 240:				; * BDOS Calls *
- 241:				; **************
+ 238:     -	        	    JPTBL_END BIOS_JPTBL_NEXT
+ 239:				;
+ 240:				; BIOS_VER is <reserved (zero)>, <major version>, <minor version>. The reserved
+ 241:				; byte may flag capabilities at some point.
  242:				;
  243:				;
- 244:				; From http://www.gaby.de/cpm/manuals/archive/cpm22htm/ch5.htm#Section_5.2
- 245:				; In general, the function number is passed in register C with the information
- 246:				; address in the double byte pair DE. Single byte values are returned in register
- 247:				; A, with double byte values returned in HL. A zero value is returned when the
- 248:				; function number is out of range. For reasons of compatibility, register A = L
- 249:				; and register B = H upon return in all cases. Example call:
- 250:				;   ld c, BDOS_CONIN    ; Read next character
- 251:				;   call BDOS           ; Return character in A
- 252:				;
- 253:     -	0005'         	BDOS        equ 5               ; BDOS entry point
- 254:				;
- 255:     -	0000'         	BDOS_SYS_RST        equ 0       ; System Reset
- 256:     -	0001'         	BDOS_CON_IN         equ 1       ; Console Input
- 257:     -	0002'         	BDOS_CON_OUT        equ 2       ; Console Output
- 258:     -	0003'         	BDOS_RDR_IN         equ 3       ; Reader Input
- 259:     -	0004'         	BDOS_PUN_OUT        equ 4       ; Punch Output
- 260:     -	0005'         	BDOS_LST_OUT        equ 5       ; List Output
- 261:     -	0006'         	BDOS_DIRECT_CON_IO  equ 6       ; Direct Console I/O
- 262:     -	0007'         	BDOS_GET_IO_BYTE    equ 7       ; Get I/O Byte
- 263:     -	0008'         	BDOS_SET_IO_BYTE    equ 8       ; Set I/O Byte
- 264:     -	0009'         	BDOS_PRINT_STRING   equ 9       ; Print String
- 265:     -	000A'         	BDOS_READ_CON_BUFF  equ 10      ; Read Console Buffer
- 266:     -	000B'         	BDOS_GET_CON_STAT   equ 11      ; Get Console Status
- 267:     -	000C'         	BDOS_VERSION        equ 12      ; Return Version Number
- 268:     -	000D'         	BDOS_RESET_DISK_SYS equ 13      ; Reset Disk System
- 269:     -	000E'         	BDOS_SEL_DISK       equ 14      ; Select Disk
- 270:     -	000F'         	BDOS_OPEN_FILE      equ 15      ; Open File
- 271:     -	0010'         	BDOS_CLOSE_FILE     equ 16      ; Close File
- 272:     -	0011'         	BDOS_SEARCH_FIRST   equ 17      ; Search for First
- 273:     -	0012'         	BDOS_SEARCH_NEXT    equ 18      ; Search for Next
- 274:     -	0013'         	BDOS_DELETE_FILE    equ 19      ; Delete File
- 275:     -	0014'         	BDOS_READ_SEQ       equ 20      ; Read Sequential
- 276:     -	0015'         	BDOS_WRITE_SEQ      equ 21      ; Write Sequential
- 277:     -	0016'         	BDOS_MAKE_FILE      equ 22      ; Make File
- 278:     -	0017'         	BDOS_RENAME_FILE    equ 23      ; Rename File
- 279:     -	0018'         	BDOS_GET_LOGIN_VEC  equ 24      ; Return Login Vector
- 280:     -	0019'         	BDOS_GET_CURR_DISK  equ 25      ; Return Current Disk
- 281:     -	001A'         	BDOS_SET_DMA_ADDR   equ 26      ; Set DMA Address
- 282:     -	001B'         	BDOS_GET_ALLOC_ADDR equ 27      ; Get Addr (Alloc)
- 283:     -	001C'         	BDOS_WRITE_PROT     equ 28      ; Write Protect Disk
- 284:     -	001D'         	BDOS_GET_RO_VEC     equ 29      ; Get R/O Vector
- 285:     -	001E'         	BDOS_SET_FILE_ATTR  equ 30      ; Set File Attributes
- 286:     -	001F'         	BDOS_GET_DPB        equ 31      ; Get Addr (Disk Parms)
- 287:     -	0020'         	BDOS_GET_SET_USER   equ 32      ; Set/Get User Code
- 288:     -	0021'         	BDOS_READ_RANDOM    equ 33      ; Read Random
- 289:     -	0022'         	BDOS_WRITE_RANDOM   equ 34      ; Write Random
- 290:     -	0023'         	BDOS_GET_FILE_SIZE  equ 35      ; Compute File Size
- 291:     -	0024'         	BDOS_SET_RANDOM_REC equ 36      ; Set Random Record
- 292:     -	0025'         	BDOS_RESET_DRIVES   equ 37      ; Selectively reset disc drives
- 293:     -	0028'         	BDOS_WRITE_RAN_ZFILL equ 40     ; Write Random with Zero Fill
- 294:				
- 295:				; Functions 28 and 32 should be avoided in application programs to maintain upward
- 296:				; compatibility with CP/M.
- 297:				;
- 298:				
+ 244:				;
+ 245:				; **************
+ 246:				; * BDOS Calls *
+ 247:				; **************
+ 248:				;
+ 249:				;
+ 250:				; From http://www.gaby.de/cpm/manuals/archive/cpm22htm/ch5.htm#Section_5.2
+ 251:				; In general, the function number is passed in register C with the information
+ 252:				; address in the double byte pair DE. Single byte values are returned in register
+ 253:				; A, with double byte values returned in HL. A zero value is returned when the
+ 254:				; function number is out of range. For reasons of compatibility, register A = L
+ 255:				; and register B = H upon return in all cases. Example call:
+ 256:				;   ld c, BDOS_CONIN    ; Read next character
+ 257:				;   call BDOS           ; Return character in A
+ 258:				;
+ 259:     -	0005'         	BDOS        equ 5               ; BDOS entry point
+ 260:				;
+ 261:     -	0000'         	BDOS_SYS_RST        equ 0       ; System Reset
+ 262:     -	0001'         	BDOS_CON_IN         equ 1       ; Console Input
+ 263:     -	0002'         	BDOS_CON_OUT        equ 2       ; Console Output
+ 264:     -	0003'         	BDOS_RDR_IN         equ 3       ; Reader Input
+ 265:     -	0004'         	BDOS_PUN_OUT        equ 4       ; Punch Output
+ 266:     -	0005'         	BDOS_LST_OUT        equ 5       ; List Output
+ 267:     -	0006'         	BDOS_DIRECT_CON_IO  equ 6       ; Direct Console I/O
+ 268:     -	0007'         	BDOS_GET_IO_BYTE    equ 7       ; Get I/O Byte
+ 269:     -	0008'         	BDOS_SET_IO_BYTE    equ 8       ; Set I/O Byte
+ 270:     -	0009'         	BDOS_PRINT_STRING   equ 9       ; Print String
+ 271:     -	000A'         	BDOS_READ_CON_BUFF  equ 10      ; Read Console Buffer
+ 272:     -	000B'         	BDOS_GET_CON_STAT   equ 11      ; Get Console Status
+ 273:     -	000C'         	BDOS_VERSION        equ 12      ; Return Version Number
+ 274:     -	000D'         	BDOS_RESET_DISK_SYS equ 13      ; Reset Disk System
+ 275:     -	000E'         	BDOS_SEL_DISK       equ 14      ; Select Disk
+ 276:     -	000F'         	BDOS_OPEN_FILE      equ 15      ; Open File
+ 277:     -	0010'         	BDOS_CLOSE_FILE     equ 16      ; Close File
+ 278:     -	0011'         	BDOS_SEARCH_FIRST   equ 17      ; Search for first matching directory entry
+ 279:     -	0012'         	BDOS_SEARCH_NEXT    equ 18      ; Search for next matching directory entry
+ 280:     -	0013'         	BDOS_DELETE_FILE    equ 19      ; Delete File
+ 281:     -	0014'         	BDOS_READ_SEQ       equ 20      ; Read Sequential
+ 282:     -	0015'         	BDOS_WRITE_SEQ      equ 21      ; Write Sequential
+ 283:     -	0016'         	BDOS_MAKE_FILE      equ 22      ; Make File
+ 284:     -	0017'         	BDOS_RENAME_FILE    equ 23      ; Rename File
+ 285:     -	0018'         	BDOS_GET_LOGIN_VEC  equ 24      ; Return Login Vector
+ 286:     -	0019'         	BDOS_GET_CURR_DISK  equ 25      ; Return Current Disk
+ 287:     -	001A'         	BDOS_SET_DMA_ADDR   equ 26      ; Set DMA Address
+ 288:     -	001B'         	BDOS_GET_ALLOC_ADDR equ 27      ; Get Addr (Alloc)
+ 289:     -	001C'         	BDOS_WRITE_PROT     equ 28      ; Write Protect Disk
+ 290:     -	001D'         	BDOS_GET_RO_VEC     equ 29      ; Get R/O Vector
+ 291:     -	001E'         	BDOS_SET_FILE_ATTR  equ 30      ; Set File Attributes
+ 292:     -	001F'         	BDOS_GET_DPB        equ 31      ; Get Addr (Disk Parms)
+ 293:     -	0020'         	BDOS_GET_SET_USER   equ 32      ; Set/Get User Code
+ 294:     -	0021'         	BDOS_READ_RANDOM    equ 33      ; Read Random
+ 295:     -	0022'         	BDOS_WRITE_RANDOM   equ 34      ; Write Random
+ 296:     -	0023'         	BDOS_GET_FILE_SIZE  equ 35      ; Compute File Size
+ 297:     -	0024'         	BDOS_SET_RANDOM_REC equ 36      ; Set Random Record
+ 298:     -	0025'         	BDOS_RESET_DRIVES   equ 37      ; Selectively reset disc drives
+ 299:     -	0028'         	BDOS_WR_RND_ZFILL   equ 40      ; Write Random with Zero Fill
+ 300:     -	002C'         	BDOS_F_MULTISEC     equ 44      ; Set number of records to read/write at once
+ 301:     -	0031'         	BDOS_S_SYSVAR       equ 49      ; Access the System Control Block
+ 302:     -	0032'         	BDOS_S_BIOS         equ 50      ; Use the BIOS
+ 303:     -	003B'         	BDOS_P_LOAD         equ 59      ; Load overlay
+ 304:     -	003C'         	BDOS_CALL_RSX       equ 60      ; Call to RSX
+ 305:     -	0062'         	BDOS_DISK_CLEAN     equ 98      ; Clean up disc
+ 306:     -	0063'         	BDOS_F_TRUNCATE     equ 99      ; Truncate file
+ 307:     -	0068'         	BDOS_T_SET          equ 104     ; Set date and time
+ 308:     -	006C'         	BDOS_P_CODE         equ 108     ; Get/put program return code
+ 309:     -	006D'         	BDOS_C_MODE         equ 109     ; Set or get console mode
+ 310:     -	006E'         	BDOS_C_DELIMIT      equ 110     ; Get/set string delimiter
+ 311:     -	006F'         	BDOS_C_WRITEBLK     equ 111     ; Send block of text to console
+ 312:     -	0070'         	BDOS_L_WRITEBLK     equ 112     ; Send block of text to printer
+ 313:     -	0098'         	BDOS_F_PARSE        equ 152     ; Parse filename
+ 314:				;
+ 315:				; Functions 28 and 32 should be avoided in application programs to maintain upward
+ 316:				; compatibility with CP/M.
+ 317:				;
+ 318:				; Direct Console I/O (BDOS_DIRECT_CON_IO) command codes. There are additional
+ 319:				; codes supported by CP/M 3 (see cpm3.i).
+ 320:     -	00FF'         	DCONIO_GET_NO_WT    equ 0xff    ; Get character (no echo) else return zero
+ 321:     -	0000'         	DCONIO_PUT          equ 0x00    ; Put (write) character
+ 322:				;
+ 323:				; BDOS_S_BIOS (function 50) parameter block.
+ 324:     -	        	                STRUCT
+ 325:     -	        	                STR_BYTE SBM_FUNC       ; BIOS function (0-32)
+ 326:     -	        	                STR_BYTE SBM_A
+ 327:     -	        	                STR_BYTE SBM_C
+ 328:     -	        	                STR_BYTE SBM_B
+ 329:     -	        	                STR_BYTE SBM_E
+ 330:     -	        	                STR_BYTE SBM_D
+ 331:     -	        	                STR_BYTE SBM_L
+ 332:     -	        	                STR_BYTE SBM_H
+ 333:     -	        	                STR_END SBM_SIZE
+ 334:				;
+ 335:				;
+ 336:				
 **** bitcoin.z80 ****
-  21:				                include "terminal.i"    ; Terminal constants
-**** /home/merlin/Technical/HardwareProjects/ZARC_Z80_Box/software/includes//terminal.i ****
+  24:				                include "terminal.i"    ; Terminal constants
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/terminal.i ****
    1:				; ***********************************
    2:				; * ZARC Terminal Definitions       *
    3:				; * Written by: Merlin Skinner      *
@@ -480,7 +583,7 @@
   33:     -	001C'         	ZKEY_PAGE_DOWN      equ 0x1c
   34:				
 **** bitcoin.z80 ****
-  22:				                include "bitcoin.i"     ; Project include file
+  25:				                include "bitcoin.i"     ; Project include file
 **** bitcoin.i ****
    1:				; *******************************************************
    2:				; * Bitcoin Mining for CP/M                             *
@@ -498,7 +601,7 @@
   14:				;
   15:				;DEBUG           equ 1                   ; Define to enable debug messages
   16:				;
-  17:     -	0040'         	STACK_SIZE      equ 64                  ; Stack space allocation
+  17:     -	0080'         	STACK_SIZE      equ 0x80                 ; Stack space allocation
   18:     -	0003'         	BREAK_CHAR      equ 'C' - 0x40
   19:				;
   20:     -	2710'         	MSG_PERIOD      equ 10 * 1000           ; Time between messages in ms (ZARC)
@@ -529,8 +632,8 @@
   45:				;
   46:				;
 **** bitcoin.z80 ****
-  23:				                include "z80.i"
-**** /home/merlin/Technical/HardwareProjects/ZARC_Z80_Box/software/includes//z80.i ****
+  26:				                include "z80.i"
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/z80.i ****
    1:				; ***********************************
    2:				; * ZARC Z80 Definitions            *
    3:				; * Written by: Merlin Skinner      *
@@ -551,8 +654,8 @@
   18:     -	0066'         	Z80_NMI_VEC     equ 0x0066      ; NMI vectors
   19:				
 **** bitcoin.z80 ****
-  24:				                include "monitor.i"
-**** /home/merlin/Technical/HardwareProjects/ZARC_Z80_Box/software/includes//monitor.i ****
+  27:				                include "monitor.i"
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/monitor.i ****
    1:				; *******************************************************
    2:				; * ZARC Monitor Definitions                            *
    3:				; * Written by: Merlin Skinner                          *
@@ -566,133 +669,135 @@
   11:				;
   12:				; The following conditionals are intended to allow the same include file to be
   13:				; used in the defining module and elsewhere as required. Some includes are used
-  14:				; for other applications than the monitor, such as the CP/M BIOS. In these cases,
-  15:				; the extern and public statements are not desirable.
+  14:				; for other applications than the monitor, such as the CP/M BIOS. In these
+  15:				; cases, the extern and public statements are not desirable.
   16:				;
   17:     -	0000'         	            ifdef monitor           ; Meaningful for monitor build only
-  32:				            endif
-  33:				;
-  34:				;
-  35:				;
-  36:				; *****************
-  37:				; * Monitor Calls *
-  38:				; *****************
+  36:				            endif
+  37:				;
+  38:				;
   39:				;
-  40:				;
-  41:				; Calculate offsets into jump tables. Entries here must match the jump table in
-  42:				; monitor.z80.
-  43:     -	        	    JPTBL_START %(Z80_NMI_VEC + 3)   ; Start after NMI vector
+  40:				; *****************
+  41:				; * Monitor Calls *
+  42:				; *****************
+  43:				;
   44:				;
-  45:				; From monitor.z80
-  46:     -	        	    JPTBL_ENTRY MCALL_MON_ENTRY     ; Normal monitor entry
-  47:     -	        	    JPTBL_ENTRY MCALL_PANIC         ; System error monitor entry
-  48:				; From io.z80
-  49:     -	        	    JPTBL_ENTRY MCALL_CONWCH        ; Write character to the console port
-  50:     -	        	    JPTBL_ENTRY MCALL_CONRCH        ; Read character from the console port
-  51:     -	        	    JPTBL_ENTRY MCALL_CONSTA        ; Fetch console port status
-  52:     -	        	    JPTBL_ENTRY MCALL_S1WCH         ; Write character to serial port 1
-  53:     -	        	    JPTBL_ENTRY MCALL_S1RCH         ; Read character from serial port 1
-  54:     -	        	    JPTBL_ENTRY MCALL_S1STA         ; Fetch serial port 1 status
-  55:     -	        	    JPTBL_ENTRY MCALL_S2WCH         ; Write character to serial port 2
-  56:     -	        	    JPTBL_ENTRY MCALL_S2RCH         ; Read character from serial port 2
-  57:     -	        	    JPTBL_ENTRY MCALL_S2STA         ; Fetch serial port 2 status
-  58:				; From utility.z80
-  59:     -	        	    JPTBL_ENTRY MCALL_CWNWLN        ; Write new line characters to console
-  60:     -	        	    JPTBL_ENTRY MCALL_CONWMS        ; Print null-terminated string to the console
-  61:     -	        	    JPTBL_ENTRY MCALL_CONWMN        ; Print message <n> in a list
-  62:     -	        	    JPTBL_ENTRY MCALL_SKPSPC        ; Step hl past spaces
-  63:     -	        	    JPTBL_ENTRY MCALL_TOUPCA        ; Convert character in A to upper case
-  64:     -	        	    JPTBL_ENTRY MCALL_TOLOCA        ; Convert character in A to lower case
-  65:     -	        	    JPTBL_ENTRY MCALL_CWVICH        ; Print only visible 7-bit characters
-  66:     -	        	    JPTBL_ENTRY MCALL_CWPSPC        ; Print a space
-  67:     -	        	    JPTBL_ENTRY MCALL_MTWDLI        ; Match word in a string against list of options
-  68:     -	        	    JPTBL_ENTRY MCALL_CWPHNB        ; Print least-significant nibble in A in hexadecimal
-  69:     -	        	    JPTBL_ENTRY MCALL_CWPHBY        ; Print A in hexadecimal
-  70:     -	        	    JPTBL_ENTRY MCALL_CWPHWD        ; Print HL in hexadecimal
-  71:     -	        	    JPTBL_ENTRY MCALL_CWPDBY        ; Print A in decimal. Leading zeros are suppressed.
-  72:     -	        	    JPTBL_ENTRY MCALL_CWPDWD        ; Print HL in decimal. Leading zeros are suppressed.
-  73:     -	        	    JPTBL_ENTRY MCALL_CWPDLO        ; Print DEHL in decimal. Leading zeros are suppressed
-  74:     -	        	    JPTBL_ENTRY MCALL_RDHXWD        ; Read a 16-bit hexadecimal number from a string
-  75:     -	        	    JPTBL_ENTRY MCALL_RDDUWD        ; Read a 16-bit unsigned decimal number from a string
-  76:     -	        	    JPTBL_ENTRY MCALL_RDDULO        ; Read a 32-bit unsigned decimal number from a string
-  77:				; From maths.z80
-  78:     -	        	    JPTBL_ENTRY MCALL_MADLBU        ; 32-bit / 8-bit unsigned divide
-  79:     -	        	    JPTBL_ENTRY MCALL_MADWBU        ; 16-bit / 8-bit unsigned divide
-  80:     -	        	    JPTBL_ENTRY MCALL_MADBBU        ; 8-bit / 8-bit unsigned divide
-  81:     -	        	    JPTBL_ENTRY MCALL_MAMWWU        ; 16-bit * 16-bit unsigned multiply
-  82:     -	        	    JPTBL_ENTRY MCALL_MAMLBU        ; 32-bit * 8-bit unsigned multiply
-  83:     -	        	    JPTBL_ENTRY MCALL_CRC16X        ; CRC-16 (XMODEM)
-  84:				; From time.z80
-  85:     -	        	    JPTBL_ENTRY MCALL_TIRD          ; Read current time and date
-  86:     -	        	    JPTBL_ENTRY MCALL_TIWR          ; Set time and date
-  87:     -	        	    JPTBL_ENTRY MCALL_TIITOS        ; Convert integer time to structure
-  88:     -	        	    JPTBL_ENTRY MCALL_TISTOI        ; Convert structure time to integer
-  89:     -	        	    JPTBL_ENTRY MCALL_CWPTM         ; Print time structure to console
-  90:				; From mmc.z80
-  91:     -	        	    JPTBL_ENTRY MCALL_MCPRER        ; Print memory card error text
-  92:				; From cache.z80
-  93:     -	        	    JPTBL_ENTRY MCALL_CACRS         ; CP/M read sector
-  94:     -	        	    JPTBL_ENTRY MCALL_CACWS         ; CP/M write sector
-  95:     -	        	    JPTBL_ENTRY MCALL_CAFLUS        ; Flush cache (write dirty buffers)
-  96:				; From memory.z80
-  97:     -	        	    JPTBL_ENTRY MCALL_MPALL         ; Allocate new page
-  98:     -	        	    JPTBL_ENTRY MCALL_MPFREE        ; Free allocated page
-  99:     -	        	    JPTBL_ENTRY MCALL_MPSTAT        ; Allocation status
- 100:				;
- 101:     -	        	    JPTBL_END MCALL_JPTBL_NEXT
- 102:				;
- 103:				;
- 104:				;
- 105:				; **************
- 106:				; * Structures *
- 107:				; **************
+  45:				; Calculate offsets into jump tables. Entries here must match the jump table in
+  46:				; monitor.z80.
+  47:     -	        	    JPTBL_START %(Z80_NMI_VEC + 3)   ; Start after NMI vector
+  48:				;
+  49:				; From monitor.z80
+  50:     -	        	    JPTBL_ENTRY MCALL_MON_ENTRY     ; Normal monitor entry
+  51:     -	        	    JPTBL_ENTRY MCALL_PANIC         ; System error monitor entry
+  52:				; From io.z80
+  53:     -	        	    JPTBL_ENTRY MCALL_CONWCH        ; Write character to the console port
+  54:     -	        	    JPTBL_ENTRY MCALL_CONRCH        ; Read character from the console port
+  55:     -	        	    JPTBL_ENTRY MCALL_CONSTA        ; Fetch console port status
+  56:     -	        	    JPTBL_ENTRY MCALL_S1WCH         ; Write character to serial port 1
+  57:     -	        	    JPTBL_ENTRY MCALL_S1RCH         ; Read character from serial port 1
+  58:     -	        	    JPTBL_ENTRY MCALL_S1STA         ; Fetch serial port 1 status
+  59:     -	        	    JPTBL_ENTRY MCALL_S2WCH         ; Write character to serial port 2
+  60:     -	        	    JPTBL_ENTRY MCALL_S2RCH         ; Read character from serial port 2
+  61:     -	        	    JPTBL_ENTRY MCALL_S2STA         ; Fetch serial port 2 status
+  62:				; From utility.z80
+  63:     -	        	    JPTBL_ENTRY MCALL_CWNWLN        ; Write new line characters to console
+  64:     -	        	    JPTBL_ENTRY MCALL_CONWMS        ; Print null-terminated string to the console
+  65:     -	        	    JPTBL_ENTRY MCALL_CONWMN        ; Print message <n> in a list
+  66:     -	        	    JPTBL_ENTRY MCALL_SKPSPC        ; Step hl past spaces
+  67:     -	        	    JPTBL_ENTRY MCALL_TOUPCA        ; Convert character in A to upper case
+  68:     -	        	    JPTBL_ENTRY MCALL_TOLOCA        ; Convert character in A to lower case
+  69:     -	        	    JPTBL_ENTRY MCALL_CWVICH        ; Print only visible 7-bit characters
+  70:     -	        	    JPTBL_ENTRY MCALL_CWPSPC        ; Print a space
+  71:     -	        	    JPTBL_ENTRY MCALL_MTWDLI        ; Match word in a string against list of options
+  72:     -	        	    JPTBL_ENTRY MCALL_CWPHNB        ; Print least-significant nibble in A in hexadecimal
+  73:     -	        	    JPTBL_ENTRY MCALL_CWPHBY        ; Print A in hexadecimal
+  74:     -	        	    JPTBL_ENTRY MCALL_CWPHWD        ; Print HL in hexadecimal
+  75:     -	        	    JPTBL_ENTRY MCALL_CWPDBY        ; Print A in decimal. Leading zeros are suppressed.
+  76:     -	        	    JPTBL_ENTRY MCALL_CWPDWD        ; Print HL in decimal. Leading zeros are suppressed.
+  77:     -	        	    JPTBL_ENTRY MCALL_CWPDLO        ; Print DEHL in decimal. Leading zeros are suppressed
+  78:     -	        	    JPTBL_ENTRY MCALL_RDHXWD        ; Read a 16-bit hexadecimal number from a string
+  79:     -	        	    JPTBL_ENTRY MCALL_RDDUWD        ; Read a 16-bit unsigned decimal number from a string
+  80:     -	        	    JPTBL_ENTRY MCALL_RDDULO        ; Read a 32-bit unsigned decimal number from a string
+  81:				; From maths.z80
+  82:     -	        	    JPTBL_ENTRY MCALL_MADLBU        ; 32-bit / 8-bit unsigned divide
+  83:     -	        	    JPTBL_ENTRY MCALL_MADWBU        ; 16-bit / 8-bit unsigned divide
+  84:     -	        	    JPTBL_ENTRY MCALL_MADBBU        ; 8-bit / 8-bit unsigned divide
+  85:     -	        	    JPTBL_ENTRY MCALL_MAMWWU        ; 16-bit * 16-bit unsigned multiply
+  86:     -	        	    JPTBL_ENTRY MCALL_MAMLBU        ; 32-bit * 8-bit unsigned multiply
+  87:     -	        	    JPTBL_ENTRY MCALL_CRC16X        ; CRC-16 (XMODEM)
+  88:				; From time.z80
+  89:     -	        	    JPTBL_ENTRY MCALL_TIRD          ; Read current time and date
+  90:     -	        	    JPTBL_ENTRY MCALL_TIWR          ; Set time and date
+  91:     -	        	    JPTBL_ENTRY MCALL_TIITOS        ; Convert integer time to structure
+  92:     -	        	    JPTBL_ENTRY MCALL_TISTOI        ; Convert structure time to integer
+  93:     -	        	    JPTBL_ENTRY MCALL_CWPTM         ; Print time structure to console
+  94:				; From mmc.z80
+  95:     -	        	    JPTBL_ENTRY MCALL_MCPRER        ; Print memory card error text
+  96:				; From cache.z80
+  97:     -	        	    JPTBL_ENTRY MCALL_CACRS         ; CP/M read sector
+  98:     -	        	    JPTBL_ENTRY MCALL_CACWS         ; CP/M write sector
+  99:     -	        	    JPTBL_ENTRY MCALL_CARS          ; MMC read sector
+ 100:     -	        	    JPTBL_ENTRY MCALL_CAWS          ; MMC write sector
+ 101:     -	        	    JPTBL_ENTRY MCALL_CAFLUS        ; Flush cache (write dirty buffers)
+ 102:				; From memory.z80
+ 103:     -	        	    JPTBL_ENTRY MCALL_MPALL         ; Allocate new page
+ 104:     -	        	    JPTBL_ENTRY MCALL_MPFREE        ; Free allocated page
+ 105:     -	        	    JPTBL_ENTRY MCALL_MPSTAT        ; Allocation status
+ 106:				;
+ 107:     -	        	    JPTBL_END MCALL_JPTBL_NEXT
  108:				;
  109:				;
- 110:				; Machine state structure.
- 111:     -	        	                STRUCT
- 112:     -	        	                STR_BYTE MST_IEN        ; Non-zero if interrupts enabled
- 113:     -	        	                STR_BYTE MST_MMAP_EN    ; Non-zero if memory mapping enabled
- 114:     -	        	                STR_BYTE MST_MMAP0      ; Memory mapping registers
- 115:     -	        	                STR_BYTE MST_MMAP1
- 116:     -	        	                STR_BYTE MST_MMAP2
- 117:     -	        	                STR_BYTE MST_MMAP3
- 118:     -	        	                STR_WORD MST_SP
- 119:     -	        	                STR_WORD MST_PC
- 120:				; The sequence of the following entries must match those in the state save and
- 121:				; load routines.
- 122:     -	        	                STR_WORD MST_IY
- 123:     -	        	                STR_WORD MST_IX
- 124:     -	        	                STR_WORD MST_HL_P
- 125:     -	        	                STR_WORD MST_DE_P
- 126:     -	        	                STR_WORD MST_BC_P
- 127:     -	        	                STR_WORD MST_AF_P       ; Alternate ("prime") registers
- 128:     -	        	                STR_WORD MST_HL
- 129:     -	        	                STR_WORD MST_DE
- 130:     -	        	                STR_WORD MST_BC
- 131:     -	        	                STR_WORD MST_AF
- 132:				; End of sequence critical entries.
- 133:     -	        	                STR_BYTE MST_I
- 134:     -	        	                STR_BYTE MST_R
- 135:     -	        	                STR_END MST_SIZE
- 136:				;
- 137:				;
- 138:				;
- 139:				; *************
- 140:				; * Constants *
- 141:				; *************
+ 110:				;
+ 111:				; **************
+ 112:				; * Structures *
+ 113:				; **************
+ 114:				;
+ 115:				;
+ 116:				; Machine state structure.
+ 117:     -	        	                STRUCT
+ 118:     -	        	                STR_BYTE MST_IEN        ; Non-zero if interrupts enabled
+ 119:     -	        	                STR_BYTE MST_MMAP_EN    ; Non-zero if memory mapping enabled
+ 120:     -	        	                STR_BYTE MST_MMAP0      ; Memory mapping registers
+ 121:     -	        	                STR_BYTE MST_MMAP1
+ 122:     -	        	                STR_BYTE MST_MMAP2
+ 123:     -	        	                STR_BYTE MST_MMAP3
+ 124:     -	        	                STR_WORD MST_SP
+ 125:     -	        	                STR_WORD MST_PC
+ 126:				; The sequence of the following entries must match those in the state save and
+ 127:				; load routines.
+ 128:     -	        	                STR_WORD MST_IY
+ 129:     -	        	                STR_WORD MST_IX
+ 130:     -	        	                STR_WORD MST_HL_P
+ 131:     -	        	                STR_WORD MST_DE_P
+ 132:     -	        	                STR_WORD MST_BC_P
+ 133:     -	        	                STR_WORD MST_AF_P       ; Alternate ("prime") registers
+ 134:     -	        	                STR_WORD MST_HL
+ 135:     -	        	                STR_WORD MST_DE
+ 136:     -	        	                STR_WORD MST_BC
+ 137:     -	        	                STR_WORD MST_AF
+ 138:				; End of sequence critical entries.
+ 139:     -	        	                STR_BYTE MST_I
+ 140:     -	        	                STR_BYTE MST_R
+ 141:     -	        	                STR_END MST_SIZE
  142:				;
  143:				;
- 144:				; Trace mode states for trace_mode.
- 145:     -	        	                ENUM_START
- 146:     -	        	                ENUM TRM_NONE
- 147:     -	        	                ENUM TRM_SINGLE
- 148:     -	        	                ENUM TRM_TO_ADDR        ; Trace to address
- 149:     -	        	                ENUM TRM_XPT            ; Exception - start running normally
- 150:     -	        	                ENUM_END TRM_STATES     ; Number of states
- 151:				
+ 144:				;
+ 145:				; *************
+ 146:				; * Constants *
+ 147:				; *************
+ 148:				;
+ 149:				;
+ 150:				; Trace mode states for trace_mode.
+ 151:     -	        	                ENUM_START
+ 152:     -	        	                ENUM TRM_NONE
+ 153:     -	        	                ENUM TRM_SINGLE
+ 154:     -	        	                ENUM TRM_TO_ADDR        ; Trace to address
+ 155:     -	        	                ENUM TRM_XPT            ; Exception - start running normally
+ 156:     -	        	                ENUM_END TRM_STATES     ; Number of states
+ 157:				
 **** bitcoin.z80 ****
-  25:				                include "cpm_utility.i" ; CP/M utilities
-**** /home/merlin/Technical/HardwareProjects/ZARC_Z80_Box/software/includes//cpm_utility.i ****
+  28:				                include "cpm_utility.i" ; CP/M utilities
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/cpm_utility.i ****
    1:				; *******************************************************
    2:				; * Utility Routines for CP/M Applications              *
    3:				; * Version: V1.0                                       *
@@ -703,48 +808,57 @@
    8:				;
    9:     -	0001'         	            ifndef CPMU         ; Inhibit for this module
   10:				; CP/M specific.
-  11:				                extern cbdos    ; Call BDOS with some registers saved
-  12:				                extern cbios    ; Call BIOS with some registers saved
-  13:				                extern panic    ; Fatal application error
-  14:				                extern zrcdet   ; Detect ZARC
-  15:				                extern z80det   ; Detect Z80 (instead of 8080 / 8085)
-  16:				;
-  17:				; Derived from the monitor's utility.z80.
-  18:				                extern conwch   ; Write character to console
-  19:				                extern conrch   ; Read character from the console
-  20:				                extern const    ; Fetch console input status
-  21:				                extern cwnwln   ; Write new line characters to console
-  22:				                extern conwms   ; Print "$" terminated string to the console
-  23:				                extern conwmn   ; Print message <n> in a list
-  24:				                extern skpspc   ; Step hl past spaces
-  25:				                extern toupca   ; Convert character in A to upper case
-  26:				                extern toloca   ; Convert character in A to lower case
-  27:				                extern cwvich   ; Print only visible 7-bit characters
-  28:				                extern cwpspc   ; Print a space
-  29:				                extern mtwdli   ; Match word in a string against list of options
-  30:				                extern cwphnb   ; Print least-significant nibble in A in hexadecimal
-  31:				                extern cwphby   ; Print A in hexadecimal
-  32:				                extern cwphwd   ; Print HL in hexadecimal
-  33:				                extern cwpdwd   ; Print HL in decimal. Leading zeros are suppressed
-  34:				                extern cwpdby   ; Print A in decimal. Leading zeros are suppressed
-  35:				                extern cwpdwd   ; Print HL in decimal. Leading zeros are suppressed
-  36:				                extern cwpdlo   ; Print DEHL in decimal. Leading zeros are suppressed
-  37:				                extern rdhxwd   ; Read a 16-bit hexadecimal number from a string
-  38:				                extern rdduwd   ; Read a 16-bit unsigned decimal number from a string
-  39:				                extern rddulo   ; Read a 32-bit unsigned decimal number from a string
-  40:				;
-  41:				            endif
-  42:				;
-  43:				;
-  44:				; mtwdli (match word in a string against list of options) option bits. Each bit
-  45:				; has the described effect if set.
-  46:     -	        	BITDEF MTWDLI_ABBREV, 0                 ; Enable "." abbreviation
-  47:     -	        	BITDEF MTWDLI_ICASE, 1                  ; Ignore case when matching
-  48:     -	        	BITDEF MTWDLI_TERM, 7                   ; Terminator found (internal use only)
-  49:				
+  11:				                extern init     ; Common initialisation code
+  12:				                extern conmod   ; Set console mode (BDOS or BIOS)
+  13:				                extern cpmver   ; CP/M version (packed BCD)
+  14:				                extern cbdos    ; Call BDOS with some registers saved
+  15:				                extern cbios    ; Call BIOS with some registers saved
+  16:				                extern panic    ; Fatal application error
+  17:				                extern zrcdet   ; Detect ZARC
+  18:				                extern z80det   ; Detect Z80 (instead of 8080 / 8085)
+  19:				                extern clopts   ; Read command line options
+  20:				;
+  21:				; Derived from the monitor's utility.z80.
+  22:				                extern conwch   ; Write character to console
+  23:				                extern conrch   ; Read character from the console
+  24:				                extern const    ; Fetch console input status
+  25:				                extern cwnwln   ; Write new line characters to console
+  26:				                extern conwms   ; Print "$" terminated string to the console
+  27:				                extern conwmn   ; Print message <n> in a list
+  28:				                extern skpspc   ; Step hl past spaces
+  29:				                extern toupca   ; Convert character in A to upper case
+  30:				                extern toloca   ; Convert character in A to lower case
+  31:				                extern cwvich   ; Print only visible 7-bit characters
+  32:				                extern cwpspc   ; Print a space
+  33:				                extern mtwdli   ; Match word in a string against list of options
+  34:				                extern cwphnb   ; Print least-significant nibble in A in hexadecimal
+  35:				                extern cwphby   ; Print A in hexadecimal
+  36:				                extern cwphwd   ; Print HL in hexadecimal
+  37:				                extern cwpdwd   ; Print HL in decimal. Leading zeros are suppressed
+  38:				                extern cwpdby   ; Print A in decimal. Leading zeros are suppressed
+  39:				                extern cwpdwd   ; Print HL in decimal. Leading zeros are suppressed
+  40:				                extern cwpdlo   ; Print DEHL in decimal. Leading zeros are suppressed
+  41:				                extern rdhxwd   ; Read a 16-bit hexadecimal number from a string
+  42:				                extern rdduwd   ; Read a 16-bit unsigned decimal number from a string
+  43:				                extern rddulo   ; Read a 32-bit unsigned decimal number from a string
+  44:				;
+  45:				            endif
+  46:				;
+  47:				;
+  48:				; mtwdli (match word in a string against list of options) option bits. Each bit
+  49:				; has the described effect if set.
+  50:     -	        	BITDEF MTWDLI_ABBREV, 0                 ; Enable "." abbreviation
+  51:     -	        	BITDEF MTWDLI_ICASE, 1                  ; Ignore case when matching
+  52:     -	        	BITDEF MTWDLI_TERM, 7                   ; Terminator found (internal use only)
+  53:				;
+  54:				;
+  55:				; Console mode (for conmod)
+  56:     -	0000'         	CONMOD_BDOS     equ 0x00                ; Use BDOS for console I/O
+  57:     -	0001'         	CONMOD_BIOS     equ 0x01                ; Use BIOS for console I/O
+  58:				
 **** bitcoin.z80 ****
-  26:				                include "cpm_files.i"   ; CP/M file handling
-**** /home/merlin/Technical/HardwareProjects/ZARC_Z80_Box/software/includes//cpm_files.i ****
+  29:				                include "cpm_files.i"   ; CP/M file handling
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/cpm_files.i ****
    1:				; *******************************************************
    2:				; * Utility Routines for CP/M Applications              *
    3:				; * Version: V1.0                                       *
@@ -778,17 +892,19 @@
   31:     -	        	                STRUCT
   32:     -	        	                STR_BLOCK FCBR_FCB, FCB_SIZE    ; FCB structure
   33:     -	        	                STR_BYTE FCBR_FLAGS             ; Status flags
-  34:     -	        	                STR_BYTE FCBR_CONTENTS          ; No. of bytes in RBUFF (*)
+  34:     -	        	                STR_BYTE FCBR_CONTENTS          ; No. of bytes in RBUFF
   35:     -	        	                STR_BLOCK FCBR_RBUFF, CPM_SECTOR_SIZE   ; Record buffer
   36:     -	        	                STR_END FCBR_SIZE               ; Structure size
   37:				;
-  38:				; Flags are active if the bit is zero.
+  38:				; Flag bits in FCBR_FLAGS. This is zeroed by finit.
   39:     -	        	BITDEF FCBR_FL_OPEN, 0          ; File is open
   40:     -	        	BITDEF FCBR_FL_DIRTY, 1         ; RBUFF contains data to write
-  41:				
+  41:     -	        	BITDEF FCBR_FL_BYTES, 2         ; Byte access
+  42:     -	        	BITDEF FCBR_FL_RECS, 3          ; Record access
+  43:				
 **** bitcoin.z80 ****
-  27:				                include "cpm_maths.i"   ; Integer mathematics
-**** /home/merlin/Technical/HardwareProjects/ZARC_Z80_Box/software/includes//cpm_maths.i ****
+  30:				                include "cpm_maths.i"   ; Integer mathematics
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/cpm_maths.i ****
    1:				; *******************************************************
    2:				; * Mathematical Routines for CP/M Applications         *
    3:				; * Version: V1.0                                       *
@@ -814,12 +930,13 @@
   23:				                extern mamwwu       ; 16-bit * 16-bit unsigned multiply
   24:				                extern mamlbu       ; 32-bit * 8-bit unsigned multiply
   25:				                extern crc16x       ; Software CRC-16 (XMODEM)
-  26:				;
-  27:				            endif
-  28:				;
+  26:				                extern adler        ; Adler-32 checksum
+  27:				;
+  28:				            endif
+  29:				;
 **** bitcoin.z80 ****
-  28:				                include "cpm_files.i"   ; CP/M file handling
-**** /home/merlin/Technical/HardwareProjects/ZARC_Z80_Box/software/includes//cpm_files.i ****
+  31:				                include "cpm_files.i"   ; CP/M file handling
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/cpm_files.i ****
    1:				; *******************************************************
    2:				; * Utility Routines for CP/M Applications              *
    3:				; * Version: V1.0                                       *
@@ -853,17 +970,19 @@
   31:     -	        	                STRUCT
   32:     -	        	                STR_BLOCK FCBR_FCB, FCB_SIZE    ; FCB structure
   33:     -	        	                STR_BYTE FCBR_FLAGS             ; Status flags
-  34:     -	        	                STR_BYTE FCBR_CONTENTS          ; No. of bytes in RBUFF (*)
+  34:     -	        	                STR_BYTE FCBR_CONTENTS          ; No. of bytes in RBUFF
   35:     -	        	                STR_BLOCK FCBR_RBUFF, CPM_SECTOR_SIZE   ; Record buffer
   36:     -	        	                STR_END FCBR_SIZE               ; Structure size
   37:				;
-  38:				; Flags are active if the bit is zero.
+  38:				; Flag bits in FCBR_FLAGS. This is zeroed by finit.
   39:     -	        	BITDEF FCBR_FL_OPEN, 0          ; File is open
   40:     -	        	BITDEF FCBR_FL_DIRTY, 1         ; RBUFF contains data to write
-  41:				
+  41:     -	        	BITDEF FCBR_FL_BYTES, 2         ; Byte access
+  42:     -	        	BITDEF FCBR_FL_RECS, 3          ; Record access
+  43:				
 **** bitcoin.z80 ****
-  29:				                include "cpm_top.i"     ; CP/M dummy top module
-**** /home/merlin/Technical/HardwareProjects/ZARC_Z80_Box/software/includes//cpm_top.i ****
+  32:				                include "cpm_top.i"     ; CP/M dummy top module
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/cpm_top.i ****
    1:				; *******************************************************
    2:				; * Dummy Module to find the Last Location in Use.      *
    3:				; * Version: V1.0                                       *
@@ -875,724 +994,724 @@
    9:				                extern fstfre       ; First location after end of data segment
   10:				
 **** bitcoin.z80 ****
-  30:				;
-  31:				;
-  32:				;
-  33:				; *************
-  34:				; * Externals *
-  35:				; *************
-  36:				;
-  37:				;
-  38:				; Variables
-  39:				;                public brkflg   ; Non-zero if break character detected
+  33:				;
+  34:				;
+  35:				;
+  36:				; *************
+  37:				; * Externals *
+  38:				; *************
+  39:				;
   40:				;
-  41:				; From sha-256.z80
-  42:				                extern sh2ini   ; Initialise sha-256 state
-  43:				                extern sh2m     ; Process a message in memory
-  44:				                extern sh2dh    ; Display hash value
-  45:				;
-  46:				;
-  47:				;
-  48:				; *************
-  49:				; * Main Code *
-  50:				; *************
-  51:				;
-  52:				;
-  53:				; The CP/M transient area start address is set in the linker invocation (see
-  54:				; makefile).
-  55:				                cseg                    ; Code segment
-  56:				;
-  57:				; The default stack space is very small (8 deep), which would almost certainly
-  58:				; cause issues, particularly with interrupts running. The initial code should
-  59:				; not assume a Z80 so we can exit cleanly if this is run on something else.
-  60:    0+20	0000' ED730000	                ld (bdos_sp), sp
-  61:   20+10	0004' 318701  	                ld sp, app_stack_top    ; Switch to our stack space
-  62:				;
-  63:				; Determine CPU type.
-  64:   30+17	0007' CD0000  	                call z80det             ; Detect Z80 (instead of 8080 / 8085)
-  65:   47+10	000A' D21800  	                jp nc, on_z80           ; Jump if we have a Z80
+  41:				; Variables
+  42:				;                public brkflg   ; Non-zero if break character detected
+  43:				;
+  44:				; From sha-256.z80
+  45:				                extern sh2ini   ; Initialise sha-256 state
+  46:				                extern sh2m     ; Process a message in memory
+  47:				                extern sh2dh    ; Display hash value
+  48:				;
+  49:				;
+  50:				;
+  51:				; *************
+  52:				; * Main Code *
+  53:				; *************
+  54:				;
+  55:				;
+  56:				; The CP/M transient area start address is set in the linker invocation (see
+  57:				; makefile).
+  58:				                cseg                    ; Code segment
+  59:				;
+  60:				; The default stack space is very small (8 deep), which would almost certainly
+  61:				; cause issues, particularly with interrupts running The initial code should
+  62:				; not assume a Z80 so we can exit cleanly if this is run on an 8080, for
+  63:				; example.
+  64:    0+20	0000' ED730000	                ld (bdos_sp), sp
+  65:   20+10	0004' 31C701  	                ld sp, app_stack_top    ; Switch to our stack space
   66:				;
-  67:				; 8080 / 8085 detected. Print message and exit. We can't use conwms as this
-  68:				; assumes a Z80.
-  69:   57+10	000D' 11C003  	                ld de, no_z80_msg       ; "Z80 CPU required"
-  70:   67+7	0010' 0E09    	                ld c, BDOS_PRINT_STRING ; Print String
-  71:   74+17	0012' CD0500  	                call BDOS
-  72:   91+10	0015' C30000  	                jp 0                    ; Warm boot
-  73:				;
-  74:				; Sign on.
-  75:  101+10	0018' 21A203  	on_z80          ld hl, signon_msg
-  76:  111+17	001B' CD0000  	                call conwms             ; Print $-terminated string to console
-  77:				;
-  78:				; Are we running on a ZARC system?
-  79:  128+17	001E' CD0000  	                call zrcdet
-  80:				; Carry set if ZARC BIOS not found.
-  81:  145+4	0021' 3F      	                ccf
-  82:  149+4	0022' 17      	                rla
-  83:  153+7	0023' E601    	                and 1
-  84:  160+13	0025' 320200  	                ld (zarc_flag), a       ; 0x01 if ZARC, zero otherwise
-  85:  173+7+5	0028' 2006    	                jr nz, exam_tail
-  86:				;
-  87:				; Warn about limited facilites.
-  88:  180+10	002A' 21D303  	                ld hl, no_zarc_msg      ; "ZARC BIOS not detected ..."
-  89:  190+17	002D' CD0000  	                call conwms             ; Print $-terminated string to console
-  90:				;
-  91:				; Examine the command tail, looking for operands. This is stored in the default
-  92:				; buffer. "The first byte at 0080H contains the length of the command tall,
-  93:				; while the command tail itself begins at 0081H. The command tail is terminated
-  94:				; by a byte containing a binary zero value."
-  95:				; (http://www.cpm.z80.de/manuals/cpm22-m.pdf appendix H).
-  96:  207+10	0030' 218100  	exam_tail       ld hl, DEF_BUFFER + 1
-  97:				; No operands (yet).
-  98:				; The terminator should follow.
-  99:  217+17	0033' CD0000  	op_check_term   call skpspc
- 100:  234+7	0036' 7E      	                ld a, (hl)
- 101:  241+4	0037' A7      	                and a
- 102:     -	0000'         	                ifdef DEBUG
- 105:				                endif
- 106:  245+7+5	0038' 2806    	                jr z, operands_ok       ; Normal behaviour
- 107:				;
- 108:				; Go here if we don't like the operands supplied.
- 109:  252+10	003A' 210304  	op_error        ld hl, op_err_msg
- 110:  262+10	003D' C3AA02  	                jp msg_exit
- 111:				;
- 112:				; Operand processing complete.
- 113:     -	0040'         	operands_ok
+  67:   30+17	0007' CD0000  	                call init               ; Common initialisation code
+  68:				;
+  69:				; Sign on.
+  70:   47+10	000A' 219E03  	on_z80          ld hl, signon_msg
+  71:   57+17	000D' CD0000  	                call conwms             ; Print $-terminated string to console
+  72:				;
+  73:				; Clear variables area
+  74:   74+10	0010' 210200  	                ld hl, clr_start        ; Start address
+  75:   84+7	0013' 06CD    	                ld b, clr_end - clr_start
+  76:   91+4	0015' AF      	                xor a
+  77:   95+7	0016' 77      	clr_loop        ld (hl), a
+  78:  102+6	0017' 23      	                inc hl
+  79:  108+8+5	0018' 10FC    	                djnz clr_loop
+  80:				;
+  81:				; Are we running on a ZARC system?
+  82:  116+17	001A' CD0000  	                call zrcdet
+  83:				; Carry set if ZARC BIOS not found.
+  84:  133+4	001D' 3F      	                ccf
+  85:  137+4	001E' 17      	                rla
+  86:  141+7	001F' E601    	                and 1
+  87:  148+13	0021' 320200  	                ld (zarc_flag), a       ; 0x01 if ZARC, zero otherwise
+  88:  161+7+5	0024' 2006    	                jr nz, exam_tail
+  89:				;
+  90:				; Warn about limited facilities.
+  91:  168+10	0026' 21CF03  	                ld hl, no_zarc_msg      ; "ZARC BIOS not detected ..."
+  92:  178+17	0029' CD0000  	                call conwms             ; Print $-terminated string to console
+  93:				;
+  94:				; Examine the command tail, looking for operands. This is stored in the default
+  95:				; buffer. "The first byte at 0080H contains the length of the command tall,
+  96:				; while the command tail itself begins at 0081H. The command tail is terminated
+  97:				; by a byte containing a binary zero value."
+  98:				; (http://www.cpm.z80.de/manuals/cpm22-m.pdf appendix H).
+  99:  195+10	002C' 218100  	exam_tail       ld hl, DEF_BUFFER + 1
+ 100:				; No operands (yet).
+ 101:				; The terminator should follow.
+ 102:  205+17	002F' CD0000  	op_check_term   call skpspc
+ 103:  222+7	0032' 7E      	                ld a, (hl)
+ 104:  229+4	0033' A7      	                and a
+ 105:     -	0000'         	                ifdef DEBUG
+ 108:				                endif
+ 109:  233+7+5	0034' 2806    	                jr z, operands_ok       ; Normal behaviour
+ 110:				;
+ 111:				; Go here if we don't like the operands supplied.
+ 112:  240+10	0036' 21FF03  	op_error        ld hl, op_err_msg
+ 113:  250+10	0039' C3A602  	                jp msg_exit
  114:				;
- 115:				;
- 116:				; Perform validation tests. First the null string.
- 117:  272+10	0040' 21AA04  	                ld hl, test_null_msg    ; "Null message test: "
- 118:  282+17	0043' CD0000  	                call conwms             ; Print $-terminated string to console
- 119:  299+17	0046' CD0000  	                call sh2ini             ; Initialise sha-256 state
- 120:  316+10	0049' 210000  	                ld hl, 0                ; Pointer does not matter
- 121:  326+10	004C' 010000  	                ld bc, 0                ; Overall message length in bytes
- 122:  336+17	004F' CD0000  	                call sh2m               ; Process a message in memory
- 123:				; HL - pointer to message digest (h0 to h7)
- 124:  353+10	0052' 11D605  	                ld de, null_msg_hash
- 125:  363+17	0055' CDE502  	                call cmp_hashes         ; Compare hashes and report errors
- 126:  380+10+7	0058' D49C03  	                call nc, disp_ok        ; Display OK if it was so
- 127:				;
- 128:				; Test message 1
- 129:  390+10	005B' 21BE04  	                ld hl, test_short_msg   ; "Short message test: "
- 130:  400+17	005E' CD0000  	                call conwms             ; Print $-terminated string to console
- 131:  417+17	0061' CD0000  	                call sh2ini             ; Initialise sha-256 state
- 132:  434+10	0064' 21F605  	                ld hl, test1_msg        ; Point to message
- 133:  444+10	0067' 010F00  	                ld bc, test1_msg_len    ; Overall message length in bytes
- 134:  454+17	006A' CD0000  	                call sh2m               ; Process a message in memory
- 135:				; HL - pointer to message digest (h0 to h7)
- 136:  471+10	006D' 110506  	                ld de, test1_msg_hash
- 137:  481+17	0070' CDE502  	                call cmp_hashes         ; Compare hashes and report errors
- 138:  498+10+7	0073' D49C03  	                call nc, disp_ok        ; Display OK if it was so
- 139:				;
- 140:				; Test message 2. This will require three chunks, one with message text, another
- 141:				; with the rest of the message text (but is just too short to contain the
- 142:				; length), and the last with just the length.
- 143:  508+10	0076' 21D304  	                ld hl, test_long_msg    ; "Long message test: "
- 144:  518+17	0079' CD0000  	                call conwms             ; Print $-terminated string to console
- 145:  535+17	007C' CD0000  	                call sh2ini             ; Initialise sha-256 state
- 146:  552+10	007F' 212506  	                ld hl, test2_msg        ; Point to message
- 147:  562+10	0082' 017800  	                ld bc, test2_msg_len    ; Overall message length in bytes
- 148:  572+17	0085' CD0000  	                call sh2m               ; Process a message in memory
- 149:				; HL - pointer to message digest (h0 to h7)
- 150:  589+10	0088' 119D06  	                ld de, test2_msg_hash
- 151:  599+17	008B' CDE502  	                call cmp_hashes         ; Compare hashes and report errors
- 152:  616+10+7	008E' D49C03  	                call nc, disp_ok        ; Display OK if it was so
- 153:				;
- 154:				; Test message 3. This is just one byte shorter than the previous message. It
- 155:				; will require two chunks, one with message text, another with the rest of the
- 156:				; message text and the length. No chunk will contain pad bytes.
- 157:  626+10	0091' 21E704  	                ld hl, test_long2_msg   ; "Long message test 2: "
- 158:  636+17	0094' CD0000  	                call conwms             ; Print $-terminated string to console
- 159:  653+17	0097' CD0000  	                call sh2ini             ; Initialise sha-256 state
- 160:  670+10	009A' 212506  	                ld hl, test2_msg        ; Use test2 message (except last byte)
- 161:  680+10	009D' 017700  	                ld bc, test3_msg_len    ; Overall message length in bytes
- 162:  690+17	00A0' CD0000  	                call sh2m               ; Process a message in memory
- 163:				; HL - pointer to message digest (h0 to h7)
- 164:  707+10	00A3' 11BD06  	                ld de, test3_msg_hash
- 165:  717+17	00A6' CDE502  	                call cmp_hashes         ; Compare hashes and report errors
- 166:  734+10+7	00A9' D49C03  	                call nc, disp_ok        ; Display OK if it was so
- 167:				;
- 168:				; Bitcoin genesis block.
- 169:  744+10	00AC' 21FD04  	                ld hl, genesis_msg      ; "Bitcoin genesis block: "
- 170:  754+17	00AF' CD0000  	                call conwms             ; Print $-terminated string to console
- 171:  771+17	00B2' CD0000  	                call sh2ini             ; Initialise sha-256 state
- 172:  788+10	00B5' 21E106  	                ld hl, genesis          ; Point to message
- 173:  798+10	00B8' 015000  	                ld bc, BH_SIZE          ; Header size
- 174:  808+17	00BB' CD0000  	                call sh2m               ; Process a message in memory
- 175:				; HL - pointer to message digest (h0 to h7)
- 176:  825+10	00BE' 11AF00  	                ld de, bit_hash_buf     ; Hash digest buffer
- 177:  835+11	00C1' D5      	                push de
- 178:  846+17	00C2' CD6003  	                call copy_hash          ; Copy hash and endian convert
- 179:				; Apply the second SHA-2 step, as Bitcoin uses double SHA-2.
- 180:  863+17	00C5' CD0000  	                call sh2ini             ; Initialise sha-256 state
- 181:  880+10	00C8' E1      	                pop hl
- 182:  890+10	00C9' 012000  	                ld bc, SH2_DIGEST_BYTES ; Overall message length in bytes
- 183:  900+17	00CC' CD0000  	                call sh2m               ; Process a message in memory
- 184:				; HL - pointer to message digest (h0 to h7)
- 185:  917+10	00CF' 113107  	                ld de, genesis_hash
- 186:  927+17	00D2' CD1903  	                call bit_cmp_hashes     ; Compare Bitcoin hashes
- 187:  944+10+7	00D5' D49C03  	                call nc, disp_ok        ; Display OK if it was so
- 188:				;
- 189:  954+10	00D8' 211505  	                ld hl, bitc_exam_msg    ; "Bitcoin example block: "
- 190:  964+17	00DB' CD0000  	                call conwms             ; Print $-terminated string to console
- 191:  981+17	00DE' CD0000  	                call sh2ini             ; Initialise sha-256 state
- 192:  998+10	00E1' 215107  	                ld hl, bitc_example     ; Point to message
- 193: 1008+10	00E4' 015000  	                ld bc, BH_SIZE          ; Header size
- 194: 1018+17	00E7' CD0000  	                call sh2m               ; Process a message in memory
- 195:				; HL - pointer to message digest (h0 to h7)
- 196: 1035+10	00EA' 11AF00  	                ld de, bit_hash_buf     ; Hash digest buffer
- 197: 1045+11	00ED' D5      	                push de
- 198: 1056+17	00EE' CD6003  	                call copy_hash          ; Copy hash and endian convert
- 199:				; Apply the second SHA-2 step, as Bitcoin uses double SHA-2.
- 200: 1073+17	00F1' CD0000  	                call sh2ini             ; Initialise sha-256 state
- 201: 1090+10	00F4' E1      	                pop hl
- 202: 1100+10	00F5' 012000  	                ld bc, SH2_DIGEST_BYTES ; Overall message length in bytes
- 203: 1110+17	00F8' CD0000  	                call sh2m               ; Process a message in memory
- 204:				; HL - pointer to message digest (h0 to h7)
- 205: 1127+10	00FB' 11A107  	                ld de, bitc_exam_hash
- 206: 1137+17	00FE' CD1903  	                call bit_cmp_hashes     ; Compare Bitcoin hashes
- 207: 1154+10+7	0101' D49C03  	                call nc, disp_ok        ; Display OK if it was so
- 208:				;
- 209:				;
- 210:				; Attempt to load saved progress.
- 211: 1164+14	0104' DD210300	                ld ix, fcbr
- 212:				; IX - pointer to FCBR structure (FCB with record buffer). This is defined in
- 213:				; cpm_files.i
- 214: 1178+17	0108' CD0000  	                call finit              ; Initialise FCBR structure
- 215: 1195+10	010B' 214605  	                ld hl, save_fn          ; Filename
- 216: 1205+17	010E' CD0000  	                call fbfcb              ; Build the FCB.
- 217: 1222+10	0111' 212D05  	                ld hl, load_msg         ; "Loading saved state "
- 218: 1232+17	0114' CD0000  	                call conwms             ; Print $-terminated string to console
- 219: 1249+17	0117' CD0000  	                call fdnam              ; Display CP/M filename
- 220: 1266+17	011A' CD0000  	                call cwnwln             ; Write new line characters to console
- 221:				;
- 222: 1283+17	011D' CD0000  	                call fopen              ; Open file for reading
- 223:				; Carry set on error. A generic message will have been written to the console
- 224:				; if an error occurred.
- 225: 1300+10	0120' DA3D01  	                jp c, load_error
- 226:				;
- 227: 1310+10	0123' 21CF00  	                ld hl, save_start       ; Start of saved variables
- 228: 1320+10	0126' 017800  	                ld bc, save_size        ; Size
- 229: 1330+17	0129' CD0000  	                call frdblk             ; Read block from file
- 230:				; Carry set on error. A generic message will have been written to the console
- 231:				; if an error occurred.
- 232: 1347+10	012C' DA3D01  	                jp c, load_error
- 233:				; We should have loaded exactly save_size bytes.
- 234: 1357+10	012F' 217800  	                ld hl, save_size
- 235: 1367+4	0132' A7      	                and a
- 236: 1371+15	0133' ED42    	                sbc hl, bc
- 237: 1386+7+5	0135' 2006    	                jr nz, load_error
- 238:				;
- 239: 1393+17	0137' CD9C03  	                call disp_ok            ; Print "OK"
- 240: 1410+10	013A' C36B01  	                jp load_done
+ 115:				; Operand processing complete.
+ 116:     -	003C'         	operands_ok
+ 117:				;
+ 118:				;
+ 119:				; Perform validation tests. First the null string.
+ 120:  260+10	003C' 21A604  	                ld hl, test_null_msg    ; "Null message test: "
+ 121:  270+17	003F' CD0000  	                call conwms             ; Print $-terminated string to console
+ 122:  287+17	0042' CD0000  	                call sh2ini             ; Initialise sha-256 state
+ 123:  304+10	0045' 210000  	                ld hl, 0                ; Pointer does not matter
+ 124:  314+10	0048' 010000  	                ld bc, 0                ; Overall message length in bytes
+ 125:  324+17	004B' CD0000  	                call sh2m               ; Process a message in memory
+ 126:				; HL - pointer to message digest (h0 to h7)
+ 127:  341+10	004E' 11D205  	                ld de, null_msg_hash
+ 128:  351+17	0051' CDE102  	                call cmp_hashes         ; Compare hashes and report errors
+ 129:  368+10+7	0054' D49803  	                call nc, disp_ok        ; Display OK if it was so
+ 130:				;
+ 131:				; Test message 1
+ 132:  378+10	0057' 21BA04  	                ld hl, test_short_msg   ; "Short message test: "
+ 133:  388+17	005A' CD0000  	                call conwms             ; Print $-terminated string to console
+ 134:  405+17	005D' CD0000  	                call sh2ini             ; Initialise sha-256 state
+ 135:  422+10	0060' 21F205  	                ld hl, test1_msg        ; Point to message
+ 136:  432+10	0063' 010F00  	                ld bc, test1_msg_len    ; Overall message length in bytes
+ 137:  442+17	0066' CD0000  	                call sh2m               ; Process a message in memory
+ 138:				; HL - pointer to message digest (h0 to h7)
+ 139:  459+10	0069' 110106  	                ld de, test1_msg_hash
+ 140:  469+17	006C' CDE102  	                call cmp_hashes         ; Compare hashes and report errors
+ 141:  486+10+7	006F' D49803  	                call nc, disp_ok        ; Display OK if it was so
+ 142:				;
+ 143:				; Test message 2. This will require three chunks, one with message text, another
+ 144:				; with the rest of the message text (but is just too short to contain the
+ 145:				; length), and the last with just the length.
+ 146:  496+10	0072' 21CF04  	                ld hl, test_long_msg    ; "Long message test: "
+ 147:  506+17	0075' CD0000  	                call conwms             ; Print $-terminated string to console
+ 148:  523+17	0078' CD0000  	                call sh2ini             ; Initialise sha-256 state
+ 149:  540+10	007B' 212106  	                ld hl, test2_msg        ; Point to message
+ 150:  550+10	007E' 017800  	                ld bc, test2_msg_len    ; Overall message length in bytes
+ 151:  560+17	0081' CD0000  	                call sh2m               ; Process a message in memory
+ 152:				; HL - pointer to message digest (h0 to h7)
+ 153:  577+10	0084' 119906  	                ld de, test2_msg_hash
+ 154:  587+17	0087' CDE102  	                call cmp_hashes         ; Compare hashes and report errors
+ 155:  604+10+7	008A' D49803  	                call nc, disp_ok        ; Display OK if it was so
+ 156:				;
+ 157:				; Test message 3. This is just one byte shorter than the previous message. It
+ 158:				; will require two chunks, one with message text, another with the rest of the
+ 159:				; message text and the length. No chunk will contain pad bytes.
+ 160:  614+10	008D' 21E304  	                ld hl, test_long2_msg   ; "Long message test 2: "
+ 161:  624+17	0090' CD0000  	                call conwms             ; Print $-terminated string to console
+ 162:  641+17	0093' CD0000  	                call sh2ini             ; Initialise sha-256 state
+ 163:  658+10	0096' 212106  	                ld hl, test2_msg        ; Use test2 message (except last byte)
+ 164:  668+10	0099' 017700  	                ld bc, test3_msg_len    ; Overall message length in bytes
+ 165:  678+17	009C' CD0000  	                call sh2m               ; Process a message in memory
+ 166:				; HL - pointer to message digest (h0 to h7)
+ 167:  695+10	009F' 11B906  	                ld de, test3_msg_hash
+ 168:  705+17	00A2' CDE102  	                call cmp_hashes         ; Compare hashes and report errors
+ 169:  722+10+7	00A5' D49803  	                call nc, disp_ok        ; Display OK if it was so
+ 170:				;
+ 171:				; Bitcoin genesis block.
+ 172:  732+10	00A8' 21F904  	                ld hl, genesis_msg      ; "Bitcoin genesis block: "
+ 173:  742+17	00AB' CD0000  	                call conwms             ; Print $-terminated string to console
+ 174:  759+17	00AE' CD0000  	                call sh2ini             ; Initialise sha-256 state
+ 175:  776+10	00B1' 21DD06  	                ld hl, genesis          ; Point to message
+ 176:  786+10	00B4' 015000  	                ld bc, BH_SIZE          ; Header size
+ 177:  796+17	00B7' CD0000  	                call sh2m               ; Process a message in memory
+ 178:				; HL - pointer to message digest (h0 to h7)
+ 179:  813+10	00BA' 11AF00  	                ld de, bit_hash_buf     ; Hash digest buffer
+ 180:  823+11	00BD' D5      	                push de
+ 181:  834+17	00BE' CD5C03  	                call copy_hash          ; Copy hash and endian convert
+ 182:				; Apply the second SHA-2 step, as Bitcoin uses double SHA-2.
+ 183:  851+17	00C1' CD0000  	                call sh2ini             ; Initialise sha-256 state
+ 184:  868+10	00C4' E1      	                pop hl
+ 185:  878+10	00C5' 012000  	                ld bc, SH2_DIGEST_BYTES ; Overall message length in bytes
+ 186:  888+17	00C8' CD0000  	                call sh2m               ; Process a message in memory
+ 187:				; HL - pointer to message digest (h0 to h7)
+ 188:  905+10	00CB' 112D07  	                ld de, genesis_hash
+ 189:  915+17	00CE' CD1503  	                call bit_cmp_hashes     ; Compare Bitcoin hashes
+ 190:  932+10+7	00D1' D49803  	                call nc, disp_ok        ; Display OK if it was so
+ 191:				;
+ 192:  942+10	00D4' 211105  	                ld hl, bitc_exam_msg    ; "Bitcoin example block: "
+ 193:  952+17	00D7' CD0000  	                call conwms             ; Print $-terminated string to console
+ 194:  969+17	00DA' CD0000  	                call sh2ini             ; Initialise sha-256 state
+ 195:  986+10	00DD' 214D07  	                ld hl, bitc_example     ; Point to message
+ 196:  996+10	00E0' 015000  	                ld bc, BH_SIZE          ; Header size
+ 197: 1006+17	00E3' CD0000  	                call sh2m               ; Process a message in memory
+ 198:				; HL - pointer to message digest (h0 to h7)
+ 199: 1023+10	00E6' 11AF00  	                ld de, bit_hash_buf     ; Hash digest buffer
+ 200: 1033+11	00E9' D5      	                push de
+ 201: 1044+17	00EA' CD5C03  	                call copy_hash          ; Copy hash and endian convert
+ 202:				; Apply the second SHA-2 step, as Bitcoin uses double SHA-2.
+ 203: 1061+17	00ED' CD0000  	                call sh2ini             ; Initialise sha-256 state
+ 204: 1078+10	00F0' E1      	                pop hl
+ 205: 1088+10	00F1' 012000  	                ld bc, SH2_DIGEST_BYTES ; Overall message length in bytes
+ 206: 1098+17	00F4' CD0000  	                call sh2m               ; Process a message in memory
+ 207:				; HL - pointer to message digest (h0 to h7)
+ 208: 1115+10	00F7' 119D07  	                ld de, bitc_exam_hash
+ 209: 1125+17	00FA' CD1503  	                call bit_cmp_hashes     ; Compare Bitcoin hashes
+ 210: 1142+10+7	00FD' D49803  	                call nc, disp_ok        ; Display OK if it was so
+ 211:				;
+ 212:				;
+ 213:				; Attempt to load saved progress.
+ 214: 1152+14	0100' DD210300	                ld ix, fcbr
+ 215:				; IX - pointer to FCBR structure (FCB with record buffer). This is defined in
+ 216:				; cpm_files.i
+ 217: 1166+17	0104' CD0000  	                call finit              ; Initialise FCBR structure
+ 218: 1183+10	0107' 214205  	                ld hl, save_fn          ; Filename
+ 219: 1193+17	010A' CD0000  	                call fbfcb              ; Build the FCB.
+ 220: 1210+10	010D' 212905  	                ld hl, load_msg         ; "Loading saved state "
+ 221: 1220+17	0110' CD0000  	                call conwms             ; Print $-terminated string to console
+ 222: 1237+17	0113' CD0000  	                call fdnam              ; Display CP/M filename
+ 223: 1254+17	0116' CD0000  	                call cwnwln             ; Write new line characters to console
+ 224:				;
+ 225: 1271+17	0119' CD0000  	                call fopen              ; Open file for reading
+ 226:				; Carry set on error. A generic message will have been written to the console
+ 227:				; if an error occurred.
+ 228: 1288+10	011C' DA3901  	                jp c, load_error
+ 229:				;
+ 230: 1298+10	011F' 21CF00  	                ld hl, save_start       ; Start of saved variables
+ 231: 1308+10	0122' 017800  	                ld bc, save_size        ; Size
+ 232: 1318+17	0125' CD0000  	                call frdblk             ; Read block from file
+ 233:				; Carry set on error. A generic message will have been written to the console
+ 234:				; if an error occurred.
+ 235: 1335+10	0128' DA3901  	                jp c, load_error
+ 236:				; We should have loaded exactly save_size bytes.
+ 237: 1345+10	012B' 217800  	                ld hl, save_size
+ 238: 1355+4	012E' A7      	                and a
+ 239: 1359+15	012F' ED42    	                sbc hl, bc
+ 240: 1374+7+5	0131' 2006    	                jr nz, load_error
  241:				;
- 242:				;
- 243:				; Load failed.
- 244: 1420+10	013D' 215105  	load_error      ld hl, load_err_msg     ; "Error reading file"
- 245: 1430+17	0140' CD0000  	                call conwms             ; Print $-terminated string to console
- 246:				;
- 247:				; Copy the genesis block to use as the basis of our search.
- 248: 1447+10	0143' 21E106  	                ld hl, genesis          ; Point to message
- 249: 1457+10	0146' 11D300  	                ld de, bit_hdr_buf      ; Bitcoin header buffer
- 250: 1467+10	0149' 015000  	                ld bc, BH_SIZE          ; Header size
- 251: 1477+16+5	014C' EDB0    	                ldir
- 252:				; Initialise nonce.
- 253: 1493+10	014E' 211F01  	                ld hl, bit_hdr_buf + BH_NONCE
- 254: 1503+17	0151' CD0000  	                call mclr32             ; 32-bit clear (zero)
- 255:				; Reset best hash and corresponding best nonce found.
- 256: 1520+10	0154' 212301  	                ld hl, best_hash
- 257: 1530+7	0157' 0620    	                ld b, SH2_DIGEST_BYTES
- 258: 1537+7	0159' 3EFF    	                ld a, 0xff
- 259: 1544+7	015B' 77      	init_clr_hash   ld (hl), a
- 260: 1551+6	015C' 23      	                inc hl
- 261: 1557+8+5	015D' 10FC    	                djnz init_clr_hash
- 262: 1565+10	015F' 214301  	                ld hl, best_nonce
- 263: 1575+17	0162' CD0000  	                call mclr32             ; 32-bit clear (zero)
- 264:				; Reset iteration counter.
- 265: 1592+10	0165' 21CF00  	                ld hl, iter_count
- 266: 1602+17	0168' CD0000  	                call mclr32             ;  32-bit clear (zero)
- 267:				;
- 268:				; Reset iteration counters.
- 269: 1619+17	016B' CD0000  	load_done       call fclose             ; Close file
- 270: 1636+10	016E' 210000  	                ld hl, 0
- 271: 1646+16	0171' 22AD00  	                ld (iter_delta), hl     ; Iterations since last report
- 272:				;
- 273:				; Initialise timing (ZARC only).
- 274: 1662+13	0174' 3A0200  	                ld a, (zarc_flag)       ; 0x01 if ZARC, zero otherwise
- 275: 1675+4	0177' A7      	                and a
- 276: 1679+7+5	0178' 2819    	                jr z, initt_done
- 277:				;
- 278:				; ZARC system. Reset the elapsed time.
- 279: 1686+4	017A' AF      	                xor a
- 280: 1690+4	017B' 47      	                ld b, a
- 281: 1694+4	017C' 4F      	                ld c, a
- 282: 1698+4	017D' 57      	                ld d, a
- 283: 1702+4	017E' 5F      	                ld e, a
- 284:				; BCDE - 32-bit time
- 285: 1706+10	017F' 217800  	                ld hl, BIOS_SET_TIMER   ; Set timer
- 286: 1716+17	0182' CD0000  	                call cbios              ; Call BIOS
- 287:				;
- 288:				; Set initial message time.
- 289: 1733+10	0185' 21A900  	                ld hl, msg_time         ; Message timer (ms)
- 290: 1743+10	0188' 3610    	                ld (hl), low MSG_PERIOD
- 291: 1753+6	018A' 23      	                inc hl
- 292: 1759+10	018B' 3627    	                ld (hl), high MSG_PERIOD
- 293: 1769+6	018D' 23      	                inc hl
- 294: 1775+10	018E' 3600    	                ld (hl), 0
- 295: 1785+6	0190' 23      	                inc hl
- 296: 1791+10	0191' 3600    	                ld (hl), 0
- 297:				;
- 298: 1801+17	0193' CDBD02  	initt_done      call disp_best          ; Display best nonce and hash
- 299: 1818+10	0196' 214504  	                ld hl, start_msg        ; "Starting mining. Press ^C to exit."
- 300: 1828+17	0199' CD0000  	                call conwms             ; Print $-terminated string to console
- 301:				;
- 302:				;
- 303:				; Main iteration loop.
- 304: 1845+17	019C' CD0000  	main_loop       call sh2ini             ; Initialise sha-256 state
- 305: 1862+10	019F' 21D300  	                ld hl, bit_hdr_buf      ; Bitcoin block header buffer
- 306: 1872+10	01A2' 015000  	                ld bc, BH_SIZE          ; Header size
- 307: 1882+17	01A5' CD0000  	                call sh2m               ; Process a message in memory
- 308:				; HL - pointer to message digest (h0 to h7)
- 309: 1899+10	01A8' 11AF00  	                ld de, bit_hash_buf     ; Hash digest buffer
- 310: 1909+11	01AB' D5      	                push de
- 311: 1920+17	01AC' CD6003  	                call copy_hash          ; Copy hash and endian convert
- 312:				; Apply the second SHA-2 step, as Bitcoin uses double SHA-2.
- 313: 1937+17	01AF' CD0000  	                call sh2ini             ; Initialise sha-256 state
- 314: 1954+10	01B2' E1      	                pop hl
- 315: 1964+10	01B3' 012000  	                ld bc, SH2_DIGEST_BYTES ; Overall message length in bytes
- 316: 1974+17	01B6' CD0000  	                call sh2m               ; Process a message in memory
- 317:				; HL - pointer to message digest (h0 to h7)
- 318:				;
- 319:				; Assess the resulting hash. Is it smaller than the best yet? The bytes are
- 320:				; to be treated as h0 - h7 in reverse order and big endian format to suit
- 321:				; Bitcoin conventions.
- 322: 1991+11	01B9' E5      	                push hl                 ; Save pointer to hash
- 323:				; Perform a subtract, starting at the LS byte of h0.
- 324: 2002+6	01BA' 23      	                inc hl
- 325: 2008+6	01BB' 23      	                inc hl
- 326: 2014+6	01BC' 23      	                inc hl
- 327: 2020+4	01BD' EB      	                ex de, hl
- 328: 2024+10	01BE' 212601  	                ld hl, best_hash + 3
- 329: 2034+7	01C1' 0608    	                ld b, 8                 ; Register counter
- 330: 2041+4	01C3' A7      	                and a                   ; Reset carry
- 331: 2045+7	01C4' 0E04    	hcmp_reg_loop   ld c, 4
- 332:				; B - register counter
- 333:				; C - byte counter
- 334:				; DE - pointer to calculated hash
- 335:				; HL - pointer to best hash
- 336: 2052+11	01C6' D5      	                push de
- 337: 2063+11	01C7' E5      	                push hl
- 338: 2074+7	01C8' 1A      	hcmp_byte_loop  ld a, (de)
- 339: 2081+7	01C9' 9E      	                sbc (hl)
- 340: 2088+6	01CA' 2B      	                dec hl
- 341: 2094+6	01CB' 1B      	                dec de
- 342: 2100+4	01CC' 0D      	                dec c
- 343: 2104+7+5	01CD' 20F9    	                jr nz, hcmp_byte_loop
- 344: 2111+10	01CF' E1      	                pop hl
- 345: 2121+10	01D0' D1      	                pop de
- 346:				; Next calculated hash register.
- 347: 2131+6	01D1' 13      	                inc de
- 348: 2137+6	01D2' 13      	                inc de
- 349: 2143+6	01D3' 13      	                inc de
- 350: 2149+6	01D4' 13      	                inc de
- 351:				; Next best hash register.
- 352: 2155+6	01D5' 23      	                inc hl
- 353: 2161+6	01D6' 23      	                inc hl
- 354: 2167+6	01D7' 23      	                inc hl
- 355: 2173+6	01D8' 23      	                inc hl
- 356: 2179+8+5	01D9' 10E9    	                djnz hcmp_reg_loop
- 357:				; Compare complete.
- 358: 2187+10	01DB' E1      	                pop hl                  ; Recover pointer to h0 - h7
- 359: 2197+7+5	01DC' 3014    	                jr nc, next_nonce       ; Keep going if not best
- 360:				;
- 361:				;
- 362:				; This is the best hash yet.
- 363:				; HL - pointer to message digest (h0 to h7)
- 364:				; Save the hash
- 365: 2204+10	01DE' 112301  	                ld de, best_hash
- 366: 2214+10	01E1' 015000  	                ld bc, BH_SIZE
- 367: 2224+16+5	01E4' EDB0    	                ldir
- 368:				; Save nonce
- 369: 2240+10	01E6' 211F01  	                ld hl, bit_hdr_buf + BH_NONCE
- 370: 2250+10	01E9' 114301  	                ld de, best_nonce
- 371: 2260+17	01EC' CD0000  	                call mcop32             ; 32-bit copy from (hl) to (de)
- 372:				;
- 373: 2277+17	01EF' CDBD02  	                call disp_best          ; Display best nonce and hash
- 374:				;
- 375:				; Increment the nonce.
- 376: 2294+10	01F2' 211F01  	next_nonce      ld hl, bit_hdr_buf + BH_NONCE
- 377: 2304+17	01F5' CD0000  	                call minc32             ; 32-bit increment
- 378:				;
- 379:				; Update iteration counter.
- 380: 2321+10	01F8' 21CF00  	                ld hl, iter_count
- 381: 2331+17	01FB' CD0000  	                call minc32             ; 32-bit increment
- 382: 2348+10+7	01FE' DC0000  	                call c, panic           ; Counter can't realistically overflow
- 383:				;
- 384:				; Update iterations since last report.
- 385: 2358+16	0201' 2AAD00  	                ld hl, (iter_delta)
- 386: 2374+6	0204' 23      	                inc hl
- 387: 2380+4	0205' 7C      	                ld a, h
- 388: 2384+4	0206' B5      	                or l
- 389: 2388+7+5	0207' 2803    	                jr z, rep_delinc_dn     ; Jump if no overflow
- 390: 2395+16	0209' 22AD00  	                ld (iter_delta), hl
- 391:     -	020C'         	rep_delinc_dn
- 392:				;
- 393:				;
- 394:				; Report progress every so often.
- 395: 2411+13	020C' 3A0200  	                ld a, (zarc_flag)       ; 0x01 if ZARC, zero otherwise
- 396: 2424+4	020F' A7      	                and a
- 397: 2428+7+5	0210' 2818    	                jr z, rep_not_zarc      ; jump if not a ZARC system
- 398:				;
- 399:				; ZARC system. Examine time.
- 400: 2435+10	0212' 217B00  	                ld hl, BIOS_GET_TIMER   ; Get timer
- 401: 2445+17	0215' CD0000  	                call cbios              ; Call BIOS
- 402:				; BCDE - 32-bit time in ms. Time is limited to approximately 49.7 days.
- 403:				; Subtract msg_time from current time. If it doesn't carry, we should report.
- 404: 2462+10	0218' 21A900  	                ld hl, msg_time         ; Message timer (ms)
- 405: 2472+4	021B' 7B      	                ld a, e
- 406: 2476+7	021C' 96      	                sub (hl)
- 407: 2483+6	021D' 23      	                inc hl
- 408: 2489+4	021E' 7A      	                ld a, d
- 409: 2493+7	021F' 9E      	                sbc (hl)
- 410: 2500+6	0220' 23      	                inc hl
- 411: 2506+4	0221' 79      	                ld a, c
- 412: 2510+7	0222' 9E      	                sbc (hl)
- 413: 2517+6	0223' 23      	                inc hl
- 414: 2523+4	0224' 78      	                ld a, b
- 415: 2527+7	0225' 9E      	                sbc (hl)
- 416: 2534+7+5	0226' 3009    	                jr nc, rep_start        ; Jump if time to report
- 417: 2541+12	0228' 1841    	                jr rep_done
- 418:				;
- 419:				; Not a ZARC system. Report every so many iterations.
- 420: 2553+13	022A' 3ACF00  	rep_not_zarc    ld a, (iter_count)      ; Fetch LS byte of counter
- 421: 2566+7	022D' E61F    	                and MSG_REP_MASK
- 422: 2573+7+5	022F' 203A    	                jr nz, rep_done
- 423:				;
- 424: 2580+10	0231' 216A04  	rep_start       ld hl, iter_msg         ; CR, "Iteration: "
- 425: 2590+17	0234' CD0000  	                call conwms             ; Print $-terminated string to console
- 426: 2607+10	0237' 21CF00  	                ld hl, iter_count
- 427: 2617+7	023A' 4E      	                ld c, (hl)
- 428: 2624+6	023B' 23      	                inc hl
- 429: 2630+7	023C' 46      	                ld b, (hl)
- 430: 2637+6	023D' 23      	                inc hl
- 431: 2643+7	023E' 5E      	                ld e, (hl)
- 432: 2650+6	023F' 23      	                inc hl
- 433: 2656+7	0240' 56      	                ld d, (hl)
- 434: 2663+4	0241' 60      	                ld h, b
- 435: 2667+4	0242' 69      	                ld l, c
- 436: 2671+17	0243' CD0000  	                call cwpdlo             ; Print DEHL in decimal
- 437:				;
- 438: 2688+10	0246' 217704  	                ld hl, delta_msg        ; ", delta: "
- 439: 2698+17	0249' CD0000  	                call conwms             ; Print $-terminated string to console
- 440: 2715+10	024C' 21AD00  	                ld hl, iter_delta
- 441: 2725+7	024F' 5E      	                ld e, (hl)
- 442: 2732+6	0250' 23      	                inc hl
- 443: 2738+7	0251' 56      	                ld d, (hl)
- 444: 2745+4	0252' EB      	                ex de, hl
- 445: 2749+17	0253' CD0000  	                call cwpdwd             ; Print HL in decimal
- 446:				; Leave the cursor at the end of the line so we can print over it next time.
- 447:				;
- 448:				; Reset iteration delta counter.
- 449: 2766+10	0256' 210000  	                ld hl, 0
- 450: 2776+16	0259' 22AD00  	                ld (iter_delta), hl     ; Iterations since last report
- 451:				;
- 452:				; Update the time if we are on ZARC.
- 453: 2792+13	025C' 3A0200  	                ld a, (zarc_flag)       ; 0x01 if ZARC, zero otherwise
- 454: 2805+4	025F' A7      	                and a
- 455: 2809+7+5	0260' 2809    	                jr z, rep_done          ; jump if not a ZARC system
- 456:				;
- 457:				; Calculate time for next report.
- 458: 2816+10	0262' 21A900  	                ld hl, msg_time         ; Message timer (ms)
- 459: 2826+10	0265' 11DD06  	                ld de, msg_per_const
- 460: 2836+17	0268' CD0000  	                call madd32             ; 32-bit add (hl) <- (hl) + (de)
- 461:				;
- 462:				; Exit unless break detected.
- 463: 2853+17	026B' CD0000  	rep_done        call const              ; Fetch console input status
- 464: 2870+4	026E' A7      	                and a
- 465: 2874+7+5	026F' 280A    	                jr z, ml_no_break       ; Jump if no character received
- 466:				; The BIOS is used for console I/O as the corresponding BDOS function echoes
- 467:				; the character to the display.
- 468: 2881+17	0271' CD0000  	                call conrch             ; Read character from the console
- 469:				; Exit if ^C pressed.
- 470: 2898+10	0274' 211A04  	                ld hl, break_msg        ; "Exiting due to ^C"
- 471: 2908+7	0277' FE03    	                cp BREAK_CHAR
- 472: 2915+7+5	0279' 2803    	                jr z, break_det         ; Exit on break
- 473:				;
- 474: 2922+10	027B' C39C01  	ml_no_break     jp main_loop            ; Do another iteration
- 475:				;
+ 242: 1381+17	0133' CD9803  	                call disp_ok            ; Print "OK"
+ 243: 1398+10	0136' C36701  	                jp load_done
+ 244:				;
+ 245:				;
+ 246:				; Load failed.
+ 247: 1408+10	0139' 214D05  	load_error      ld hl, load_err_msg     ; "Error reading file"
+ 248: 1418+17	013C' CD0000  	                call conwms             ; Print $-terminated string to console
+ 249:				;
+ 250:				; Copy the genesis block to use as the basis of our search.
+ 251: 1435+10	013F' 21DD06  	                ld hl, genesis          ; Point to message
+ 252: 1445+10	0142' 11D300  	                ld de, bit_hdr_buf      ; Bitcoin header buffer
+ 253: 1455+10	0145' 015000  	                ld bc, BH_SIZE          ; Header size
+ 254: 1465+16+5	0148' EDB0    	                ldir
+ 255:				; Initialise nonce.
+ 256: 1481+10	014A' 211F01  	                ld hl, bit_hdr_buf + BH_NONCE
+ 257: 1491+17	014D' CD0000  	                call mclr32             ; 32-bit clear (zero)
+ 258:				; Reset best hash and corresponding best nonce found.
+ 259: 1508+10	0150' 212301  	                ld hl, best_hash
+ 260: 1518+7	0153' 0620    	                ld b, SH2_DIGEST_BYTES
+ 261: 1525+7	0155' 3EFF    	                ld a, 0xff
+ 262: 1532+7	0157' 77      	init_clr_hash   ld (hl), a
+ 263: 1539+6	0158' 23      	                inc hl
+ 264: 1545+8+5	0159' 10FC    	                djnz init_clr_hash
+ 265: 1553+10	015B' 214301  	                ld hl, best_nonce
+ 266: 1563+17	015E' CD0000  	                call mclr32             ; 32-bit clear (zero)
+ 267:				; Reset iteration counter.
+ 268: 1580+10	0161' 21CF00  	                ld hl, iter_count
+ 269: 1590+17	0164' CD0000  	                call mclr32             ;  32-bit clear (zero)
+ 270:				;
+ 271:				; Reset iteration counters.
+ 272: 1607+17	0167' CD0000  	load_done       call fclose             ; Close file
+ 273: 1624+10	016A' 210000  	                ld hl, 0
+ 274: 1634+16	016D' 22AD00  	                ld (iter_delta), hl     ; Iterations since last report
+ 275:				;
+ 276:				; Initialise timing (ZARC only).
+ 277: 1650+13	0170' 3A0200  	                ld a, (zarc_flag)       ; 0x01 if ZARC, zero otherwise
+ 278: 1663+4	0173' A7      	                and a
+ 279: 1667+7+5	0174' 2819    	                jr z, initt_done
+ 280:				;
+ 281:				; ZARC system. Reset the elapsed time.
+ 282: 1674+4	0176' AF      	                xor a
+ 283: 1678+4	0177' 47      	                ld b, a
+ 284: 1682+4	0178' 4F      	                ld c, a
+ 285: 1686+4	0179' 57      	                ld d, a
+ 286: 1690+4	017A' 5F      	                ld e, a
+ 287:				; BCDE - 32-bit time
+ 288: 1694+10	017B' 217800  	                ld hl, BIOS_SET_TIMER   ; Set timer
+ 289: 1704+17	017E' CD0000  	                call cbios              ; Call BIOS
+ 290:				;
+ 291:				; Set initial message time.
+ 292: 1721+10	0181' 21A900  	                ld hl, msg_time         ; Message timer (ms)
+ 293: 1731+10	0184' 3610    	                ld (hl), low MSG_PERIOD
+ 294: 1741+6	0186' 23      	                inc hl
+ 295: 1747+10	0187' 3627    	                ld (hl), high MSG_PERIOD
+ 296: 1757+6	0189' 23      	                inc hl
+ 297: 1763+10	018A' 3600    	                ld (hl), 0
+ 298: 1773+6	018C' 23      	                inc hl
+ 299: 1779+10	018D' 3600    	                ld (hl), 0
+ 300:				;
+ 301: 1789+17	018F' CDB902  	initt_done      call disp_best          ; Display best nonce and hash
+ 302: 1806+10	0192' 214104  	                ld hl, start_msg        ; "Starting mining. Press ^C to exit."
+ 303: 1816+17	0195' CD0000  	                call conwms             ; Print $-terminated string to console
+ 304:				;
+ 305:				;
+ 306:				; Main iteration loop.
+ 307: 1833+17	0198' CD0000  	main_loop       call sh2ini             ; Initialise sha-256 state
+ 308: 1850+10	019B' 21D300  	                ld hl, bit_hdr_buf      ; Bitcoin block header buffer
+ 309: 1860+10	019E' 015000  	                ld bc, BH_SIZE          ; Header size
+ 310: 1870+17	01A1' CD0000  	                call sh2m               ; Process a message in memory
+ 311:				; HL - pointer to message digest (h0 to h7)
+ 312: 1887+10	01A4' 11AF00  	                ld de, bit_hash_buf     ; Hash digest buffer
+ 313: 1897+11	01A7' D5      	                push de
+ 314: 1908+17	01A8' CD5C03  	                call copy_hash          ; Copy hash and endian convert
+ 315:				; Apply the second SHA-2 step, as Bitcoin uses double SHA-2.
+ 316: 1925+17	01AB' CD0000  	                call sh2ini             ; Initialise sha-256 state
+ 317: 1942+10	01AE' E1      	                pop hl
+ 318: 1952+10	01AF' 012000  	                ld bc, SH2_DIGEST_BYTES ; Overall message length in bytes
+ 319: 1962+17	01B2' CD0000  	                call sh2m               ; Process a message in memory
+ 320:				; HL - pointer to message digest (h0 to h7)
+ 321:				;
+ 322:				; Assess the resulting hash. Is it smaller than the best yet? The bytes are
+ 323:				; to be treated as h0 - h7 in reverse order and big endian format to suit
+ 324:				; Bitcoin conventions.
+ 325: 1979+11	01B5' E5      	                push hl                 ; Save pointer to hash
+ 326:				; Perform a subtract, starting at the LS byte of h0.
+ 327: 1990+6	01B6' 23      	                inc hl
+ 328: 1996+6	01B7' 23      	                inc hl
+ 329: 2002+6	01B8' 23      	                inc hl
+ 330: 2008+4	01B9' EB      	                ex de, hl
+ 331: 2012+10	01BA' 212601  	                ld hl, best_hash + 3
+ 332: 2022+7	01BD' 0608    	                ld b, 8                 ; Register counter
+ 333: 2029+4	01BF' A7      	                and a                   ; Reset carry
+ 334: 2033+7	01C0' 0E04    	hcmp_reg_loop   ld c, 4
+ 335:				; B - register counter
+ 336:				; C - byte counter
+ 337:				; DE - pointer to calculated hash
+ 338:				; HL - pointer to best hash
+ 339: 2040+11	01C2' D5      	                push de
+ 340: 2051+11	01C3' E5      	                push hl
+ 341: 2062+7	01C4' 1A      	hcmp_byte_loop  ld a, (de)
+ 342: 2069+7	01C5' 9E      	                sbc (hl)
+ 343: 2076+6	01C6' 2B      	                dec hl
+ 344: 2082+6	01C7' 1B      	                dec de
+ 345: 2088+4	01C8' 0D      	                dec c
+ 346: 2092+7+5	01C9' 20F9    	                jr nz, hcmp_byte_loop
+ 347: 2099+10	01CB' E1      	                pop hl
+ 348: 2109+10	01CC' D1      	                pop de
+ 349:				; Next calculated hash register.
+ 350: 2119+6	01CD' 13      	                inc de
+ 351: 2125+6	01CE' 13      	                inc de
+ 352: 2131+6	01CF' 13      	                inc de
+ 353: 2137+6	01D0' 13      	                inc de
+ 354:				; Next best hash register.
+ 355: 2143+6	01D1' 23      	                inc hl
+ 356: 2149+6	01D2' 23      	                inc hl
+ 357: 2155+6	01D3' 23      	                inc hl
+ 358: 2161+6	01D4' 23      	                inc hl
+ 359: 2167+8+5	01D5' 10E9    	                djnz hcmp_reg_loop
+ 360:				; Compare complete.
+ 361: 2175+10	01D7' E1      	                pop hl                  ; Recover pointer to h0 - h7
+ 362: 2185+7+5	01D8' 3014    	                jr nc, next_nonce       ; Keep going if not best
+ 363:				;
+ 364:				;
+ 365:				; This is the best hash yet.
+ 366:				; HL - pointer to message digest (h0 to h7)
+ 367:				; Save the hash
+ 368: 2192+10	01DA' 112301  	                ld de, best_hash
+ 369: 2202+10	01DD' 015000  	                ld bc, BH_SIZE
+ 370: 2212+16+5	01E0' EDB0    	                ldir
+ 371:				; Save nonce
+ 372: 2228+10	01E2' 211F01  	                ld hl, bit_hdr_buf + BH_NONCE
+ 373: 2238+10	01E5' 114301  	                ld de, best_nonce
+ 374: 2248+17	01E8' CD0000  	                call mcop32             ; 32-bit copy from (hl) to (de)
+ 375:				;
+ 376: 2265+17	01EB' CDB902  	                call disp_best          ; Display best nonce and hash
+ 377:				;
+ 378:				; Increment the nonce.
+ 379: 2282+10	01EE' 211F01  	next_nonce      ld hl, bit_hdr_buf + BH_NONCE
+ 380: 2292+17	01F1' CD0000  	                call minc32             ; 32-bit increment
+ 381:				;
+ 382:				; Update iteration counter.
+ 383: 2309+10	01F4' 21CF00  	                ld hl, iter_count
+ 384: 2319+17	01F7' CD0000  	                call minc32             ; 32-bit increment
+ 385: 2336+10+7	01FA' DC0000  	                call c, panic           ; Counter can't realistically overflow
+ 386:				;
+ 387:				; Update iterations since last report.
+ 388: 2346+16	01FD' 2AAD00  	                ld hl, (iter_delta)
+ 389: 2362+6	0200' 23      	                inc hl
+ 390: 2368+4	0201' 7C      	                ld a, h
+ 391: 2372+4	0202' B5      	                or l
+ 392: 2376+7+5	0203' 2803    	                jr z, rep_delinc_dn     ; Jump if no overflow
+ 393: 2383+16	0205' 22AD00  	                ld (iter_delta), hl
+ 394:     -	0208'         	rep_delinc_dn
+ 395:				;
+ 396:				;
+ 397:				; Report progress every so often.
+ 398: 2399+13	0208' 3A0200  	                ld a, (zarc_flag)       ; 0x01 if ZARC, zero otherwise
+ 399: 2412+4	020B' A7      	                and a
+ 400: 2416+7+5	020C' 2818    	                jr z, rep_not_zarc      ; jump if not a ZARC system
+ 401:				;
+ 402:				; ZARC system. Examine time.
+ 403: 2423+10	020E' 217B00  	                ld hl, BIOS_GET_TIMER   ; Get timer
+ 404: 2433+17	0211' CD0000  	                call cbios              ; Call BIOS
+ 405:				; BCDE - 32-bit time in ms. Time is limited to approximately 49.7 days.
+ 406:				; Subtract msg_time from current time. If it doesn't carry, we should report.
+ 407: 2450+10	0214' 21A900  	                ld hl, msg_time         ; Message timer (ms)
+ 408: 2460+4	0217' 7B      	                ld a, e
+ 409: 2464+7	0218' 96      	                sub (hl)
+ 410: 2471+6	0219' 23      	                inc hl
+ 411: 2477+4	021A' 7A      	                ld a, d
+ 412: 2481+7	021B' 9E      	                sbc (hl)
+ 413: 2488+6	021C' 23      	                inc hl
+ 414: 2494+4	021D' 79      	                ld a, c
+ 415: 2498+7	021E' 9E      	                sbc (hl)
+ 416: 2505+6	021F' 23      	                inc hl
+ 417: 2511+4	0220' 78      	                ld a, b
+ 418: 2515+7	0221' 9E      	                sbc (hl)
+ 419: 2522+7+5	0222' 3009    	                jr nc, rep_start        ; Jump if time to report
+ 420: 2529+12	0224' 1841    	                jr rep_done
+ 421:				;
+ 422:				; Not a ZARC system. Report every so many iterations.
+ 423: 2541+13	0226' 3ACF00  	rep_not_zarc    ld a, (iter_count)      ; Fetch LS byte of counter
+ 424: 2554+7	0229' E61F    	                and MSG_REP_MASK
+ 425: 2561+7+5	022B' 203A    	                jr nz, rep_done
+ 426:				;
+ 427: 2568+10	022D' 216604  	rep_start       ld hl, iter_msg         ; CR, "Iteration: "
+ 428: 2578+17	0230' CD0000  	                call conwms             ; Print $-terminated string to console
+ 429: 2595+10	0233' 21CF00  	                ld hl, iter_count
+ 430: 2605+7	0236' 4E      	                ld c, (hl)
+ 431: 2612+6	0237' 23      	                inc hl
+ 432: 2618+7	0238' 46      	                ld b, (hl)
+ 433: 2625+6	0239' 23      	                inc hl
+ 434: 2631+7	023A' 5E      	                ld e, (hl)
+ 435: 2638+6	023B' 23      	                inc hl
+ 436: 2644+7	023C' 56      	                ld d, (hl)
+ 437: 2651+4	023D' 60      	                ld h, b
+ 438: 2655+4	023E' 69      	                ld l, c
+ 439: 2659+17	023F' CD0000  	                call cwpdlo             ; Print DEHL in decimal
+ 440:				;
+ 441: 2676+10	0242' 217304  	                ld hl, delta_msg        ; ", delta: "
+ 442: 2686+17	0245' CD0000  	                call conwms             ; Print $-terminated string to console
+ 443: 2703+10	0248' 21AD00  	                ld hl, iter_delta
+ 444: 2713+7	024B' 5E      	                ld e, (hl)
+ 445: 2720+6	024C' 23      	                inc hl
+ 446: 2726+7	024D' 56      	                ld d, (hl)
+ 447: 2733+4	024E' EB      	                ex de, hl
+ 448: 2737+17	024F' CD0000  	                call cwpdwd             ; Print HL in decimal
+ 449:				; Leave the cursor at the end of the line so we can print over it next time.
+ 450:				;
+ 451:				; Reset iteration delta counter.
+ 452: 2754+10	0252' 210000  	                ld hl, 0
+ 453: 2764+16	0255' 22AD00  	                ld (iter_delta), hl     ; Iterations since last report
+ 454:				;
+ 455:				; Update the time if we are on ZARC.
+ 456: 2780+13	0258' 3A0200  	                ld a, (zarc_flag)       ; 0x01 if ZARC, zero otherwise
+ 457: 2793+4	025B' A7      	                and a
+ 458: 2797+7+5	025C' 2809    	                jr z, rep_done          ; jump if not a ZARC system
+ 459:				;
+ 460:				; Calculate time for next report.
+ 461: 2804+10	025E' 21A900  	                ld hl, msg_time         ; Message timer (ms)
+ 462: 2814+10	0261' 11D906  	                ld de, msg_per_const
+ 463: 2824+17	0264' CD0000  	                call madd32             ; 32-bit add (hl) <- (hl) + (de)
+ 464:				;
+ 465:				; Exit unless break detected.
+ 466: 2841+17	0267' CD0000  	rep_done        call const              ; Fetch console input status
+ 467: 2858+4	026A' A7      	                and a
+ 468: 2862+7+5	026B' 280A    	                jr z, ml_no_break       ; Jump if no character received
+ 469:				; The BIOS is used for console I/O as the corresponding BDOS function echoes
+ 470:				; the character to the display.
+ 471: 2869+17	026D' CD0000  	                call conrch             ; Read character from the console
+ 472:				; Exit if ^C pressed.
+ 473: 2886+10	0270' 211604  	                ld hl, break_msg        ; "Exiting due to ^C"
+ 474: 2896+7	0273' FE03    	                cp BREAK_CHAR
+ 475: 2903+7+5	0275' 2803    	                jr z, break_det         ; Exit on break
  476:				;
- 477:				; Break detected. Attempt to save state. The fcbr is reused.
- 478: 2932+14	027E' DD210300	break_det       ld ix, fcbr             ; Ensure pointer is still valid
- 479:				; IX - pointer to FCBR structure (FCB with record buffer). This is defined in
- 480:				; cpm_files.i
- 481: 2946+17	0282' CD0000  	                call finit              ; Re-initialise FCBR structure
- 482: 2963+10	0285' 214605  	                ld hl, save_fn          ; Filename
- 483: 2973+17	0288' CD0000  	                call fbfcb              ; Build the FCB.
- 484: 2990+10	028B' 218B05  	                ld hl, save_msg         ; "Saving state "
- 485: 3000+17	028E' CD0000  	                call conwms             ; Print $-terminated string to console
- 486: 3017+17	0291' CD0000  	                call fdnam              ; Display CP/M filename
- 487: 3034+17	0294' CD0000  	                call cwnwln             ; Write new line characters to console
- 488:				;
- 489: 3051+17	0297' CD0000  	                call fmake              ; Create new file and report errors
- 490:				; A - BDOS error code if carry = 1
- 491:				; Carry flag is set if BDOS reported an error.
- 492: 3068+7+5	029A' 380B    	                jr c, save_error        ; Give up if can't make
- 493:				;
- 494:				; Save the variables.
- 495: 3075+10	029C' 21CF00  	                ld hl, save_start       ; Start of saved variables
- 496: 3085+10	029F' 017800  	                ld bc, save_size        ; Size
- 497: 3095+17	02A2' CD0000  	                call fwrblk             ; Write block to file
- 498:				; Carry set on error. A generic message will have been written to the console
- 499:				; if an error occurred.
- 500: 3112+7+5	02A5' 3006    	                jr nc, exit             ; Exit if no error
- 501:				;
- 502: 3119+10	02A7' 21A305  	save_error      ld hl, save_err_msg     ; "Error saving state"
- 503:				;
+ 477: 2910+10	0277' C39801  	ml_no_break     jp main_loop            ; Do another iteration
+ 478:				;
+ 479:				;
+ 480:				; Break detected. Attempt to save state. The fcbr is reused.
+ 481: 2920+14	027A' DD210300	break_det       ld ix, fcbr             ; Ensure pointer is still valid
+ 482:				; IX - pointer to FCBR structure (FCB with record buffer). This is defined in
+ 483:				; cpm_files.i
+ 484: 2934+17	027E' CD0000  	                call finit              ; Re-initialise FCBR structure
+ 485: 2951+10	0281' 214205  	                ld hl, save_fn          ; Filename
+ 486: 2961+17	0284' CD0000  	                call fbfcb              ; Build the FCB.
+ 487: 2978+10	0287' 218705  	                ld hl, save_msg         ; "Saving state "
+ 488: 2988+17	028A' CD0000  	                call conwms             ; Print $-terminated string to console
+ 489: 3005+17	028D' CD0000  	                call fdnam              ; Display CP/M filename
+ 490: 3022+17	0290' CD0000  	                call cwnwln             ; Write new line characters to console
+ 491:				;
+ 492: 3039+17	0293' CD0000  	                call fmake              ; Create new file and report errors
+ 493:				; A - BDOS error code if carry = 1
+ 494:				; Carry flag is set if BDOS reported an error.
+ 495: 3056+7+5	0296' 380B    	                jr c, save_error        ; Give up if can't make
+ 496:				;
+ 497:				; Save the variables.
+ 498: 3063+10	0298' 21CF00  	                ld hl, save_start       ; Start of saved variables
+ 499: 3073+10	029B' 017800  	                ld bc, save_size        ; Size
+ 500: 3083+17	029E' CD0000  	                call fwrblk             ; Write block to file
+ 501:				; Carry set on error. A generic message will have been written to the console
+ 502:				; if an error occurred.
+ 503: 3100+7+5	02A1' 3006    	                jr nc, exit             ; Exit if no error
  504:				;
- 505:				; Print message pointed to by HL, then exit.
- 506: 3129+17	02AA' CD0000  	msg_exit        call conwms             ; Print $-terminated string to console
+ 505: 3107+10	02A3' 219F05  	save_error      ld hl, save_err_msg     ; "Error saving state"
+ 506:				;
  507:				;
- 508:				; Return to CP/M.
- 509: 3146+17	02AD' CD0000  	exit            call fclose             ; Close file
- 510: 3163+10	02B0' 213004  	                ld hl, exit_msg         ; "Returning to CP/M."
- 511: 3173+17	02B3' CD0000  	                call conwms             ; Print $-terminated string to console
- 512:				;
- 513: 3190+20	02B6' ED7B0000	                ld sp, (bdos_sp)
- 514:				; For this application a warm boot is required as we may have overwritten the
- 515:				; CCP.
- 516:				;                ret                     ; Return to BDOS
- 517: 3210+10	02BA' C30000  	                jp 0                    ; Warm boot
- 518:				;
- 519:				;
- 520:				;
- 521:				; ***************
- 522:				; * Subroutines *
- 523:				; ***************
- 524:				;
- 525:				;
- 526:				; Display nonce and hash.
- 527: 3220+11	02BD' C5      	disp_best       push bc
- 528: 3231+11	02BE' D5      	                push de
- 529: 3242+11	02BF' E5      	                push hl
- 530:				;
- 531: 3253+10	02C0' 21B905  	                ld hl, best_msg         ; "Best nonce / hash found:"
- 532: 3263+17	02C3' CD0000  	                call conwms             ; Print $-terminated string to console
- 533: 3280+10	02C6' 214301  	                ld hl, best_nonce
- 534: 3290+7	02C9' 4E      	                ld c, (hl)
- 535: 3297+6	02CA' 23      	                inc hl
- 536: 3303+7	02CB' 46      	                ld b, (hl)
- 537: 3310+6	02CC' 23      	                inc hl
- 538: 3316+7	02CD' 5E      	                ld e, (hl)
- 539: 3323+6	02CE' 23      	                inc hl
- 540: 3329+7	02CF' 56      	                ld d, (hl)
- 541: 3336+4	02D0' 60      	                ld h, b
- 542: 3340+4	02D1' 69      	                ld l, c
- 543: 3344+17	02D2' CD0000  	                call cwpdlo             ; Print DEHL in decimal
- 544:				;
- 545: 3361+17	02D5' CD0000  	                call cwpspc             ; Print a space
- 546: 3378+10	02D8' 212301  	                ld hl, best_hash
- 547: 3388+17	02DB' CD7C03  	                call bit_disp_hash      ; Display hash value in Bitcoin format
- 548: 3405+17	02DE' CD0000  	                call cwnwln             ; Write new line characters to console
- 549:				;
- 550: 3422+10	02E1' E1      	                pop hl
- 551: 3432+10	02E2' D1      	                pop de
- 552: 3442+10	02E3' C1      	                pop bc
- 553: 3452+10	02E4' C9      	                ret
- 554:				;
- 555:				;
- 556:				; Compare hashes and report any errors. Call with:
- 557:				; HL - pointer to hash (message digest [h0 to h7])
- 558:				; DE - pointer to expected hash value
- 559:				; Returns with:
- 560:				; Carry flag - set on mismatch, clear otherwise
- 561: 3462+11	02E5' C5      	cmp_hashes      push bc
- 562:				;
- 563: 3473+11	02E6' E5      	                push hl
- 564: 3484+11	02E7' D5      	                push de
+ 508:				; Print message pointed to by HL, then exit.
+ 509: 3117+17	02A6' CD0000  	msg_exit        call conwms             ; Print $-terminated string to console
+ 510:				;
+ 511:				; Return to CP/M.
+ 512: 3134+17	02A9' CD0000  	exit            call fclose             ; Close file
+ 513: 3151+10	02AC' 212C04  	                ld hl, exit_msg         ; "Returning to CP/M."
+ 514: 3161+17	02AF' CD0000  	                call conwms             ; Print $-terminated string to console
+ 515:				;
+ 516: 3178+20	02B2' ED7B0000	                ld sp, (bdos_sp)
+ 517:				; For this application a warm boot is required as we may have overwritten the
+ 518:				; CCP.
+ 519:				;                ret                     ; Return to BDOS
+ 520: 3198+10	02B6' C30000  	                jp 0                    ; Warm boot
+ 521:				;
+ 522:				;
+ 523:				;
+ 524:				; ***************
+ 525:				; * Subroutines *
+ 526:				; ***************
+ 527:				;
+ 528:				;
+ 529:				; Display nonce and hash.
+ 530: 3208+11	02B9' C5      	disp_best       push bc
+ 531: 3219+11	02BA' D5      	                push de
+ 532: 3230+11	02BB' E5      	                push hl
+ 533:				;
+ 534: 3241+10	02BC' 21B505  	                ld hl, best_msg         ; "Best nonce / hash found:"
+ 535: 3251+17	02BF' CD0000  	                call conwms             ; Print $-terminated string to console
+ 536: 3268+10	02C2' 214301  	                ld hl, best_nonce
+ 537: 3278+7	02C5' 4E      	                ld c, (hl)
+ 538: 3285+6	02C6' 23      	                inc hl
+ 539: 3291+7	02C7' 46      	                ld b, (hl)
+ 540: 3298+6	02C8' 23      	                inc hl
+ 541: 3304+7	02C9' 5E      	                ld e, (hl)
+ 542: 3311+6	02CA' 23      	                inc hl
+ 543: 3317+7	02CB' 56      	                ld d, (hl)
+ 544: 3324+4	02CC' 60      	                ld h, b
+ 545: 3328+4	02CD' 69      	                ld l, c
+ 546: 3332+17	02CE' CD0000  	                call cwpdlo             ; Print DEHL in decimal
+ 547:				;
+ 548: 3349+17	02D1' CD0000  	                call cwpspc             ; Print a space
+ 549: 3366+10	02D4' 212301  	                ld hl, best_hash
+ 550: 3376+17	02D7' CD7803  	                call bit_disp_hash      ; Display hash value in Bitcoin format
+ 551: 3393+17	02DA' CD0000  	                call cwnwln             ; Write new line characters to console
+ 552:				;
+ 553: 3410+10	02DD' E1      	                pop hl
+ 554: 3420+10	02DE' D1      	                pop de
+ 555: 3430+10	02DF' C1      	                pop bc
+ 556: 3440+10	02E0' C9      	                ret
+ 557:				;
+ 558:				;
+ 559:				; Compare hashes and report any errors. Call with:
+ 560:				; HL - pointer to hash (message digest [h0 to h7])
+ 561:				; DE - pointer to expected hash value
+ 562:				; Returns with:
+ 563:				; Carry flag - set on mismatch, clear otherwise
+ 564: 3450+11	02E1' C5      	cmp_hashes      push bc
  565:				;
- 566: 3495+10	02E8' 012000  	                ld bc, 8 * 4            ; Compare 8 32-bit words
- 567: 3505+7	02EB' 1A      	ch_loop         ld a, (de)
- 568: 3512+6	02EC' 13      	                inc de
- 569: 3518+16	02ED' EDA1    	                cpi                     ; cp (hl), inc hl, dec bc
- 570: 3534+7+5	02EF' 2008    	                jr nz, ch_miss
- 571: 3541+10	02F1' EAEB02  	                jp pe, ch_loop
- 572:				; Hashes match!
- 573: 3551+10	02F4' D1      	                pop de                  ; Discard pointers
- 574: 3561+10	02F5' E1      	                pop hl
- 575: 3571+4	02F6' A7      	                and a                   ; Flag success
- 576: 3575+12	02F7' 181E    	                jr ch_exit
- 577:				;
- 578: 3587+17	02F9' CD0000  	ch_miss         call cwnwln             ; Write new line characters to console
- 579: 3604+10	02FC' 218104  	                ld hl, hc_mismatch_msg  ; "Hash mismatch. Expected:"
- 580: 3614+17	02FF' CD0000  	                call conwms             ; Print $-terminated string to console
- 581: 3631+10	0302' E1      	                pop hl                  ; Recover pointer to expected hash
- 582: 3641+17	0303' CD0000  	                call sh2dh              ; Display hash value
- 583: 3658+17	0306' CD0000  	                call cwnwln             ; Write new line characters to console
- 584: 3675+10	0309' 219C04  	                ld hl, hc_found_msg     ; "found:"
- 585: 3685+17	030C' CD0000  	                call conwms             ; Print $-terminated string to console
- 586: 3702+10	030F' E1      	                pop hl                  ; Recover pointer to calculated hash
- 587: 3712+17	0310' CD0000  	                call sh2dh              ; Display hash value
- 588: 3729+17	0313' CD0000  	                call cwnwln             ; Write new line characters to console
- 589: 3746+4	0316' 37      	                scf                     ; Flag error
- 590:				;
- 591: 3750+10	0317' C1      	ch_exit         pop bc
- 592: 3760+10	0318' C9      	                ret
+ 566: 3461+11	02E2' E5      	                push hl
+ 567: 3472+11	02E3' D5      	                push de
+ 568:				;
+ 569: 3483+10	02E4' 012000  	                ld bc, 8 * 4            ; Compare 8 32-bit words
+ 570: 3493+7	02E7' 1A      	ch_loop         ld a, (de)
+ 571: 3500+6	02E8' 13      	                inc de
+ 572: 3506+16	02E9' EDA1    	                cpi                     ; cp (hl), inc hl, dec bc
+ 573: 3522+7+5	02EB' 2008    	                jr nz, ch_miss
+ 574: 3529+10	02ED' EAE702  	                jp pe, ch_loop
+ 575:				; Hashes match!
+ 576: 3539+10	02F0' D1      	                pop de                  ; Discard pointers
+ 577: 3549+10	02F1' E1      	                pop hl
+ 578: 3559+4	02F2' A7      	                and a                   ; Flag success
+ 579: 3563+12	02F3' 181E    	                jr ch_exit
+ 580:				;
+ 581: 3575+17	02F5' CD0000  	ch_miss         call cwnwln             ; Write new line characters to console
+ 582: 3592+10	02F8' 217D04  	                ld hl, hc_mismatch_msg  ; "Hash mismatch. Expected:"
+ 583: 3602+17	02FB' CD0000  	                call conwms             ; Print $-terminated string to console
+ 584: 3619+10	02FE' E1      	                pop hl                  ; Recover pointer to expected hash
+ 585: 3629+17	02FF' CD0000  	                call sh2dh              ; Display hash value
+ 586: 3646+17	0302' CD0000  	                call cwnwln             ; Write new line characters to console
+ 587: 3663+10	0305' 219804  	                ld hl, hc_found_msg     ; "found:"
+ 588: 3673+17	0308' CD0000  	                call conwms             ; Print $-terminated string to console
+ 589: 3690+10	030B' E1      	                pop hl                  ; Recover pointer to calculated hash
+ 590: 3700+17	030C' CD0000  	                call sh2dh              ; Display hash value
+ 591: 3717+17	030F' CD0000  	                call cwnwln             ; Write new line characters to console
+ 592: 3734+4	0312' 37      	                scf                     ; Flag error
  593:				;
- 594:				;
- 595:				; As cmp_hashes but the hash is reversed as is the convention for Bitcoin.
- 596:				; Call with:
- 597:				; HL - pointer to hash (message digest [h0 to h7])
- 598:				; DE - pointer to expected hash value in Bitcoin format
- 599:				; Returns with:
- 600:				; Carry flag - set on mismatch, clear otherwise
- 601: 3770+11	0319' C5      	bit_cmp_hashes  push bc
- 602:				;
- 603: 3781+11	031A' E5      	                push hl                 ; Save hash pointers
- 604: 3792+11	031B' D5      	                push de
+ 594: 3738+10	0313' C1      	ch_exit         pop bc
+ 595: 3748+10	0314' C9      	                ret
+ 596:				;
+ 597:				;
+ 598:				; As cmp_hashes but the hash is reversed as is the convention for Bitcoin.
+ 599:				; Call with:
+ 600:				; HL - pointer to hash (message digest [h0 to h7])
+ 601:				; DE - pointer to expected hash value in Bitcoin format
+ 602:				; Returns with:
+ 603:				; Carry flag - set on mismatch, clear otherwise
+ 604: 3758+11	0315' C5      	bit_cmp_hashes  push bc
  605:				;
- 606:				; Advance hash address to last register (h7)
- 607: 3803+10	031C' 011C00  	                ld bc, 7 * 4
- 608: 3813+11	031F' 09      	                add hl, bc
- 609:				;
- 610: 3824+7	0320' 0E08    	                ld c, 8                 ; Register counter
- 611: 3831+7	0322' 0604    	bch_reg_loop    ld b, 4                 ; Byte counter
- 612: 3838+7	0324' 1A      	bch_byte_loop   ld a, (de)
- 613: 3845+7	0325' BE      	                cp (hl)
- 614: 3852+7+5	0326' 2012    	                jr nz, bch_miss
- 615: 3859+6	0328' 13      	                inc de
- 616: 3865+6	0329' 23      	                inc hl
- 617: 3871+8+5	032A' 10F8    	                djnz bch_byte_loop
- 618:				; Register complete. Make HL point to the MS byte of the previous register.
- 619: 3879+11	032C' C5      	                push bc
- 620: 3890+10	032D' 01F8FF  	                ld bc, -8
- 621: 3900+11	0330' 09      	                add hl, bc
- 622: 3911+10	0331' C1      	                pop bc
- 623: 3921+4	0332' 0D      	                dec c
- 624: 3925+7+5	0333' 20ED    	                jr nz, bch_reg_loop
- 625:				; Hashes match!
- 626: 3932+10	0335' D1      	                pop de                  ; Discard pointers
- 627: 3942+10	0336' E1      	                pop hl
- 628: 3952+4	0337' A7      	                and a                   ; Flag success
- 629: 3956+12	0338' 1824    	                jr bch_exit
- 630:				;
- 631: 3968+17	033A' CD0000  	bch_miss        call cwnwln             ; Write new line characters to console
- 632: 3985+10	033D' 218104  	                ld hl, hc_mismatch_msg  ; "Hash mismatch. Expected:"
- 633: 3995+17	0340' CD0000  	                call conwms             ; Print $-terminated string to console
- 634: 4012+10	0343' E1      	                pop hl                  ; Recover pointer to expected hash
- 635:				; Neither sh2dh or bit_disp_hash will display as expected because the value is
- 636:				; reversed as well as being in big-endian order.
- 637: 4022+7	0344' 0620    	                ld b, 8 * 4
- 638: 4029+7	0346' 7E      	bch_disp_loop   ld a, (hl)
- 639: 4036+17	0347' CD0000  	                call cwphby             ; Print A in hexadecimal
- 640: 4053+6	034A' 23      	                inc hl
- 641: 4059+8+5	034B' 10F9    	                djnz bch_disp_loop
- 642: 4067+17	034D' CD0000  	                call cwnwln             ; Write new line characters to console
- 643: 4084+10	0350' 219C04  	                ld hl, hc_found_msg     ; "found:"
- 644: 4094+17	0353' CD0000  	                call conwms             ; Print $-terminated string to console
- 645: 4111+10	0356' E1      	                pop hl                  ; Recover pointer to calculated hash
- 646: 4121+17	0357' CD7C03  	                call bit_disp_hash      ; Display hash value in Bitcoin format
- 647: 4138+17	035A' CD0000  	                call cwnwln             ; Write new line characters to console
- 648: 4155+4	035D' 37      	                scf                     ; Flag error
- 649:				;
- 650: 4159+10	035E' C1      	bch_exit        pop bc
- 651: 4169+10	035F' C9      	                ret
+ 606: 3769+11	0316' E5      	                push hl                 ; Save hash pointers
+ 607: 3780+11	0317' D5      	                push de
+ 608:				;
+ 609:				; Advance hash address to last register (h7)
+ 610: 3791+10	0318' 011C00  	                ld bc, 7 * 4
+ 611: 3801+11	031B' 09      	                add hl, bc
+ 612:				;
+ 613: 3812+7	031C' 0E08    	                ld c, 8                 ; Register counter
+ 614: 3819+7	031E' 0604    	bch_reg_loop    ld b, 4                 ; Byte counter
+ 615: 3826+7	0320' 1A      	bch_byte_loop   ld a, (de)
+ 616: 3833+7	0321' BE      	                cp (hl)
+ 617: 3840+7+5	0322' 2012    	                jr nz, bch_miss
+ 618: 3847+6	0324' 13      	                inc de
+ 619: 3853+6	0325' 23      	                inc hl
+ 620: 3859+8+5	0326' 10F8    	                djnz bch_byte_loop
+ 621:				; Register complete. Make HL point to the MS byte of the previous register.
+ 622: 3867+11	0328' C5      	                push bc
+ 623: 3878+10	0329' 01F8FF  	                ld bc, -8
+ 624: 3888+11	032C' 09      	                add hl, bc
+ 625: 3899+10	032D' C1      	                pop bc
+ 626: 3909+4	032E' 0D      	                dec c
+ 627: 3913+7+5	032F' 20ED    	                jr nz, bch_reg_loop
+ 628:				; Hashes match!
+ 629: 3920+10	0331' D1      	                pop de                  ; Discard pointers
+ 630: 3930+10	0332' E1      	                pop hl
+ 631: 3940+4	0333' A7      	                and a                   ; Flag success
+ 632: 3944+12	0334' 1824    	                jr bch_exit
+ 633:				;
+ 634: 3956+17	0336' CD0000  	bch_miss        call cwnwln             ; Write new line characters to console
+ 635: 3973+10	0339' 217D04  	                ld hl, hc_mismatch_msg  ; "Hash mismatch. Expected:"
+ 636: 3983+17	033C' CD0000  	                call conwms             ; Print $-terminated string to console
+ 637: 4000+10	033F' E1      	                pop hl                  ; Recover pointer to expected hash
+ 638:				; Neither sh2dh or bit_disp_hash will display as expected because the value is
+ 639:				; reversed as well as being in big-endian order.
+ 640: 4010+7	0340' 0620    	                ld b, 8 * 4
+ 641: 4017+7	0342' 7E      	bch_disp_loop   ld a, (hl)
+ 642: 4024+17	0343' CD0000  	                call cwphby             ; Print A in hexadecimal
+ 643: 4041+6	0346' 23      	                inc hl
+ 644: 4047+8+5	0347' 10F9    	                djnz bch_disp_loop
+ 645: 4055+17	0349' CD0000  	                call cwnwln             ; Write new line characters to console
+ 646: 4072+10	034C' 219804  	                ld hl, hc_found_msg     ; "found:"
+ 647: 4082+17	034F' CD0000  	                call conwms             ; Print $-terminated string to console
+ 648: 4099+10	0352' E1      	                pop hl                  ; Recover pointer to calculated hash
+ 649: 4109+17	0353' CD7803  	                call bit_disp_hash      ; Display hash value in Bitcoin format
+ 650: 4126+17	0356' CD0000  	                call cwnwln             ; Write new line characters to console
+ 651: 4143+4	0359' 37      	                scf                     ; Flag error
  652:				;
- 653:				;
- 654:				; Copy h0 to h7 (the hash digest) to a buffer, performing an endian swap as
- 655:				; we go.
- 656:				; DE - pointer to buffer
- 657:				; HL - pointer to message digest (h0 to h7)
- 658: 4179+11	0360' C5      	copy_hash       push bc
- 659:				;
- 660: 4190+7	0361' 0608    	                ld b, 8                 ; Register counter
- 661: 4197+6	0363' 13      	ch_reg_loop     inc de                  ; Advance to last (MS) byte
- 662: 4203+6	0364' 13      	                inc de
- 663: 4209+6	0365' 13      	                inc de
- 664: 4215+11	0366' D5      	                push de
- 665: 4226+7	0367' 7E      	                ld a, (hl)
- 666: 4233+7	0368' 12      	                ld (de), a
- 667: 4240+6	0369' 23      	                inc hl
- 668: 4246+6	036A' 1B      	                dec de
- 669: 4252+7	036B' 7E      	                ld a, (hl)
- 670: 4259+7	036C' 12      	                ld (de), a
- 671: 4266+6	036D' 23      	                inc hl
- 672: 4272+6	036E' 1B      	                dec de
- 673: 4278+7	036F' 7E      	                ld a, (hl)
- 674: 4285+7	0370' 12      	                ld (de), a
- 675: 4292+6	0371' 23      	                inc hl
- 676: 4298+6	0372' 1B      	                dec de
- 677: 4304+7	0373' 7E      	                ld a, (hl)
- 678: 4311+7	0374' 12      	                ld (de), a
- 679: 4318+6	0375' 23      	                inc hl
- 680: 4324+10	0376' D1      	                pop de
- 681: 4334+6	0377' 13      	                inc de                  ; Advance to next longword
- 682: 4340+8+5	0378' 10E9    	                djnz ch_reg_loop        ; Loop for all registers
- 683:				;
- 684: 4348+10	037A' C1      	                pop bc
- 685: 4358+10	037B' C9      	                ret
+ 653: 4147+10	035A' C1      	bch_exit        pop bc
+ 654: 4157+10	035B' C9      	                ret
+ 655:				;
+ 656:				;
+ 657:				; Copy h0 to h7 (the hash digest) to a buffer, performing an endian swap as
+ 658:				; we go.
+ 659:				; DE - pointer to buffer
+ 660:				; HL - pointer to message digest (h0 to h7)
+ 661: 4167+11	035C' C5      	copy_hash       push bc
+ 662:				;
+ 663: 4178+7	035D' 0608    	                ld b, 8                 ; Register counter
+ 664: 4185+6	035F' 13      	ch_reg_loop     inc de                  ; Advance to last (MS) byte
+ 665: 4191+6	0360' 13      	                inc de
+ 666: 4197+6	0361' 13      	                inc de
+ 667: 4203+11	0362' D5      	                push de
+ 668: 4214+7	0363' 7E      	                ld a, (hl)
+ 669: 4221+7	0364' 12      	                ld (de), a
+ 670: 4228+6	0365' 23      	                inc hl
+ 671: 4234+6	0366' 1B      	                dec de
+ 672: 4240+7	0367' 7E      	                ld a, (hl)
+ 673: 4247+7	0368' 12      	                ld (de), a
+ 674: 4254+6	0369' 23      	                inc hl
+ 675: 4260+6	036A' 1B      	                dec de
+ 676: 4266+7	036B' 7E      	                ld a, (hl)
+ 677: 4273+7	036C' 12      	                ld (de), a
+ 678: 4280+6	036D' 23      	                inc hl
+ 679: 4286+6	036E' 1B      	                dec de
+ 680: 4292+7	036F' 7E      	                ld a, (hl)
+ 681: 4299+7	0370' 12      	                ld (de), a
+ 682: 4306+6	0371' 23      	                inc hl
+ 683: 4312+10	0372' D1      	                pop de
+ 684: 4322+6	0373' 13      	                inc de                  ; Advance to next longword
+ 685: 4328+8+5	0374' 10E9    	                djnz ch_reg_loop        ; Loop for all registers
  686:				;
- 687:				;
- 688:				; Display hash value. This works the same way as sh2dh in sha-256.z80, but in
- 689:				; this case the bytes are displayed in reverse order to suit Bitcoin
- 690:				; conventions.
- 691:				; Call with:
- 692:				; HL - pointer to hash (message digest [h0 to h7])
- 693: 4368+11	037C' C5      	bit_disp_hash   push bc
- 694:				;
- 695:				; Advance address to last register (h7)
- 696: 4379+10	037D' 011C00  	                ld bc, 7 * 4
- 697: 4389+11	0380' 09      	                add hl, bc
- 698: 4400+7	0381' 0608    	                ld b, 8                 ; Register counter
- 699: 4407+11	0383' E5      	bdh_reg_loop    push hl
- 700: 4418+17	0384' CD9003  	                call disp_hex32_be      ; Display big endian value
- 701: 4435+10	0387' E1      	                pop hl
- 702: 4445+6	0388' 2B      	                dec hl                  ; Point to next word
- 703: 4451+6	0389' 2B      	                dec hl
- 704: 4457+6	038A' 2B      	                dec hl
- 705: 4463+6	038B' 2B      	                dec hl
- 706: 4469+8+5	038C' 10F5    	                djnz bdh_reg_loop
- 707:				;
- 708: 4477+10	038E' C1      	                pop bc
- 709: 4487+10	038F' C9      	                ret
+ 687: 4336+10	0376' C1      	                pop bc
+ 688: 4346+10	0377' C9      	                ret
+ 689:				;
+ 690:				;
+ 691:				; Display hash value. This works the same way as sh2dh in sha-256.z80, but in
+ 692:				; this case the bytes are displayed in reverse order to suit Bitcoin
+ 693:				; conventions.
+ 694:				; Call with:
+ 695:				; HL - pointer to hash (message digest [h0 to h7])
+ 696: 4356+11	0378' C5      	bit_disp_hash   push bc
+ 697:				;
+ 698:				; Advance address to last register (h7)
+ 699: 4367+10	0379' 011C00  	                ld bc, 7 * 4
+ 700: 4377+11	037C' 09      	                add hl, bc
+ 701: 4388+7	037D' 0608    	                ld b, 8                 ; Register counter
+ 702: 4395+11	037F' E5      	bdh_reg_loop    push hl
+ 703: 4406+17	0380' CD8C03  	                call disp_hex32_be      ; Display big endian value
+ 704: 4423+10	0383' E1      	                pop hl
+ 705: 4433+6	0384' 2B      	                dec hl                  ; Point to next word
+ 706: 4439+6	0385' 2B      	                dec hl
+ 707: 4445+6	0386' 2B      	                dec hl
+ 708: 4451+6	0387' 2B      	                dec hl
+ 709: 4457+8+5	0388' 10F5    	                djnz bdh_reg_loop
  710:				;
- 711:				;
- 712:				; Display 32-bit big-endian hexadecimal value in memory. Call with:
- 713:				; HL - pointer to value
- 714: 4497+11	0390' C5      	disp_hex32_be   push bc
- 715:				;
- 716: 4508+7	0391' 0604    	                ld b, 4                 ; Byte counter
- 717: 4515+7	0393' 7E      	dhb32_loop      ld a, (hl)
- 718: 4522+17	0394' CD0000  	                call cwphby             ; Print A in hexadecimal
- 719: 4539+6	0397' 23      	                inc hl
- 720: 4545+8+5	0398' 10F9    	                djnz dhb32_loop
- 721:				;
- 722: 4553+10	039A' C1      	                pop bc
- 723: 4563+10	039B' C9      	                ret
+ 711: 4465+10	038A' C1      	                pop bc
+ 712: 4475+10	038B' C9      	                ret
+ 713:				;
+ 714:				;
+ 715:				; Display 32-bit big-endian hexadecimal value in memory. Call with:
+ 716:				; HL - pointer to value
+ 717: 4485+11	038C' C5      	disp_hex32_be   push bc
+ 718:				;
+ 719: 4496+7	038D' 0604    	                ld b, 4                 ; Byte counter
+ 720: 4503+7	038F' 7E      	dhb32_loop      ld a, (hl)
+ 721: 4510+17	0390' CD0000  	                call cwphby             ; Print A in hexadecimal
+ 722: 4527+6	0393' 23      	                inc hl
+ 723: 4533+8+5	0394' 10F9    	                djnz dhb32_loop
  724:				;
- 725:				; Display OK message.
- 726: 4573+10	039C' 21A504  	disp_ok         ld hl, ok_msg           ; "OK"
- 727: 4583+10	039F' C30000  	                jp conwms               ; Print $-terminated string to console
- 728:				;
- 729:				;
- 730:				;
- 731:				; *************
- 732:				; * Constants *
- 733:				; *************
- 734:				;
- 735:				;
- 736:     -	03A2' 2A2A2A20	signon_msg      byte "*** Bitcoin Mining V1.0 ***", 0x0d, 0x0a, "$"
+ 725: 4541+10	0396' C1      	                pop bc
+ 726: 4551+10	0397' C9      	                ret
+ 727:				;
+ 728:				; Display OK message.
+ 729: 4561+10	0398' 21A104  	disp_ok         ld hl, ok_msg           ; "OK"
+ 730: 4571+10	039B' C30000  	                jp conwms               ; Print $-terminated string to console
+ 731:				;
+ 732:				;
+ 733:				;
+ 734:				; *************
+ 735:				; * Constants *
+ 736:				; *************
+ 737:				;
+ 738:				;
+ 739:     -	039E' 2A2A2A20	signon_msg      byte "*** Bitcoin Mining V1.1 ***", 0x0d, 0x0a, "$"
 	              42697463
 	              6F696E20
 	              4D696E69
 	              6E672056
-	              312E3020
+	              312E3120
 	              2A2A2A0D
 	              0A24
- 737:     -	03C0' 5A383020	no_z80_msg      byte "Z80 CPU required", 0x0d, 0x0a, "$"
+ 740:     -	03BC' 5A383020	no_z80_msg      byte "Z80 CPU required", 0x0d, 0x0a, "$"
 	              43505520
 	              72657175
 	              69726564
 	              0D0A24
- 738:     -	03D3' 5A415243	no_zarc_msg     byte "ZARC BIOS not detected. Timing not available."
+ 741:     -	03CF' 5A415243	no_zarc_msg     byte "ZARC BIOS not detected. Timing not available."
 	              2042494F
 	              53206E6F
 	              74206465
@@ -1604,26 +1723,26 @@
 	              7661696C
 	              61626C65
 	              2E
- 739:     -	0400' 0D0A24  	                byte 0x0d, 0x0a, "$"
- 740:     -	0403' 556E6578	op_err_msg      byte "Unexpected operand(s).$"
+ 742:     -	03FC' 0D0A24  	                byte 0x0d, 0x0a, "$"
+ 743:     -	03FF' 556E6578	op_err_msg      byte "Unexpected operand(s).$"
 	              70656374
 	              6564206F
 	              70657261
 	              6E642873
 	              292E24
- 741:     -	041A' 0D0A4578	break_msg       byte 0x0d, 0x0a, "Exiting due to ^C", 0x0d, 0x0a, "$"
+ 744:     -	0416' 0D0A4578	break_msg       byte 0x0d, 0x0a, "Exiting due to ^C", 0x0d, 0x0a, "$"
 	              6974696E
 	              67206475
 	              6520746F
 	              205E430D
 	              0A24
- 742:     -	0430' 52657475	exit_msg        byte "Returning to CP/M.", 0x0d, 0x0a, "$"
+ 745:     -	042C' 52657475	exit_msg        byte "Returning to CP/M.", 0x0d, 0x0a, "$"
 	              726E696E
 	              6720746F
 	              2043502F
 	              4D2E0D0A
 	              24
- 743:     -	0445' 53746172	start_msg       byte "Starting mining. Press ^C to exit.", 0x0d, 0x0a, "$"
+ 746:     -	0441' 53746172	start_msg       byte "Starting mining. Press ^C to exit.", 0x0d, 0x0a, "$"
 	              74696E67
 	              206D696E
 	              696E672E
@@ -1633,77 +1752,77 @@
 	              20657869
 	              742E0D0A
 	              24
- 744:     -	046A' 0D497465	iter_msg        byte 0x0d, "Iteration: $"
+ 747:     -	0466' 0D497465	iter_msg        byte 0x0d, "Iteration: $"
 	              72617469
 	              6F6E3A20
 	              24
- 745:     -	0477' 2C206465	delta_msg       byte ", delta: $"
+ 748:     -	0473' 2C206465	delta_msg       byte ", delta: $"
 	              6C74613A
 	              2024
- 746:     -	0481' 48617368	hc_mismatch_msg byte "Hash mismatch. Expected:", 0x0d, 0x0a, "$"
+ 749:     -	047D' 48617368	hc_mismatch_msg byte "Hash mismatch. Expected:", 0x0d, 0x0a, "$"
 	              206D6973
 	              6D617463
 	              682E2045
 	              78706563
 	              7465643A
 	              0D0A24
- 747:     -	049C' 666F756E	hc_found_msg    byte "found:", 0x0d, 0x0a, "$"
+ 750:     -	0498' 666F756E	hc_found_msg    byte "found:", 0x0d, 0x0a, "$"
 	              643A0D0A
 	              24
- 748:     -	04A5' 4F4B0D0A	ok_msg          byte "OK", 0x0d, 0x0a, "$"
+ 751:     -	04A1' 4F4B0D0A	ok_msg          byte "OK", 0x0d, 0x0a, "$"
 	              24
- 749:     -	04AA' 4E756C6C	test_null_msg   byte "Null message test: $"
+ 752:     -	04A6' 4E756C6C	test_null_msg   byte "Null message test: $"
 	              206D6573
 	              73616765
 	              20746573
 	              743A2024
- 750:     -	04BE' 53686F72	test_short_msg  byte "Short message test: $"
+ 753:     -	04BA' 53686F72	test_short_msg  byte "Short message test: $"
 	              74206D65
 	              73736167
 	              65207465
 	              73743A20
 	              24
- 751:     -	04D3' 4C6F6E67	test_long_msg   byte "Long message test: $"
+ 754:     -	04CF' 4C6F6E67	test_long_msg   byte "Long message test: $"
 	              206D6573
 	              73616765
 	              20746573
 	              743A2024
- 752:     -	04E7' 4C6F6E67	test_long2_msg  byte "Long message test 2: $"
+ 755:     -	04E3' 4C6F6E67	test_long2_msg  byte "Long message test 2: $"
 	              206D6573
 	              73616765
 	              20746573
 	              7420323A
 	              2024
- 753:     -	04FD' 42697463	genesis_msg     byte "Bitcoin genesis block: $"
+ 756:     -	04F9' 42697463	genesis_msg     byte "Bitcoin genesis block: $"
 	              6F696E20
 	              67656E65
 	              73697320
 	              626C6F63
 	              6B3A2024
- 754:     -	0515' 42697463	bitc_exam_msg   byte "Bitcoin example block: $"
+ 757:     -	0511' 42697463	bitc_exam_msg   byte "Bitcoin example block: $"
 	              6F696E20
 	              6578616D
 	              706C6520
 	              626C6F63
 	              6B3A2024
- 755:     -	052D' 4C6F6164	load_msg        byte "Loading state from file $"
+ 758:     -	0529' 4C6F6164	load_msg        byte "Loading state from file $"
 	              696E6720
 	              73746174
 	              65206672
 	              6F6D2066
 	              696C6520
 	              24
- 756:     -	0546' 42495443	save_fn         byte "BITCOIN SAV"
+ 759:     -	0542' 42495443	save_fn         byte "BITCOIN SAV"
 	              4F494E20
 	              534156
- 757:     -	0551' 4572726F	load_err_msg    byte "Error reading saved state. "
+ 760:     -	054D' 4572726F	load_err_msg    byte "Error reading saved state. "
 	              72207265
 	              6164696E
 	              67207361
 	              76656420
 	              73746174
 	              652E20
- 758:     -	056C' 5573696E	                byte "Using bitcoin genesis block.", 0x0d, 0x0a, "$"
+ 761:     -	0568' 5573696E	                byte "Using bitcoin genesis block.", 0x0d, 0x0a, "$"
 	              67206269
 	              74636F69
 	              6E206765
@@ -1711,19 +1830,19 @@
 	              7320626C
 	              6F636B2E
 	              0D0A24
- 759:     -	058B' 0D0A5361	save_msg        byte 0x0d, 0x0a, "Saving state to file $"
+ 762:     -	0587' 0D0A5361	save_msg        byte 0x0d, 0x0a, "Saving state to file $"
 	              76696E67
 	              20737461
 	              74652074
 	              6F206669
 	              6C652024
- 760:     -	05A3' 4572726F	save_err_msg    byte "Error saving state.", 0x0d, 0x0a, "$"
+ 763:     -	059F' 4572726F	save_err_msg    byte "Error saving state.", 0x0d, 0x0a, "$"
 	              72207361
 	              76696E67
 	              20737461
 	              74652E0D
 	              0A24
- 761:     -	05B9' 0D0A4265	best_msg        byte 0x0d, 0x0a, "Best nonce / hash found:", 0x0d, 0x0a, "$"
+ 764:     -	05B5' 0D0A4265	best_msg        byte 0x0d, 0x0a, "Best nonce / hash found:", 0x0d, 0x0a, "$"
 	              7374206E
 	              6F6E6365
 	              202F2068
@@ -1731,40 +1850,40 @@
 	              666F756E
 	              643A0D0A
 	              24
- 762:				;
- 763:				;
- 764:				; Null message test hash.
- 765:				; Should be 0xe3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
- 766:     -	05D6' 42C4B0E3	null_msg_hash   dword 0xe3b0c442, 0x98fc1c14, 0x9afbf4c8, 0x996fb924
+ 765:				;
+ 766:				;
+ 767:				; Null message test hash.
+ 768:				; Should be 0xe3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+ 769:     -	05D2' 42C4B0E3	null_msg_hash   dword 0xe3b0c442, 0x98fc1c14, 0x9afbf4c8, 0x996fb924
 	              141CFC98
 	              C8F4FB9A
 	              24B96F99
- 767:     -	05E6' E441AE27	                dword 0x27ae41e4, 0x649b934c, 0xa495991b, 0x7852b855
+ 770:     -	05E2' E441AE27	                dword 0x27ae41e4, 0x649b934c, 0xa495991b, 0x7852b855
 	              4C939B64
 	              1B9995A4
 	              55B85278
- 768:				;
- 769:				; Short message test hash.
- 770:				; Should be 0x60e76ce856c4bd873cc66e424d214ced480d77c34091aad5eb190b2cd9668bd8
- 771:				; according to https://www.movable-type.co.uk/scripts/sha256.html
- 772:     -	05F6' 41207465	test1_msg       byte "A test message."
+ 771:				;
+ 772:				; Short message test hash.
+ 773:				; Should be 0x60e76ce856c4bd873cc66e424d214ced480d77c34091aad5eb190b2cd9668bd8
+ 774:				; according to https://www.movable-type.co.uk/scripts/sha256.html
+ 775:     -	05F2' 41207465	test1_msg       byte "A test message."
 	              7374206D
 	              65737361
 	              67652E
- 773:     -	000F'         	test1_msg_len   equ $ - test1_msg
- 774:     -	0605' E86CE760	test1_msg_hash  dword 0x60e76ce8, 0x56c4bd87, 0x3cc66e42, 0x4d214ced
+ 776:     -	000F'         	test1_msg_len   equ $ - test1_msg
+ 777:     -	0601' E86CE760	test1_msg_hash  dword 0x60e76ce8, 0x56c4bd87, 0x3cc66e42, 0x4d214ced
 	              87BDC456
 	              426EC63C
 	              ED4C214D
- 775:     -	0615' C3770D48	                dword 0x480d77c3, 0x4091aad5, 0xeb190b2c, 0xd9668bd8
+ 778:     -	0611' C3770D48	                dword 0x480d77c3, 0x4091aad5, 0xeb190b2c, 0xd9668bd8
 	              D5AA9140
 	              2C0B19EB
 	              D88B66D9
- 776:				;
- 777:				; Multi-chunk message test hash (32 bytes / line).
- 778:				; Should be 0x6dcec3724b30827de24fb9a3c2ce966af5ee167d60a6d1f6751131189a4bff46
- 779:				; according to https://www.movable-type.co.uk/scripts/sha256.html
- 780:     -	0625' 4C6F7265	test2_msg       byte "Lorem ipsum dolor sit amet, cons"
+ 779:				;
+ 780:				; Multi-chunk message test hash (32 bytes / line).
+ 781:				; Should be 0x6dcec3724b30827de24fb9a3c2ce966af5ee167d60a6d1f6751131189a4bff46
+ 782:				; according to https://www.movable-type.co.uk/scripts/sha256.html
+ 783:     -	0621' 4C6F7265	test2_msg       byte "Lorem ipsum dolor sit amet, cons"
 	              6D206970
 	              73756D20
 	              646F6C6F
@@ -1772,7 +1891,7 @@
 	              7420616D
 	              65742C20
 	              636F6E73
- 781:     -	0645' 65637465	                byte "ectetur adipiscing elit, sed do "
+ 784:     -	0641' 65637465	                byte "ectetur adipiscing elit, sed do "
 	              74757220
 	              61646970
 	              69736369
@@ -1780,7 +1899,7 @@
 	              6C69742C
 	              20736564
 	              20646F20
- 782:     -	0665' 65697573	                byte "eiusmod tempor incididunt ut lab"
+ 785:     -	0661' 65697573	                byte "eiusmod tempor incididunt ut lab"
 	              6D6F6420
 	              74656D70
 	              6F722069
@@ -1788,143 +1907,148 @@
 	              6964756E
 	              74207574
 	              206C6162
- 783:     -	0685' 6F726520	                byte "ore et dolore magna.    "
+ 786:     -	0681' 6F726520	                byte "ore et dolore magna.    "
 	              65742064
 	              6F6C6F72
 	              65206D61
 	              676E612E
 	              20202020
- 784:     -	0078'         	test2_msg_len   equ $ - test2_msg
- 785:     -	069D' 72C3CE6D	test2_msg_hash  dword 0x6dcec372, 0x4b30827d, 0xe24fb9a3, 0xc2ce966a
+ 787:     -	0078'         	test2_msg_len   equ $ - test2_msg
+ 788:     -	0699' 72C3CE6D	test2_msg_hash  dword 0x6dcec372, 0x4b30827d, 0xe24fb9a3, 0xc2ce966a
 	              7D82304B
 	              A3B94FE2
 	              6A96CEC2
- 786:     -	06AD' 7D16EEF5	                dword 0xf5ee167d, 0x60a6d1f6, 0x75113118, 0x9a4bff46
+ 789:     -	06A9' 7D16EEF5	                dword 0xf5ee167d, 0x60a6d1f6, 0x75113118, 0x9a4bff46
 	              F6D1A660
 	              18311175
 	              46FF4B9A
- 787:				; Test message as one line:
- 788:				; Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna.    
- 789:				;
- 790:				; test3 uses test2 text, but is just one character shorter.
- 791:				; Should be 0x0c6b0d223dd57168016f9b91749df4d83954a5ba6232b5060746e9e6b7e6b527
- 792:				; according to https://www.movable-type.co.uk/scripts/sha256.html
- 793:     -	0077'         	test3_msg_len   equ test2_msg_len - 1
- 794:     -	06BD' 220D6B0C	test3_msg_hash  dword 0x0c6b0d22, 0x3dd57168, 0x016f9b91, 0x749df4d8
+ 790:				; Test message as one line:
+ 791:				; Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna.    
+ 792:				;
+ 793:				; test3 uses test2 text, but is just one character shorter.
+ 794:				; Should be 0x0c6b0d223dd57168016f9b91749df4d83954a5ba6232b5060746e9e6b7e6b527
+ 795:				; according to https://www.movable-type.co.uk/scripts/sha256.html
+ 796:     -	0077'         	test3_msg_len   equ test2_msg_len - 1
+ 797:     -	06B9' 220D6B0C	test3_msg_hash  dword 0x0c6b0d22, 0x3dd57168, 0x016f9b91, 0x749df4d8
 	              6871D53D
 	              919B6F01
 	              D8F49D74
- 795:     -	06CD' BAA55439	                dword 0x3954a5ba, 0x6232b506, 0x0746e9e6, 0xb7e6b527
+ 798:     -	06C9' BAA55439	                dword 0x3954a5ba, 0x6232b506, 0x0746e9e6, 0xb7e6b527
 	              06B53262
 	              E6E94607
 	              27B5E6B7
- 796:				; Test message as one line:
- 797:				; Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna.   
- 798:				;
- 799:				; Time between messages in ms as a 32-bit integer.
- 800:     -	06DD' 10270000	msg_per_const   dword MSG_PERIOD
+ 799:				; Test message as one line:
+ 800:				; Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna.   
  801:				;
- 802:				; Raw hex version of the Genesis block (header only).
- 803:     -	06E1' 01000000	genesis         byte 0x01, 0x00, 0x00, 0x00         ; Version
- 804:				; Previous block hash
- 805:     -	06E5' 00000000	                byte 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+ 802:				; Time between messages in ms as a 32-bit integer.
+ 803:     -	06D9' 10270000	msg_per_const   dword MSG_PERIOD
+ 804:				;
+ 805:				; Raw hex version of the Genesis block (header only).
+ 806:     -	06DD' 01000000	genesis         byte 0x01, 0x00, 0x00, 0x00         ; Version
+ 807:				; Previous block hash
+ 808:     -	06E1' 00000000	                byte 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 	              00000000
- 806:     -	06ED' 00000000	                byte 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+ 809:     -	06E9' 00000000	                byte 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 	              00000000
- 807:     -	06F5' 00000000	                byte 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+ 810:     -	06F1' 00000000	                byte 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 	              00000000
- 808:     -	06FD' 00000000	                byte 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+ 811:     -	06F9' 00000000	                byte 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 	              00000000
- 809:				; Merkle root
- 810:     -	0705' 3BA3EDFD	                byte 0x3B, 0xA3, 0xED, 0xFD, 0x7A, 0x7B, 0x12, 0xB2
+ 812:				; Merkle root
+ 813:     -	0701' 3BA3EDFD	                byte 0x3B, 0xA3, 0xED, 0xFD, 0x7A, 0x7B, 0x12, 0xB2
 	              7A7B12B2
- 811:     -	070D' 7AC72C3E	                byte 0x7A, 0xC7, 0x2C, 0x3E, 0x67, 0x76, 0x8F, 0x61
+ 814:     -	0709' 7AC72C3E	                byte 0x7A, 0xC7, 0x2C, 0x3E, 0x67, 0x76, 0x8F, 0x61
 	              67768F61
- 812:     -	0715' 7FC81BC3	                byte 0x7F, 0xC8, 0x1B, 0xC3, 0x88, 0x8A, 0x51, 0x32
+ 815:     -	0711' 7FC81BC3	                byte 0x7F, 0xC8, 0x1B, 0xC3, 0x88, 0x8A, 0x51, 0x32
 	              888A5132
- 813:     -	071D' 3A9FB8AA	                byte 0x3A, 0x9F, 0xB8, 0xAA, 0x4B, 0x1E, 0x5E, 0x4A
+ 816:     -	0719' 3A9FB8AA	                byte 0x3A, 0x9F, 0xB8, 0xAA, 0x4B, 0x1E, 0x5E, 0x4A
 	              4B1E5E4A
- 814:     -	0725' 29AB5F49	                byte 0x29, 0xAB, 0x5F, 0x49         ; Timestamp
- 815:     -	0729' FFFF001D	                byte 0xFF, 0xFF, 0x00, 0x1D         ; Difficulty
- 816:     -	072D' 1DAC2B7C	                byte 0x1D, 0xAC, 0x2B, 0x7C         ; Nonce
- 817:				; End of header
- 818:     -	0001'         	                assert ($ - genesis) = BH_SIZE
- 819:				; Corresponding hash (in Bitcoin reversed format).
- 820:     -	0731' 00000000	genesis_hash    byte 0x00, 0x00, 0x00, 0x00, 0x00, 0x19, 0xd6, 0x68
+ 817:     -	0721' 29AB5F49	                byte 0x29, 0xAB, 0x5F, 0x49         ; Timestamp
+ 818:     -	0725' FFFF001D	                byte 0xFF, 0xFF, 0x00, 0x1D         ; Difficulty
+ 819:     -	0729' 1DAC2B7C	                byte 0x1D, 0xAC, 0x2B, 0x7C         ; Nonce
+ 820:				; End of header
+ 821:     -	0001'         	                assert ($ - genesis) = BH_SIZE
+ 822:				; Corresponding hash (in Bitcoin reversed format).
+ 823:     -	072D' 00000000	genesis_hash    byte 0x00, 0x00, 0x00, 0x00, 0x00, 0x19, 0xd6, 0x68
 	              0019D668
- 821:     -	0739' 9C085AE1	                byte 0x9c, 0x08, 0x5a, 0xe1, 0x65, 0x83, 0x1e, 0x93
+ 824:     -	0735' 9C085AE1	                byte 0x9c, 0x08, 0x5a, 0xe1, 0x65, 0x83, 0x1e, 0x93
 	              65831E93
- 822:     -	0741' 4FF763AE	                byte 0x4f, 0xf7, 0x63, 0xae, 0x46, 0xa2, 0xa6, 0xc1
+ 825:     -	073D' 4FF763AE	                byte 0x4f, 0xf7, 0x63, 0xae, 0x46, 0xa2, 0xa6, 0xc1
 	              46A2A6C1
- 823:     -	0749' 72B3F1B6	                byte 0x72, 0xb3, 0xf1, 0xb6, 0x0a, 0x8c, 0xe2, 0x6f
+ 826:     -	0745' 72B3F1B6	                byte 0x72, 0xb3, 0xf1, 0xb6, 0x0a, 0x8c, 0xe2, 0x6f
 	              0A8CE26F
- 824:				;
- 825:				; Bitcoin header example from:
- 826:				; http://www.righto.com/2014/02/bitcoin-mining-hard-way-algorithms.html
- 827:				; Looking it up here:
- 828:				; https://api.blockchair.com/bitcoin/raw/block/286819
- 829:     -	0751' 02000000	bitc_example    byte 0x02, 0x00, 0x00, 0x00         ; Version
- 830:				; Previous block hash (reversed), as in raw hex dump
- 831:     -	0755' 17975B97	                byte 0x17, 0x97, 0x5b, 0x97, 0xc1, 0x8e, 0xd1, 0xf7
+ 827:				;
+ 828:				; Bitcoin header example from:
+ 829:				; http://www.righto.com/2014/02/bitcoin-mining-hard-way-algorithms.html
+ 830:				; Looking it up here:
+ 831:				; https://api.blockchair.com/bitcoin/raw/block/286819
+ 832:     -	074D' 02000000	bitc_example    byte 0x02, 0x00, 0x00, 0x00         ; Version
+ 833:				; Previous block hash (reversed), as in raw hex dump
+ 834:     -	0751' 17975B97	                byte 0x17, 0x97, 0x5b, 0x97, 0xc1, 0x8e, 0xd1, 0xf7
 	              C18ED1F7
- 832:     -	075D' E255ADF2	                byte 0xe2, 0x55, 0xad, 0xf2, 0x97, 0x59, 0x9b, 0x55
+ 835:     -	0759' E255ADF2	                byte 0xe2, 0x55, 0xad, 0xf2, 0x97, 0x59, 0x9b, 0x55
 	              97599B55
- 833:     -	0765' 330EDAB8	                byte 0x33, 0x0e, 0xda, 0xb8, 0x78, 0x03, 0xc8, 0x17
+ 836:     -	0761' 330EDAB8	                byte 0x33, 0x0e, 0xda, 0xb8, 0x78, 0x03, 0xc8, 0x17
 	              7803C817
- 834:     -	076D' 01000000	                byte 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+ 837:     -	0769' 01000000	                byte 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 	              00000000
- 835:				; Merkle root (reversed), as in raw hex dump
- 836:     -	0775' 8A97295A	                byte 0x8a, 0x97, 0x29, 0x5a, 0x27, 0x47, 0xb4, 0xf1
+ 838:				; Merkle root (reversed), as in raw hex dump
+ 839:     -	0771' 8A97295A	                byte 0x8a, 0x97, 0x29, 0x5a, 0x27, 0x47, 0xb4, 0xf1
 	              2747B4F1
- 837:     -	077D' A0B3948D	                byte 0xa0, 0xb3, 0x94, 0x8d, 0xf3, 0x99, 0x03, 0x44
+ 840:     -	0779' A0B3948D	                byte 0xa0, 0xb3, 0x94, 0x8d, 0xf3, 0x99, 0x03, 0x44
 	              F3990344
- 838:     -	0785' C0E19FA6	                byte 0xc0, 0xe1, 0x9f, 0xa6, 0xb2, 0xb9, 0x2b, 0x3a
+ 841:     -	0781' C0E19FA6	                byte 0xc0, 0xe1, 0x9f, 0xa6, 0xb2, 0xb9, 0x2b, 0x3a
 	              B2B92B3A
- 839:     -	078D' 19C8E6BA	                byte 0x19, 0xc8, 0xe6, 0xba, 0xdc, 0x14, 0x17, 0x87
+ 842:     -	0789' 19C8E6BA	                byte 0x19, 0xc8, 0xe6, 0xba, 0xdc, 0x14, 0x17, 0x87
 	              DC141787
- 840:     -	0795' 358B0553	                byte 0x35, 0x8b, 0x05, 0x53         ; Timestamp
- 841:     -	0799' 535F0119	                byte 0x53, 0x5f, 0x01, 0x19         ; Difficulty
- 842:     -	079D' 48750833	                byte 0x48, 0x75, 0x08, 0x33         ; Nonce
- 843:				; End of header
- 844:     -	0001'         	                assert ($ - bitc_example) = BH_SIZE
- 845:				; Corresponding hash (in Bitcoin reversed format).
- 846:     -	07A1' 00000000	bitc_exam_hash  byte 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+ 843:     -	0791' 358B0553	                byte 0x35, 0x8b, 0x05, 0x53         ; Timestamp
+ 844:     -	0795' 535F0119	                byte 0x53, 0x5f, 0x01, 0x19         ; Difficulty
+ 845:     -	0799' 48750833	                byte 0x48, 0x75, 0x08, 0x33         ; Nonce
+ 846:				; End of header
+ 847:     -	0001'         	                assert ($ - bitc_example) = BH_SIZE
+ 848:				; Corresponding hash (in Bitcoin reversed format).
+ 849:     -	079D' 00000000	bitc_exam_hash  byte 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 	              00000000
- 847:     -	07A9' E067A478	                byte 0xe0, 0x67, 0xa4, 0x78, 0x02, 0x4a, 0xdd, 0xfe
+ 850:     -	07A5' E067A478	                byte 0xe0, 0x67, 0xa4, 0x78, 0x02, 0x4a, 0xdd, 0xfe
 	              024ADDFE
- 848:     -	07B1' CDC93628	                byte 0xcd, 0xc9, 0x36, 0x28, 0x97, 0x8a, 0xa5, 0x2d
+ 851:     -	07AD' CDC93628	                byte 0xcd, 0xc9, 0x36, 0x28, 0x97, 0x8a, 0xa5, 0x2d
 	              978AA52D
- 849:     -	07B9' 91FABD42	                byte 0x91, 0xfa, 0xbd, 0x42, 0x92, 0x98, 0x2a, 0x50
+ 852:     -	07B5' 91FABD42	                byte 0x91, 0xfa, 0xbd, 0x42, 0x92, 0x98, 0x2a, 0x50
 	              92982A50
- 850:				;
- 851:				;
- 852:				;
- 853:				; *************
- 854:				; * Variables *
- 855:				; *************
- 856:				;
- 857:				;
- 858:				; Note: linker "-c" option is used, so no data is initialised here.
- 859:				                dseg                ; Data segment
+ 853:				;
+ 854:				;
+ 855:				;
+ 856:				; *************
+ 857:				; * Variables *
+ 858:				; *************
+ 859:				;
  860:				;
- 861:     -	0000"         	bdos_sp         defs 2              ; BDOS's stack pointer
- 862:     -	0002"         	zarc_flag       defs 1              ; Non-zero if on a ZARC system
- 863:     -	0003"         	fcbr            defs FCBR_SIZE      ; FCB and record buffer structure
- 864:     -	00A9"         	msg_time        defs 4              ; Message timer (ms)
- 865:     -	00AD"         	iter_delta      defs 2              ; Iterations since last report
- 866:     -	00AF"         	bit_hash_buf    defs SH2_DIGEST_BYTES   ; Space for hash digest
+ 861:				; Note: linker "-c" option is used, so no data is initialised here.
+ 862:				                dseg                ; Data segment
+ 863:				;
+ 864:     -	0000"         	bdos_sp         defs 2              ; BDOS's stack pointer
+ 865:				;
+ 866:     -	0002"         	clr_start                           ; Start of cleared variables area
  867:				;
- 868:     -	00CF"         	save_start                          ; Start of saved variables
- 869:     -	00CF"         	iter_count      defs 4              ; Iteration counter
- 870:     -	00D3"         	bit_hdr_buf     defs BH_SIZE        ; Bitcoin block header buffer
- 871:     -	0123"         	best_hash       defs SH2_DIGEST_BYTES   ; Smallest hash found
- 872:     -	0143"         	best_nonce      defs 4              ; Nonce corresponding to above
- 873:     -	0078"         	save_size       equ $ - save_start
- 874:				;
- 875:     -	0147"         	                defs STACK_SIZE     ; Stack space
- 876:     -	0187"         	app_stack_top
- 877:				;
- 878:     -	0187"         	                end
+ 868:     -	0002"         	zarc_flag       defs 1              ; Non-zero if on a ZARC system
+ 869:     -	0003"         	fcbr            defs FCBR_SIZE      ; FCB and record buffer structure
+ 870:     -	00A9"         	msg_time        defs 4              ; Message timer (ms)
+ 871:     -	00AD"         	iter_delta      defs 2              ; Iterations since last report
+ 872:     -	00AF"         	bit_hash_buf    defs SH2_DIGEST_BYTES   ; Space for hash digest
+ 873:				;
+ 874:     -	00CF"         	clr_end                             ; End of cleared variables area
+ 875:				;
+ 876:     -	00CF"         	save_start                          ; Start of saved variables
+ 877:     -	00CF"         	iter_count      defs 4              ; Iteration counter
+ 878:     -	00D3"         	bit_hdr_buf     defs BH_SIZE        ; Bitcoin block header buffer
+ 879:     -	0123"         	best_hash       defs SH2_DIGEST_BYTES   ; Smallest hash found
+ 880:     -	0143"         	best_nonce      defs 4              ; Nonce corresponding to above
+ 881:     -	0078"         	save_size       equ $ - save_start
+ 882:				;
+ 883:     -	0147"         	                defs STACK_SIZE     ; Stack space
+ 884:     -	01C7"         	app_stack_top
+ 885:				;
+ 886:     -	01C7"         	                end
 
 
 
@@ -1932,11 +2056,11 @@ Statistics:
 
      4	passes
      0	jr promotions
-   446	symbols
-  1985	bytes
+   489	symbols
+  1981	bytes
 
-   195	macro calls
-  1546	macro bytes
+   211	macro calls
+  2391	macro bytes
      0	invented symbols
 
 
@@ -1956,11 +2080,19 @@ ASCII_SUB      =1A        26
 ASCII_SYN      =16        22
 ASCII_VT       =0B        11
 BDOS           =05        5
+BDOS_CALL_RSX  =3C        60
 BDOS_CLOSE_FILE=10        16
 BDOS_CON_IN    =01        1
 BDOS_CON_OUT   =02        2
+BDOS_C_DELIMIT =6E        110
+BDOS_C_MODE    =6D        109
+BDOS_C_WRITEBLK=6F        111
 BDOS_DELETE_FILE=13        19
 BDOS_DIRECT_CON_IO=06        6
+BDOS_DISK_CLEAN=62        98
+BDOS_F_MULTISEC=2C        44
+BDOS_F_PARSE   =98        152
+BDOS_F_TRUNCATE=63        99
 BDOS_GET_ALLOC_ADDR=1B        27
 BDOS_GET_CON_STAT=0B        11
 BDOS_GET_CURR_DISK=19        25
@@ -1971,10 +2103,13 @@ BDOS_GET_LOGIN_VEC=18        24
 BDOS_GET_RO_VEC=1D        29
 BDOS_GET_SET_USER=20        32
 BDOS_LST_OUT   =05        5
+BDOS_L_WRITEBLK=70        112
 BDOS_MAKE_FILE =16        22
 BDOS_OPEN_FILE =0F        15
 BDOS_PRINT_STRING=09        9
 BDOS_PUN_OUT   =04        4
+BDOS_P_CODE    =6C        108
+BDOS_P_LOAD    =3B        59
 BDOS_RDR_IN    =03        3
 BDOS_READ_CON_BUFF=0A        10
 BDOS_READ_RANDOM=21        33
@@ -1992,11 +2127,14 @@ BDOS_SET_IO_BYTE=08        8
 BDOS_SET_RANDOM_REC=24        36
 BDOS_START     =DE06      56838
 BDOS_SYS_RST   =00        0
+BDOS_S_BIOS    =32        50
+BDOS_S_SYSVAR  =31        49
+BDOS_T_SET     =68        104
 BDOS_VERSION   =0C        12
 BDOS_WRITE_PROT=1C        28
 BDOS_WRITE_RANDOM=22        34
-BDOS_WRITE_RAN_ZFILL=28        40
 BDOS_WRITE_SEQ =15        21
+BDOS_WR_RND_ZFILL=28        40
 BH_DIFFICULTY  =48        72
 BH_MERKLE      =24        36
 BH_NONCE       =4C        76
@@ -2059,10 +2197,16 @@ BIOS_XMOVE     =54        84
 BREAK_CHAR     =03        3
 CCP_START      =D600      54784
 CDISK          =04        4
+CONMOD_BDOS    =00        0
+CONMOD_BIOS    =01        1
 CPM_BIAS       =A200      41472
+CPM_BLOCK_SIZE = 800      2048
+CPM_DIR_ENTRIES= 200      512
 CPM_DISK_SIZE  =00100000  1048576
 CPM_SECTOR_SIZE=80        128
 CPM_SYS_SIZE   =00100000  1048576
+DCONIO_GET_NO_WT=FF        255
+DCONIO_PUT     =00        0
 DEF_BUFFER     =80        128
 DEF_BUFFER_SIZE=80        128
 DIRE_ALLOC     =10        16
@@ -2099,10 +2243,14 @@ FCB2           =6C        108
 FCBR_CONTENTS  =25        37
 FCBR_FCB       =00        0
 FCBR_FLAGS     =24        36
+FCBR_FL_BYTES_BIT=02        2
+FCBR_FL_BYTES_MASK=04        4
 FCBR_FL_DIRTY_BIT=01        1
 FCBR_FL_DIRTY_MASK=02        2
 FCBR_FL_OPEN_BIT=00        0
 FCBR_FL_OPEN_MASK=01        1
+FCBR_FL_RECS_BIT=03        3
+FCBR_FL_RECS_MASK=08        8
 FCBR_RBUFF     =26        38
 FCBR_SIZE      =A6        166
 FCB_ALLOC      =10        16
@@ -2128,7 +2276,9 @@ IOB_RDR_MASK   =0C        12
 MAX_USER       =0F        15
 MCALL_CACRS    =E4        228
 MCALL_CACWS    =E7        231
-MCALL_CAFLUS   =EA        234
+MCALL_CAFLUS   =F0        240
+MCALL_CARS     =EA        234
+MCALL_CAWS     =ED        237
 MCALL_CONRCH   =72        114
 MCALL_CONSTA   =75        117
 MCALL_CONWCH   =6F        111
@@ -2145,7 +2295,7 @@ MCALL_CWPHWD   =AB        171
 MCALL_CWPSPC   =9F        159
 MCALL_CWPTM    =DE        222
 MCALL_CWVICH   =9C        156
-MCALL_JPTBL_NEXT=F6        246
+MCALL_JPTBL_NEXT=FC        252
 MCALL_MADBBU   =C6        198
 MCALL_MADLBU   =C0        192
 MCALL_MADWBU   =C3        195
@@ -2153,9 +2303,9 @@ MCALL_MAMLBU   =CC        204
 MCALL_MAMWWU   =C9        201
 MCALL_MCPRER   =E1        225
 MCALL_MON_ENTRY=69        105
-MCALL_MPALL    =ED        237
-MCALL_MPFREE   =F0        240
-MCALL_MPSTAT   =F3        243
+MCALL_MPALL    =F3        243
+MCALL_MPFREE   =F6        246
+MCALL_MPSTAT   =F9        249
 MCALL_MTWDLI   =A2        162
 MCALL_PANIC    =6C        108
 MCALL_RDDULO   =BD        189
@@ -2204,14 +2354,23 @@ MTWDLI_ICASE_BIT=01        1
 MTWDLI_ICASE_MASK=02        2
 MTWDLI_TERM_BIT=07        7
 MTWDLI_TERM_MASK=80        128
-NUM_DISKS      =10        16
+NUM_DISKS      =09        9
 NUM_DISKS_MAX  =10        16
+SBM_A          =01        1
+SBM_B          =03        3
+SBM_C          =02        2
+SBM_D          =05        5
+SBM_E          =04        4
+SBM_FUNC       =00        0
+SBM_H          =07        7
+SBM_L          =06        6
+SBM_SIZE       =08        8
 SH2_CHUNK_BITS = 200      512
 SH2_CHUNK_BYTES=40        64
 SH2_CHUNK_LONGS=10        16
 SH2_DIGEST_BITS= 100      256
 SH2_DIGEST_BYTES=20        32
-STACK_SIZE     =40        64
+STACK_SIZE     =80        128
 TPA_START      = 100      256
 TRM_NONE       =00        0
 TRM_SINGLE     =01        1
@@ -2237,39 +2396,46 @@ ZKEY_HOME      =02        2
 ZKEY_INSERT    =16        22
 ZKEY_PAGE_DOWN =1C        28
 ZKEY_PAGE_UP   =1D        29
-app_stack_top    187"     391
-bch_byte_loop    324'     804
-bch_disp_loop    346'     838
-bch_exit         35E'     862
-bch_miss         33A'     826
-bch_reg_loop     322'     802
-bdh_reg_loop     383'     899
+adler           00        0 (extern)
+app_stack_top    1C7"     455
+bch_byte_loop    320'     800
+bch_disp_loop    342'     834
+bch_exit         35A'     858
+bch_miss         336'     822
+bch_reg_loop     31E'     798
+bdh_reg_loop     37F'     895
 bdos_sp         00"       0
 best_hash        123"     291
-best_msg         5B9'     1465
+best_msg         5B5'     1461
 best_nonce       143"     323
-bit_cmp_hashes   319'     793
-bit_disp_hash    37C'     892
+bit_cmp_hashes   315'     789
+bit_disp_hash    378'     888
 bit_hash_buf    AF"       175
 bit_hdr_buf     D3"       211
-bitc_exam_hash   7A1'     1953
-bitc_exam_msg    515'     1301
-bitc_example     751'     1873
-break_det        27E'     638
-break_msg        41A'     1050
+bitc_exam_hash   79D'     1949
+bitc_exam_msg    511'     1297
+bitc_example     74D'     1869
+break_det        27A'     634
+break_msg        416'     1046
 cbdos           00        0 (extern)
 cbios           00        0 (extern)
-ch_exit          317'     791
-ch_loop          2EB'     747
-ch_miss          2F9'     761
-ch_reg_loop      363'     867
-cmp_hashes       2E5'     741
+ch_exit          313'     787
+ch_loop          2E7'     743
+ch_miss          2F5'     757
+ch_reg_loop      35F'     863
+clopts          00        0 (extern)
+clr_end         CF"       207
+clr_loop        16'       22
+clr_start       02"       2
+cmp_hashes       2E1'     737
+conmod          00        0 (extern)
 conrch          00        0 (extern)
 const           00        0 (extern)
 conwch          00        0 (extern)
 conwmn          00        0 (extern)
 conwms          00        0 (extern)
-copy_hash        360'     864
+copy_hash        35C'     860
+cpmver          00        0 (extern)
 crc16x          00        0 (extern)
 cwnwln          00        0 (extern)
 cwpdby          00        0 (extern)
@@ -2280,15 +2446,15 @@ cwphnb          00        0 (extern)
 cwphwd          00        0 (extern)
 cwpspc          00        0 (extern)
 cwvich          00        0 (extern)
-delta_msg        477'     1143
-dhb32_loop       393'     915
-disp_best        2BD'     701
-disp_hex32_be    390'     912
-disp_ok          39C'     924
+delta_msg        473'     1139
+dhb32_loop       38F'     911
+disp_best        2B9'     697
+disp_hex32_be    38C'     908
+disp_ok          398'     920
 enum_counter   =04        4
-exam_tail       30'       48
-exit             2AD'     685
-exit_msg         430'     1072
+exam_tail       2C'       44
+exit             2A9'     681
+exit_msg         42C'     1068
 fbfcb           00        0 (extern)
 fcbr            03"       3
 fclose          00        0 (extern)
@@ -2307,83 +2473,84 @@ fstfre          00        0 (extern)
 fwrblk          00        0 (extern)
 fwrby           00        0 (extern)
 fwrrec          00        0 (extern)
-genesis          6E1'     1761
-genesis_hash     731'     1841
-genesis_msg      4FD'     1277
-hc_found_msg     49C'     1180
-hc_mismatch_msg  481'     1153
-hcmp_byte_loop   1C8'     456
-hcmp_reg_loop    1C4'     452
-init_clr_hash    15B'     347
-initt_done       193'     403
+genesis          6DD'     1757
+genesis_hash     72D'     1837
+genesis_msg      4F9'     1273
+hc_found_msg     498'     1176
+hc_mismatch_msg  47D'     1149
+hcmp_byte_loop   1C4'     452
+hcmp_reg_loop    1C0'     448
+init            00        0 (extern)
+init_clr_hash    157'     343
+initt_done       18F'     399
 iter_count      CF"       207
 iter_delta      AD"       173
-iter_msg         46A'     1130
-jptbl_addr     =F6        246
-load_done        16B'     363
-load_err_msg     551'     1361
-load_error       13D'     317
-load_msg         52D'     1325
+iter_msg         466'     1126
+jptbl_addr     =FC        252
+load_done        167'     359
+load_err_msg     54D'     1357
+load_error       139'     313
+load_msg         529'     1321
 madbbu          00        0 (extern)
 madd32          00        0 (extern)
 madlbu          00        0 (extern)
 madwbu          00        0 (extern)
-main_loop        19C'     412
+main_loop        198'     408
 mamlbu          00        0 (extern)
 mamwwu          00        0 (extern)
 mclr32          00        0 (extern)
 mcop32          00        0 (extern)
 mcp32           00        0 (extern)
 minc32          00        0 (extern)
-ml_no_break      27B'     635
-msg_exit         2AA'     682
-msg_per_const    6DD'     1757
+ml_no_break      277'     631
+msg_exit         2A6'     678
+msg_per_const    6D9'     1753
 msg_time        A9"       169
 msub32          00        0 (extern)
 mtwdli          00        0 (extern)
-next_nonce       1F2'     498
-no_z80_msg       3C0'     960
-no_zarc_msg      3D3'     979
-null_msg_hash    5D6'     1494
-ok_msg           4A5'     1189
-on_z80          18'       24
-op_check_term   33'       51
-op_err_msg       403'     1027
-op_error        3A'       58
-operands_ok     40'       64
+next_nonce       1EE'     494
+no_z80_msg       3BC'     956
+no_zarc_msg      3CF'     975
+null_msg_hash    5D2'     1490
+ok_msg           4A1'     1185
+on_z80          0A'       10
+op_check_term   2F'       47
+op_err_msg       3FF'     1023
+op_error        36'       54
+operands_ok     3C'       60
 panic           00        0 (extern)
 rddulo          00        0 (extern)
 rdduwd          00        0 (extern)
 rdhxwd          00        0 (extern)
-rep_delinc_dn    20C'     524
-rep_done         26B'     619
-rep_not_zarc     22A'     554
-rep_start        231'     561
-save_err_msg     5A3'     1443
-save_error       2A7'     679
-save_fn          546'     1350
-save_msg         58B'     1419
+rep_delinc_dn    208'     520
+rep_done         267'     615
+rep_not_zarc     226'     550
+rep_start        22D'     557
+save_err_msg     59F'     1439
+save_error       2A3'     675
+save_fn          542'     1346
+save_msg         587'     1415
 save_size      =78        120
 save_start      CF"       207
 sh2dh           00        0 (extern)
 sh2ini          00        0 (extern)
 sh2m            00        0 (extern)
-signon_msg       3A2'     930
+signon_msg       39E'     926
 skpspc          00        0 (extern)
-start_msg        445'     1093
+start_msg        441'     1089
 str_offset     =A6        166
-test1_msg        5F6'     1526
-test1_msg_hash   605'     1541
+test1_msg        5F2'     1522
+test1_msg_hash   601'     1537
 test1_msg_len  =0F        15
-test2_msg        625'     1573
-test2_msg_hash   69D'     1693
+test2_msg        621'     1569
+test2_msg_hash   699'     1689
 test2_msg_len  =78        120
-test3_msg_hash   6BD'     1725
+test3_msg_hash   6B9'     1721
 test3_msg_len  =77        119
-test_long2_msg   4E7'     1255
-test_long_msg    4D3'     1235
-test_null_msg    4AA'     1194
-test_short_msg   4BE'     1214
+test_long2_msg   4E3'     1251
+test_long_msg    4CF'     1231
+test_null_msg    4A6'     1190
+test_short_msg   4BA'     1210
 toloca          00        0 (extern)
 toupca          00        0 (extern)
 z80det          00        0 (extern)

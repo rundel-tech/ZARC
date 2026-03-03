@@ -1,0 +1,933 @@
+; *******************************************************
+; * CPMLDR BIOS for ZARC Z80 Computer                   *
+; * Version: V1.0                                       *
+; * Merlin Skinner, 10/12/2022                          *
+; *******************************************************
+;
+; This is loosely based on the ZARC CP/M 2.2 BIOS. It forms part of CPMLDR.COM
+; as follows:
+;
+; CPMLDR.REL (supplied by DRI)
+; ldrbios.rel (assembled version of this file)
+; ldrbios_comm.rel (section of BIOS in common memory)
+;
+; These three sections are combined to produce CPMLDR.COM. This is written to
+; the memory card and used to boot CP/M 3. Strangely, CPMLDR.REL does not
+; appear to have any depenencies and relies on the BIOS jump table for
+; communication. ldrbios_comm.cim is simply appended to the file.
+;
+; V1.0 - initial version.
+;
+;
+; Initial Memory Map (CP/M Mode)
+; This will become CP/M bank 0.
+; 
+; 0 (0000 - 3FFF): [CPM0]   writeable
+; 1 (4000 - 7FFF): [CPM1]   writeable
+; 2 (8000 - BFFF): [CPM2]   writeable
+; 3 (C000 - FFFF): [CPMC]   writeable, supervisor (CP/M 3 common bank)
+;
+; ZARC banks 0 to 2 will change according to the CP/M 3 bank selected.
+;
+; When running CP/M 3, memory is mapped as shown above when CP/M bank 0 is
+; selected. Note that ZARC bank 3 is the only one with I/O (supervisor) access.
+; This one bank is maintained when calls are made to the monitor. Page numbers
+; for CP/M may vary, and are allocated using the monitor's mpall function.
+;
+; Memory Map (Monitor Mode)
+; 
+; 0 (0000 - 3FFF): 3f [MONP]   read only, supervisor - monitor program
+; 1 (4000 - 7FFF): 3e [MOND]   writeable - monitor variables, buffers etc.
+; 2 (8000 - BFFF): (not used)
+; 3 (C000 - FFFF): [CPMC]   writeable - variables and stack common with CP/M.
+;
+; This is the default map used by the monitor, and is selected when the monitor
+; is active either for user commands or when its support routines are called.
+; Pages are mapped into bank 2 (8000 - BFFF) as required to support this. Page
+; 0x3f is selected in hardware when memory mapping is not active, so on reset
+; the monitor (page 0x3f at address 0) is entered.
+;
+;
+                title ZARC CPMLDR BIOS
+;
+;
+;
+; ************
+; * Includes *
+; ************
+;
+                include "macros.i"
+                include "z80.i"
+                include "zarc.i"        ; Hardware definitions
+                include "monitor.i"
+                include "io_map.i"      ; I/O addresses mapping
+                include "terminal.i"    ; Terminal constants
+                include "io.i"          ; I/O routines
+                include "utility.i"     ; Utility functions
+                include "maths.i"       ; Mathematical functions
+                include "interrupts.i"  ; Interrupts
+                include "time.i"        ; Routines associated with time
+                include "diags.i"       ; Diagnostics
+                include "heap.i"
+                include "cpm.i"
+                include "cpm3.i"
+                include "disks.i"
+                include "mmc.i"
+                include "memory.i"      ; Memory page allocation
+                include "ldrbios.i"     ; Project include file
+;
+;
+;
+; *************
+; * Externals *
+; *************
+;
+;
+; None
+;
+;
+;
+; *************
+; * Constants *
+; *************
+;
+;
+; None
+;
+;
+;
+; *************
+; * Main Code *
+; *************
+;
+                cseg                    ; Code segment
+;
+ldr_bios_start
+;
+; Jump table. Very few of these are implemented in this loader BIOS.
+; Information from http://www.gaby.de/cpm/manuals/archive/cpm22htm/axb.htm
+; Entries here must match the jump table in cpm.i.
+                jp BOOT                 ; Cold start routine
+                jp WBOOT                ; Warm boot
+                jp CONST                ; Console status
+                jp CONIN                ; Console input
+                jp CONOUT               ; Console output
+                jp PLIST                ; Printer output
+                jp AUXOUT               ; CP/M 2.2 PUNCH
+                jp AUXIN                ; CP/M 2.2 READER
+                jp HOME                 ; Move disc head to track 0
+                jp SELDSK               ; Select disc drive
+                jp SETTRK               ; Set track number
+                jp SETSEC               ; Set sector number
+                jp SETDMA               ; Set DMA address
+                jp READ                 ; Read a sector
+                jp WRITE                ; Write a sector
+; CP/M 2 functions.
+                jp LISTST               ; Status of list device
+                jp SECTRAN              ; Sector translation for skewing
+; CP/M 3 functions.
+                jp CONOST               ; Status of console output
+                jp AUXIST               ; Status of auxiliary input
+                jp AUXOST               ; Status of auxiliary output
+                jp DEVTBL               ; Address of devices table
+                jp DEVINI               ; Initialise a device
+                jp DRVTBL               ; Address of discs table
+                jp MULTIO               ; Read/write multiple sectors
+                jp FLUSH                ; Flush host buffers
+                jp MOVE                 ; Move a block of memory
+                jp TIME                 ; Real time clock
+                jp SELMEM               ; (BNKSEL) Select memory bank
+                jp SETBNK               ; Select bank for DMA operation
+                jp XMOVE                ; Preload banks for MOVE
+                jp USERF                ; System-dependent functions
+                jp RESERV1              ; Reserved
+                jp RESERV2              ; Reserved
+; ZARC-specific items follow.
+                byte "ZRC"              ; ZARC BIOS ID *1
+                byte 0, BIOS_MAJ_VER, BIOS_MIN_VER  ; BIOS_VER (version)
+                jp startup              ; ZARC CP/M startup entry point
+                jp mon_call             ; Call monitor function
+                jp set_super            ; Set supervisor state
+                jp int_disable          ; Disable interrupt and keep count
+                jp int_enable           ; Enable interrupts if safe.
+                jp tird                 ; Read time and date
+                jp set_timer            ; Set elapsed time
+                jp get_timer            ; Get elapsed timer
+;
+                assert $ = BIOS_JPTBL_NEXT + ldr_bios_start + 3 ; Verify end
+; *1 - this is "ZARC" truncated to three bytes to maintain alignment with other
+; jumps. This may be useful if the BIOS is ever called from C.
+;
+;
+; *** Unimplemented functions ***
+; Calls to these will result in a system panic.
+WBOOT                ; Warm boot
+CONST                ; Console status
+CONIN                ; Console input
+PLIST                ; Printer output
+AUXOUT               ; CP/M 2.2 PUNCH
+AUXIN                ; CP/M 2.2 READER
+WRITE                ; Write a sector
+LISTST               ; Status of list device
+CONOST               ; Status of console output
+AUXIST               ; Status of auxiliary input
+AUXOST               ; Status of auxiliary output
+DEVTBL               ; Address of devices table
+DEVINI               ; Initialise a device
+MULTIO               ; Read/write multiple sectors
+FLUSH                ; Flush host buffers
+TIME                 ; Real time clock
+SETBNK               ; Select bank for DMA operation
+XMOVE                ; Preload banks for MOVE
+USERF                ; System-dependent functions
+RESERV1              ; Reserved
+RESERV2              ; Reserved
+; ZARC-specific items follow.
+startup              ; ZARC CP/M startup entry point
+mon_call             ; Call monitor function
+set_super            ; Set supervisor state
+int_disable          ; Disable interrupt and keep count
+int_enable           ; Enable interrupts if safe.
+tird                 ; Read time and date
+set_timer            ; Set elapsed time
+get_timer            ; Get elapsed timer
+;
+                call CCALL_PANIC         ; System error monitor entry
+;
+;
+;
+; ***********
+; * Booting *
+; ***********
+;
+;
+; -3: Cold start.
+; IX - pointer to BIOS parameters structure
+; IX is set by the monitor and points to a parameter structure in the monitor's
+; variables space (page 0x3e). IX should not be affected by DRI's CPMLDR as
+; this is 8080 code.
+; First relocate some routines to the common CP/M 3 bank (ZARC bank 3). This
+; will copy some junk at the end, but that is not important.
+BOOT            ld hl, comm_start
+                ld de, CPMLDR_B_C_START
+                ld bc, CPMLDR_B_C_MAXLEN
+                ldir
+                ld hl, CPMLDR_B_C_START
+                ld a, (hl)
+                cp jp                   ; Should start with jump
+                jr z, boot_comm_ok
+; There is something odd about the common area code, without which we can't
+; continue. The preferred method for reporting unrecoverable errors is to call
+; the CCALL_PANIC routine, however that is in the common area code and hence not
+; available. Hence we just halt. At least the front panel will show the address.
+all_stop        halt
+                jr all_stop
+;
+; Credible common area code is present. Copy variables from monitor and check
+; that the memory card partition is large enough for our drives.
+boot_comm_ok    call CCALL_INIT         ; Initialise
+;
+; Display banner message.
+                ld hl, signon_msg
+                call conwms             ; Print message
+;
+; Place a call to the debugger at 0x0038. This allows CPMLDR to enter the
+; debugger after CP/M 3 is loaded but before running it. To enable this
+; feature, set 0x005D to "$B" (0x24 0x42).
+                ld hl,0x0038            ; 8085 RST 7 vector
+                ld a, jp
+                ld (hl), a
+                inc hl
+                ld de, cmon
+                ld (hl), e
+                inc hl
+                ld (hl), d
+;
+; Temporary exit to debugger.
+;                call cmon               ; Enter monitor for debugging
+;
+                ret
+;
+;
+;
+; *****************
+; * Character I/O *
+; *****************
+;
+;
+; 9: Console output. Console character output from register C.
+; Use monitor's output routine.
+CONOUT          ld a, c
+                jp conwch
+;
+;
+;
+; ***************
+; * Disk System *
+; ***************
+;
+;
+; In reality, this is more complicated than we need for the loader BIOS as this
+; only needs access to drive A. However, the full BIOS will of course require
+; access to all drives.
+;
+; Initialise drive (pointed to by XDPH structure).
+init_drive      ret
+;
+;
+; 21: Move disc head to track 0
+HOME            ld a, (CCALL_JPTBL_NEXT + BPS_OPTIONS)      ; Debugging messages flag
+                and BIOS_OPT_DEBUG_MASK
+                jr z, hm_no_debug
+;
+; Debugging messages.
+                push hl
+                ld hl, home_msg         ; "<Home>"
+                call conwms             ; Print message
+                call cwnwln             ; Print new line characters
+                pop hl
+;
+hm_no_debug     ld bc, 0
+                jr SETTRK
+;
+;
+; 24: Select disc drive given by C.
+; A responsibility of the SELDSK subroutine is to return the base address of the
+; DPH for the selected drive. The following sequence of operations returns the
+; table address, with a 0000H returned if the selected drive does not exist.
+; Call with:
+; C - Disk Drive (0-15)
+; E - bit 0 is "0" if the drive has not previously been selected, "1" otherwise.
+                assert CP3_NUM_DISKS <= NUM_DISKS_MAX
+SELDSK          ld a, (CCALL_JPTBL_NEXT + BPS_OPTIONS)      ; See BIOS_OPT_xxx definitions.
+                and BIOS_OPT_DEBUG_MASK
+                jr z, sel_no_debug
+;
+; Debugging messages.
+                ld hl, seldsk_msg       ; "<SelDsk "
+                call conwms             ; Print message
+                ld a, c
+                call cwpdby             ; Print A in decimal
+                ld a, ":"
+                call conwch             ; Write character to the console
+;
+sel_no_debug    ld hl, 0                ; Error code
+                ld a, c
+                ld (@rdrv), a
+                cp CP3_NUM_DISKS
+                jr nc, sd_exit          ; Return with HL=0 if out of range
+;
+; Index drive_table to find the DPH address for the drive.
+                push de
+                ld l, c
+                ld h, 0
+                add hl, hl              ; Index word entries
+                ld de, drive_table
+                add hl, de
+                ld e, (hl)
+                inc hl
+                ld d, (hl)
+                ex de, hl
+                pop de
+;
+; HL - pointer to DPH part of XDPH for selected drive
+;
+sd_exit         ld a, (CCALL_JPTBL_NEXT + BPS_OPTIONS)      ; See BIOS_OPT_xxx definitions.
+                and BIOS_OPT_DEBUG_MASK
+                jr z, sel_no_debug1
+;
+; Print result
+                push hl
+                call cwphwd             ; Print HL in hexadecimal
+                ld a, ">"
+                call conwch             ; Write character to the console
+                pop hl
+;
+sel_no_debug1   ret
+;
+;
+; 27: Set track number. Set track number given by BC.
+; This will be in the range 0 to ...
+SETTRK          ld a, (CCALL_JPTBL_NEXT + BPS_OPTIONS)      ; See BIOS_OPT_xxx definitions.
+                and BIOS_OPT_DEBUG_MASK
+                jr z, sett_no_debug
+;
+; Debugging messages.
+                push hl
+                ld hl, settrk_msg       ; "<SetTrk "
+                call conwms             ; Print message
+                ld h, b
+                ld l, c
+                call cwpdwd             ; Print HL in decimal
+                ld a, ">"
+                call conwch             ; Write character to the console
+                pop hl
+;
+sett_no_debug   ld (@trk), bc
+                ret
+;
+;
+; 30: Set sector number. Set sector number given by BC.
+; This will be in the range 0 to (DISK_PHYS_SPT - 1).
+SETSEC          ld a, (CCALL_JPTBL_NEXT + BPS_OPTIONS)      ; See BIOS_OPT_xxx definitions.
+                and BIOS_OPT_DEBUG_MASK
+                jr z, ses_no_debug
+;
+; Debugging messages.
+                push hl
+                ld hl, setsec_msg       ; "<SetSec "
+                call conwms             ; Print message
+                ld h, b
+                ld l, c
+                call cwpdwd             ; Print HL in decimal
+                ld a, ">"
+                call conwch             ; Write character to the console
+                pop hl
+ses_no_debug
+;
+                ld (@sect), bc
+                ret
+;
+;
+; 33: Set DMA address. Set DMA address given by BC.
+SETDMA          ld a, (CCALL_JPTBL_NEXT + BPS_OPTIONS)      ; See BIOS_OPT_xxx definitions.
+                and BIOS_OPT_DEBUG_MASK
+                jr z, sed_no_debug
+;
+; Debugging messages.
+                push hl
+                ld hl, setdma_msg       ; "<SetDMA "
+                call conwms             ; Print message
+                ld h, b
+                ld l, c
+                call cwphwd             ; Print HL in hexadecimal
+                ld a, ">"
+                call conwch             ; Write character to the console
+                pop hl
+;
+sed_no_debug    ld (@dma), bc
+                ret
+;
+;
+; 36: Read a sector.
+; Returns with:
+; A - 0 if OK, 1 otherwise.
+READ            ld (bg_sp), sp
+                ld sp, lo_stk_top_p1    ; Switch to local stack
+;
+                push bc
+                push de
+                push hl
+                push ix
+;
+                call find_lba           ; Find LBA sector number
+; CDE - sector number (0 to (sectors - 1)) (offset into partition)
+                ld hl, COM_SEC_BUFFER   ; Sector buffer in common area
+                ld ix, (CCALL_JPTBL_NEXT + BPS_PARTITION) ; Point to partition table entry
+                exx                     ; Parameters are in alternate set
+                ld de, MCALL_CARS       ; MMC read sector
+; DE - Pointer to monitor function
+                call CCALL_MON_CALL     ; Call monitor function
+                exx
+                ex af, af'
+; A - zero (OK) or error code (SPI_ERR_xxx)
+; HL - pointer to sector buffer
+                and a
+                jr nz, rw_error         ; Jump on error
+;
+; Successful read. Now copy the data to the DMA location.
+rd_ok           ld hl, COM_SEC_BUFFER
+                ld de, (@dma)
+                ld bc, MMC_SECTOR_SIZE
+; BC - length
+; DE - destination address
+; HL - sector buffer
+                ldir
+;
+                ld a, (CCALL_JPTBL_NEXT + BPS_OPTIONS)      ; See BIOS_OPT_xxx definitions.
+                and BIOS_OPT_DEBUG_MASK
+                jr z, rd_no_debug
+;
+; Debugging messages.
+                ld hl, readsec_msg      ; "<Read>"
+                call conwms             ; Print message
+                call cwnwln             ; Print new line characters
+;
+rd_no_debug     xor a                   ; Flag success
+rd_exit         pop ix
+                pop hl
+                pop de
+                pop bc
+                ld sp, (bg_sp)          ; Restore calling stack
+                ret
+;
+; Something went wrong. Used by READ and WRITE routines.
+rw_error        ld c, a
+                call cwnwln             ; Print new line characters
+                ld a, c
+                exx                     ; Parameters are in alternate set
+                ex af, af'
+                ld de, MCALL_MCPRER     ; Print memory card error text
+; DE - Pointer to monitor function
+                call CCALL_MON_CALL     ; Call monitor function
+                exx                     ; Make results available
+                ld a, 1                 ; Flag error
+                jr rd_exit
+;
+;
+; 45: Sector translation for skewing
+; Sector Translate. Indexes skew table in <DE> with sector in <BC>. Returns
+; physical sector in <HL>. If no skew table (<DE>=0) then returns physical
+; logical.
+SECTRAN         ld a, (CCALL_JPTBL_NEXT + BPS_OPTIONS)      ; See BIOS_OPT_xxx definitions.
+                and BIOS_OPT_DEBUG_MASK
+                jr z, sect_no_debug
+;
+; Debugging messages.
+                push hl
+                ld hl, sectran_msg      ; "<SecTran "
+                call conwms             ; Print message
+                ld h, b
+                ld l, c
+                call cwpdwd             ; Print HL in decimal
+                ld a, ">"
+                call conwch             ; Write character to the console
+                pop hl
+;
+sect_no_debug
+; Check for translation table and panic if there is one.
+                ld a, d
+                or e
+                call nz, CCALL_PANIC
+;
+; Return supplied sector with no translation.
+                ld l, c                 ; No translation required
+                ld h, b
+                ret
+;
+;
+;63: Address of disks table
+; BIOS Function 22: DRVTBL
+; Return Address of Disk Drive Table. Returns with:
+; HL - Address of Drive Table of Disk
+; HL=0FFFFH if no Drive Table; GENCPM does not set up buffers. Hashing is
+; supported. HL=0FFFEH if no Drive Table; GENCPM does not set up buffers.
+; Hashing is not supported.
+DRVTBL          ld hl, drive_table
+;
+                ld a, (CCALL_JPTBL_NEXT + BPS_OPTIONS)      ; See BIOS_OPT_xxx definitions.
+                and BIOS_OPT_DEBUG_MASK
+                jr z, drvt_no_debug
+;
+; Debugging messages.
+                push hl
+                ld hl, drvtbl_msg      ; "<DrvTbl "
+                call conwms             ; Print message
+                pop hl
+                push hl
+                call cwphwd             ; Print HL in hexadecimal
+                ld a, ">"
+                call conwch             ; Write character to the console
+                pop hl
+;
+drvt_no_debug   ret
+;
+;
+; 72: Move a block of memory. Call with:
+; HL - Destination address
+; DE - Source address
+; BC - Count
+; Returns with:
+; HL and DE point to next bytes following move operation.
+; In a banked system, this must be extended to cope with the source and
+; destination banks being different (XMOVE). This is sufficient for the LDRBIOS,
+; however. 
+MOVE            ld a, (CCALL_JPTBL_NEXT + BPS_OPTIONS)      ; See BIOS_OPT_xxx definitions.
+                and BIOS_OPT_DEBUG_MASK
+                jr z, move_no_debug
+;
+; Debugging messages.
+                push hl
+                ld hl, move_msg         ; "<Move "
+                call conwms             ; Print message
+                ld h, b
+                ld l, c
+                call cwphwd             ; Print HL in hexadecimal
+                ld hl, from_msg         ; " bytes from "
+                call conwms             ; Print message
+                ld h, d
+                ld l, e
+                call cwphwd             ; Print HL in hexadecimal
+                ld hl, to_msg           ; " to "
+                call conwms             ; Print message
+                pop hl
+                push hl
+                call cwphwd             ; Print HL in hexadecimal
+                ld a, ">"
+                call conwch             ; Write character to the console
+                call cwnwln             ; Print new line characters
+                pop hl
+;
+move_no_debug   ex de, hl
+                ldir
+                ex de, hl
+                ret
+;
+;
+;78: Select memory bank
+SELMEM          call CCALL_PANIC         ; System error monitor entry
+;
+;
+;
+; ***************
+; * Subroutines *
+; ***************
+;
+;
+; Some frequently used monitor calls have their own subroutine for convenience.
+;
+;
+; Call monitor to print a character to the console.
+; Call with:
+; A - character to print
+conwch          exx                     ; Parameters are in alternate set
+                ex af, af'
+                ld de, MCALL_CONWCH     ; Print character
+; DE - Pointer to monitor function
+                call CCALL_MON_CALL     ; Call monitor function
+                exx                     ; Make results available
+                ret
+;
+;
+; Write new line characters to console.
+cwnwln          exx                     ; Parameters are in alternate set
+                ld de, MCALL_CWNWLN     ; Write new line characters
+; DE - Pointer to monitor function
+                call CCALL_MON_CALL     ; Call monitor function
+                exx                     ; Make results available
+                ret
+;
+;
+; Print a null-terminated string to the console.
+; Call with:
+; HL - pointer to start of message
+; Returns with:
+; HL - points to the terminator.
+; Note that this doesn't call the monitor function (MCALL_CONWMS) as the
+; message will be paged out when the monitor routine is active.
+conwms          ld a, (hl)
+                and a
+                ret z                   ; Return if terminator found
+                call conwch             ; Write character
+                inc hl
+                jr conwms
+;
+;
+; Call monitor to print A in decimal.
+cwpdby          exx                     ; Parameters are in alternate set
+                ex af, af'
+                ld de, MCALL_CWPDBY     ; Print A in decimal
+; DE - Pointer to monitor function
+                call CCALL_MON_CALL     ; Call monitor function
+                exx                     ; Make results available
+                ret
+;
+;
+; Print HL in decimal. Leading zeros are suppressed.
+cwpdwd          exx                     ; Parameters are in alternate set
+                ld de, MCALL_CWPDWD     ; Print HL in decimal
+; DE - Pointer to monitor function
+                call CCALL_MON_CALL     ; Call monitor function
+                exx                     ; Make results available
+                ret
+;
+;
+; Print HL in hexadecimal.
+cwphwd          exx                     ; Parameters are in alternate set
+                ld de, MCALL_CWPHWD     ; Print HL in hexadecimal
+; DE - Pointer to monitor function
+                call CCALL_MON_CALL     ; Call monitor function
+                exx                     ; Make results available
+                ret
+;
+;
+; An MMC error has occurred. Display error message and return to monitor.
+; A - error code (SPI_ERR_xxx)
+mmc_error       push af
+                call cwnwln             ; Print new line characters
+                pop af
+                exx                     ; Parameters are in alternate set
+                ex af, af'
+                ld de, MCALL_MCPRER     ; Print memory card error text
+; DE - Pointer to monitor function
+                call CCALL_MON_CALL     ; Call monitor function
+                exx                     ; Make results available
+;
+                call CCALL_PANIC
+;
+;
+; Call monitor for debugging. "go" continues execution.
+cmon            exx                     ; Parameters are in alternate set
+                ld de, MCALL_MON_ENTRY  ; Print HL in hexadecimal
+; DE - Pointer to monitor function
+                call CCALL_MON_CALL     ; Call monitor function
+                exx                     ; Make results available
+                ret
+;
+;
+; Calculate physical sector number based on selected drive, track and sector
+; numbers. For drive A: (@rdrv = 0), offset is:
+; CPM_SYS_TRACKS + (CPM_DRIVE_TRACKS * (CP3_DRIVE_A))
+; For drives B: to H: (@rdrv = 1 to 7):
+; CPM_SYS_TRACKS + (CPM_DRIVE_TRACKS * ((@rdrv - 1) + CP3_DRIVE_B))
+; LBA = <physical sectors per track> * (track + offset) + sector
+; Returns with:
+; CDE - MMC (512-byte) sector number (offset into partition)
+find_lba        push hl
+;
+; Check track and sector are sensible.
+                ld hl, (@trk)
+                ld de, CPM_DRIVE_TRACKS
+                and a
+                sbc hl, de
+                call nc, CCALL_PANIC    ; Panic if track is out of range
+; Sector
+                ld hl, (@sect)
+                ld de, DISK_PHYS_SPT
+                and a
+                sbc hl, de
+                call nc, CCALL_PANIC    ; Panic if track is out of range
+;
+; Find offset (first sector of the required drive). The DPB is identical for
+; all drives, so we don't use the OFF field as we do for CP/M 2.2.
+                ld a, (@rdrv)       ; Drive number
+                cp CP3_NUM_DISKS
+                call nc, CCALL_PANIC    ; Panic if drive is out of range
+;
+                ld l, CP3_DRIVE_A
+                and a
+                jr z, fl_have_offset    ; Use this offset for drive A
+; Drives B to H.
+                dec a
+                add CP3_DRIVE_B
+                ld l, a
+; L - offset in units of MB drives, not including system tracks. 
+                assert CPM_DRIVE_TRACKS = 32
+fl_have_offset  ld h, 0
+                add hl, hl
+                add hl, hl
+                add hl, hl
+                add hl, hl
+                add hl, hl
+                ld de, CPM_SYS_TRACKS
+                add hl, de
+; hl - offset
+                ld de, (@trk)
+                add hl, de
+; Multiply tracks by sectors per track to find the sector number. 24-bit
+; arithmetic is used, though for this application 16 bits would be sufficient.
+                ld c, 0                 ; MS bits
+                assert DISK_PHYS_SPT = 64
+                add hl, hl
+                rl c
+                add hl, hl
+                rl c
+                add hl, hl
+                rl c
+                add hl, hl
+                rl c
+                add hl, hl
+                rl c
+                add hl, hl
+                rl c
+                ex de, hl
+; CDE = 64 * track
+; Add sector
+                ld hl, (@sect)
+                add hl, de
+                ex de, hl
+                ld a, c
+                adc 0                   ; Propagate carry
+                ld c, a
+;
+                pop hl
+                ret
+;
+;
+;
+; *************
+; * Constants *
+; *************
+;
+;
+signon_msg      byte "ZARC CPMLDR BIOS V", BIOS_MAJ_VER + "0", "."
+                byte BIOS_MIN_VER + "0", " for CP/M 3", 0x0d, 0x0a, 0
+; Debugging messages.
+home_msg        byte "<Home>", 0
+seldsk_msg      byte "<SelDsk ", 0
+settrk_msg      byte "<SetTrk ", 0
+setsec_msg      byte "<SetSec ", 0
+setdma_msg      byte "<SetDMA ", 0
+readsec_msg     byte "<Read>", 0
+sectran_msg     byte "<SecTran ", 0
+drvtbl_msg      byte "<DrvTbl ", 0
+move_msg        byte "<Move ", 0
+from_msg        byte " bytes from ", 0
+to_msg          byte " to ", 0
+;
+;
+;
+; Define a single pointer to a XDPH for drive "d". This is required as the
+; "`" mechanism only works in a macro.
+ins_word        macro d
+                word xdph`d
+                endm
+;
+;
+; Drive table as defined in CP/M 3 System Guide section 3.3.1. It is a list
+; of pointers to the Disk Parameter Headers for each logical drive name, A
+; through P.
+drive_table
+drive           set 0
+                rept CP3_NUM_DISKS
+                ins_word %drive
+drive           set drive + 1
+                endm 
+;
+;
+; Extended Disk Parameter Headers (XDPH)
+; This is based on the CP/M 2.2 DPH, but there are differences.
+;
+xdph_gen        macro d
+; Extended parameters go *before* the label. See CP/M 3 System Guide section
+; 4.7.3. The "real" BIOS will use these vectors to call the appropriate
+; routines, but the loader BIOS just goes there directly as we have only one
+; device.
+disk_xdph_`d    word WRITE              ; Sector write
+                word READ               ; Sector read
+                word SELDSK             ; Drive login
+                word init_drive         ; Drive initialisation
+                byte d                  ; Relative drive on controller
+                byte 0                  ; Media type always known
+; DPH follows. See CP/M 3 System Guide section 3.3.2. Note that this differs
+; slightly to the CP/M 2.2 definitions.
+; DRI's DPH macro gives odd results with ZMAC, so this is hard coded along with
+; the DPB.
+xdph`d          word 0                  ; XLT No sector translation
+                dc 9, 0                 ; BDOS scratch area
+                byte 0                  ; MF Media flag
+                word mc_dpb             ; DPB Pointer to DPB
+                word 0                  ; CSV No check required for fixed disk
+                word bdos_all_`d        ; ALV Allocation area
+                word dir_bcb            ; DIRBCB Directory Buffer Control Block
+                word data_bcb           ; DTABCB Data Buffer Control Block
+                word 0xffff             ; HASH No directory hashing
+                byte 0                  ; HBANK Hash bank (not used)
+                endm
+;
+; Build XDPH list.
+disk_xdph_base
+drive           set 0
+                rept CP3_NUM_DISKS
+                xdph_gen %drive
+drive           set drive + 1
+                endm 
+;
+                assert (disk_xdph_1 - disk_xdph_0) = CP3_XDPH_SIZE
+;
+;
+; Disk Parameter Block (DPB).
+; This is similar to the CP/M 2.2 implementation, but we add the offset in the
+; read and write routines rather than modifying the DPB OFF field on the fly.
+; See FS_Calculations.ods for derivation. As only a single DPB is required as
+; all drives are identical.
+; I tried using the DRI dpb macro, but this failed due to "Not relocatable"
+; errors in the arithmetic.
+mc_dpb          word DISK_SPT   ; SPT logical sectors per track
+                byte 4          ; BSH data allocation block shift factor
+                byte 15         ; BLM is the data allocation block mask (2^[BSH-1])
+                byte 0          ; EXM is the extent mask
+                word DISK_DSM   ; DSM maximum block number
+                word CPM_DIR_ENTRIES - 1    ; DRM maximum directory entry number
+                byte 0xff       ; AL0, AL1 determine reserved directory blocks
+                byte 0
+                word 0x8000     ; CKS directory check vector (not used)
+                word 0          ; OFF number of reserved tracks
+; Assumed by PSH and PHM values
+                assert MMC_SECTOR_SIZE = 512
+                byte 2          ; PSH physical record shift factor
+                byte 3          ; PHM physical record mask
+;
+                assert ($ - mc_dpb) = CP3_DPB_SIZE
+;
+;
+; Directory Buffer Control Block. A Buffer Control Block (BCB) locates physical
+; record buffers for the BDOS. The BDOS uses the BCB to manage the physical
+; record buffers during processing. More than one Disk Parameter Header can
+; specify the same BCB. As this is an unbanked system (for LDRBIOS), there is
+; only one BCB. This is replaced by list on a banked system.
+dir_bcb         byte 0xff       ; DRV
+                dc 3, 0         ; REC#
+                byte 0          ; WFLG
+                byte 0          ; Scratch byte
+                word 0          ; TRACK
+                word 0          ; SECTOR
+                word dir_buffer ; BUFFAD directory buffer
+                byte 0          ; BANK
+                word 0          ; LINK to next BCB in a banked system or zero
+;
+;
+; Data Buffer Control Block.
+data_bcb        byte 0xff       ; DRV
+                dc 3, 0         ; REC#
+                byte 0          ; WFLG
+                byte 0          ; Scratch byte
+                word 0          ; @trk
+                word 0          ; SECTOR
+                word data_buffer ; BUFFAD data buffer
+                byte 0          ; BANK
+                word 0          ; LINK to next BCB in a banked system or zero
+;
+;
+;
+; *****************
+; * TPA Variables *
+; *****************
+;
+;
+; Variables located in CP/M bank 0. Variables that must be available when the
+; monitor is paged in are in the common area above.
+; Note: linker "-c" option is used, so no data is initialised here.
+; All code and variables must be in the code segment.
+;                dseg                ; Data segment
+;
+bg_sp           defs 2              ; Background stack pointer
+; Drive variables are named to match those in the BIOS proper to make code more
+; portable.
+@rdrv           defs 1              ; Drive number
+@trk            defs 2              ; Selected disk @trk
+@sect           defs 2              ; Selected disk sector
+@dma            defs 2              ; Selected "DMA" address
+;
+; Generate allocation buffers for each drive, allowing two bits per block. The
+; start addresses are bdos_all_<drive>.
+all_buff_gen    macro d
+bdos_all_`d     defs (DISK_DSM / 4) + 2  ; Allocation vector for this drive
+                endm
+;
+drive           set 0
+                rept CP3_NUM_DISKS
+                all_buff_gen %drive
+drive           set drive + 1
+                endm 
+;
+dir_buffer      defs MMC_SECTOR_SIZE    ; Directory buffer
+data_buffer     defs MMC_SECTOR_SIZE    ; Data buffer
+;
+                defs STACKS_SIZE    ; Local stack
+lo_stk_top_p1                       ; Stack top + 1
+;
+;
+comm_start                          ; Common area code is next
+                end
+

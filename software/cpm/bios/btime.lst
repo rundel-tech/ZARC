@@ -1,0 +1,25 @@
+   1:				    public btime
+   2:				    cseg
+   3:     -	0000' 6275696C	btime byte "build: Thu 28/08/25 15:20:08", 0
+	              643A2054
+	              68752032
+	              382F3038
+	              2F323520
+	              31353A32
+	              303A3038
+	              00
+
+
+
+Statistics:
+
+     3	passes
+     0	jr promotions
+     1	symbols
+    29	bytes
+
+
+
+Symbol Table:
+
+btime           00'       0 (public)

@@ -44,16 +44,11 @@ cpm             equ 1                   ; Flag module for includes
 ; Routines
                 public cpinit           ; Load and start CP/M
                 public cpmem            ; Allocate CP/M pages
-; From monitor.z80
-                extern mcrun            ; Switch context to user code
-; From commands.z80
-                extern mcprot           ; Write protection error reporting
-;
-; From monitor.z80
-                extern mstate           ; Machine state structure
+                public cpprt            ; Find CP/M partition
 ;
 ; Variables
                 public cppags           ; CP/M page allocations
+
 ;
 ;
 ;
@@ -90,46 +85,18 @@ cpinit          ld (options), a
                 ld hl, no_mmc_msg       ; "MMC not initialised"
                 jp in_error
 ;
-; Load the Master Boot Record (MBR).
-in_mmc_ok       ld c, 0
-                ld de, 0
-                ld hl, mbr_sect_buff    ; MBR buffer
-; CDE - sector number
-; HL - buffer start address
-                call cars               ; Read sector
-; A - zero (OK) or error code (SPI_ERR_xxx)
-; HL - updated pointer to buffer (points to location after last written)
-                and a
-                jp nz, mcprer           ; Print error and return
+in_mmc_ok       call cpprt              ; Find CP/M partition
+                ret c                   ; Give up on error
+                ld (cpm_part_entry), ix
 ;
-; Verify we have an MBR.
-                ld hl, mbr_sect_buff + DSK_BOOT_SIGN_OFFSET
-                ld a, low DSK_BOOT_SIGN
-                cp (hl)
-                jp nz, in_sign_err
-                inc hl
-                ld a, high DSK_BOOT_SIGN
-                cp (hl)
-                jp nz, in_sign_err
-;
-; Look for the first "experimental" partition, which we are using for CP/M.
-                ld b, DSK_MAX_PARTS
-                ld ix, mbr_sect_buff + DSK_PART1_OFFSET
-                ld de, DPART_SIZE
-in_part_loop    ld a, (ix + DPART_TYPE) ; Fetch partition type
-                cp DSK_PART_TYP_EXPER
-                jr z, in_part_found
-                add ix, de
-                djnz in_part_loop
-                ld hl, no_part_msg      ; "CP/M partition not found"
-                jp in_error
-;
-; "Experimental" partition found (no CP/M 2.2 type coded, so I used this).
-; IX - base address of partition table entry.
-in_part_found   ld (cpm_part_entry), ix
-;
+; Allocate memory pages.
+                ld hl, cppags           ; Store for page numbers
+                ld a, MMAP_CPM_PAGES    ; Number of pages required
                 call cpmem              ; Allocate CP/M pages
                 ret c                   ; Give up on error
+; Set the supervisor bit for the upper bank so the BIOS can access I/O.
+                ld hl, cppags + 3
+                set MMAP_SUPER_BIT, (hl)
 ;
 ; Load BIOS into memory. Map the relevant page.
                 ld a, (cppags + 3)
@@ -151,7 +118,8 @@ in_load_loop    push bc
                 pop de
                 pop bc
                 and a
-                jp nz, mcprer           ; Halt system on error
+; Print memory card error text and return on error.
+                jp nz, mcprer
 ; Increment sector.
                 inc de
                 ld a, d
@@ -167,7 +135,7 @@ in_ldlp_nc      djnz in_load_loop
 ;
 ; Debugging messages.
                 ld hl, BIOS_CRC_msg     ; "BIOS CRC: "
-                call conwms             ; Print message
+                CON_WR_MSG             ; Print message
 ; Generate CRC.
                 ld de, BIOS_START
                 ld bc, BIOS_MAX_SIZE    ; Length
@@ -213,12 +181,9 @@ in_no_bios      ld hl, no_bios_msg      ; "BIOS not loaded"
                 jr in_error
 ;
 ;
-; MBR signature error.
-in_sign_err     ld hl, bad_sign_msg     ; "MBR signature not found"
-;
 ; Go here to exit.
 ; HL - pointer to error message.
-in_error        call conwms             ; Print message
+in_error        CON_WR_MSG             ; Print message
                 call cwnwln             ; Write new line characters to console
                 ret
 ;
@@ -229,12 +194,17 @@ in_error        call conwms             ; Print message
 ; ***************
 ;
 ;
-; Allocate memory pages. Pages are named "CPM0", "CPM1" and so on. cppags
-; will contain the four page numbers, one for each bank in the 64 kB space.
-; Returns with carry set on error.
+; Allocate memory pages. Pages are named "CPM0", "CPM1" ... "CPMZ". The page
+; numbers will be returned starting at the base address specified. These are
+; one for each bank in the 64 kB space.
+; Returns with carry set on error. Call with:
+; A - number of pages required
+; HL - base address for list of page numbers
+; Returns with carry set if request cannot be met.
 cpmem           push bc
                 push de
-                push hl
+                push hl                 ; Save address of list
+                ld b, a                 ; Save number of pages required
 ;
                 ld hl, page_name        ; Initialise the name
                 ld (hl), 'C'
@@ -245,8 +215,7 @@ cpmem           push bc
                 inc hl
                 ld (hl), '0'
 ;
-                ld de, cppags           ; Store for page numbers
-                ld b, MMAP_CPM_PAGES
+                pop de                  ; Store for page numbers
 ; Loop for each page.
 mem_page_loop   ld hl, page_name        ; Point to name
                 call mpall
@@ -255,23 +224,81 @@ mem_page_loop   ld hl, page_name        ; Point to name
                 inc de
                 ld hl, page_name + 3    ; Point to last character
                 inc (hl)                ; Increment digit
-                djnz mem_page_loop
-;
-; Set the supervisor bit for the upper bank so the BIOS can access I/O.
-                ld hl, cppags + 3
-                set MMAP_SUPER_BIT, (hl)
+; Handle transition from numeric to alphabetic index.
+                ld a, "9" + 1
+                cp (hl)
+                jr nz, mem_page_done
+                ld (hl), "A"
+mem_page_done   djnz mem_page_loop
                 and a                   ; Normal return
 ;
-mem_exit        pop hl
-                pop de
+mem_exit        pop de
                 pop bc
                 ret
 ;
 ; Insufficient free pages.
 mem_error       ld hl, no_mem_msg       ; "Insufficient memory pages"
-                call conwms             ; Print message
+                CON_WR_MSG             ; Print message
                 scf                     ; Flag error
                 jr mem_exit
+;
+;
+; Find the CP/M partition. Registers are not preserved by this routine.
+; Returns with:
+; IX - base address of CP/M partition table entry
+; Carry flag - set on error, reset otherwise
+cpprt           ld c, 0
+                ld de, 0
+                ld hl, mbr_sect_buff    ; MBR buffer
+; CDE - sector number
+; HL - buffer start address
+                ld ix, 0                ; No partition specified
+                call cars               ; Read the sector (use cache)
+; A - zero (OK) or error code (SPI_ERR_xxx)
+; HL - updated pointer to buffer (points to location after last written)
+                and a
+                jr nz, cpp_mmc_error
+;
+; Verify we have an MBR.
+                ld hl, mbr_sect_buff + DSK_BOOT_SIGN_OFFSET
+                ld a, low DSK_BOOT_SIGN
+                cp (hl)
+                jp nz, cpp_sign_err
+                inc hl
+                ld a, high DSK_BOOT_SIGN
+                cp (hl)
+                jp nz, cpp_sign_err
+;
+; Look for the first "experimental" partition, which we are using for CP/M.
+                ld b, DSK_MAX_PARTS
+                ld ix, mbr_sect_buff + DSK_PART1_OFFSET
+                ld de, DPART_SIZE
+cpp_part_loop   ld a, (ix + DPART_TYPE) ; Fetch partition type
+                cp DSK_PART_TYP_EXPER
+                jr z, cpp_part_found
+                add ix, de
+                djnz cpp_part_loop
+                ld hl, no_part_msg      ; "CP/M partition not found"
+                jp cpp_msg_error
+;
+; "Experimental" partition found (no CP/M 2.2 type coded, so I used this).
+; IX - base address of partition table entry.
+cpp_part_found  and a                   ; Flag success
+                ret
+;
+; MBR signature error.
+cpp_sign_err    ld hl, bad_sign_msg     ; "MBR signature not found"
+;
+; Go here to exit.
+; HL - pointer to error message.
+cpp_msg_error   CON_WR_MSG             ; Print message
+                call cwnwln             ; Write new line characters to console
+                jr cpp_error
+
+; A MMC error occurred.
+cpp_mmc_error   call mcprer             ; Print memory card error text
+cpp_error       scf                     ; Flag error
+                ret
 ;
 ;
 ;

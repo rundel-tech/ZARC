@@ -1,121 +1,134 @@
 Addr  Length Typ Name       Module   File
 =====================================================================
-0000   09b0   P  -          MONITO   monitor.rel
-09b0   0e89   P  -          COMMAN   commands.rel
-1839   0132   P  -          IO.Z80   io.rel
-196b   02a9   P  -          UTILIT   utility.rel
-1c14   00ab   P  -          MATHS.   maths.rel
-1cbf   0352   P  -          TIME.Z   time.rel
-2011   01f6   P  -          DIAGS.   diags.rel
-2207   0820   P  -          MMC.Z8   mmc.rel
-2a27   0819   P  -          DISASS   disass.rel
-3240   0189   P  -          CPM.Z8   cpm.rel
-33c9   04ba   P  -          CACHE.   cache.rel
-3883   0025   P  -          HEAP.Z   heap.rel
-38a8   0154   P  -          MEMORY   memory.rel
+0000   090f   P  -          MONITO   monitor.rel
+090f   0eac   P  -          COMMAN   commands.rel
+17bb   0132   P  -          IO.Z80   io.rel
+18ed   029f   P  -          UTILIT   utility.rel
+1b8c   0152   P  -          MATHS.   maths.rel
+1cde   034a   P  -          TIME.Z   time.rel
+2028   01e1   P  -          DIAGS.   diags.rel
+2209   0868   P  -          MMC.Z8   mmc.rel
+2a71   0813   P  -          DISASS   disass.rel
+3284   019f   P  -          CPM.Z8   cpm.rel
+3423   0116   P  -          CPM3.Z   cpm3.rel
+3539   0838   P  -          CACHE.   cache.rel
+3d71   0161   P  -          MEMORY   memory.rel
+3ed2   001d   P  -          BTIME.   btime.rel
 4000   01c6   D  -          MONITO   monitor.rel
 41c6   021e   D  -          COMMAN   commands.rel
 43e4   0003   D  -          IO.Z80   io.rel
 43e7   000a   D  -          UTILIT   utility.rel
-43f1   0010   D  -          TIME.Z   time.rel
-4401   0001   D  -          DIAGS.   diags.rel
-4402   0231   D  -          MMC.Z8   mmc.rel
-4633   0022   D  -          DISASS   disass.rel
-4655   020b   D  -          CPM.Z8   cpm.rel
-4860   2064   D  -          CACHE.   cache.rel
-68c4   0002   D  -          HEAP.Z   heap.rel
-68c6   0100   D  -          MEMORY   memory.rel
+43f1   0009   D  -          MATHS.   maths.rel
+43fa   0010   D  -          TIME.Z   time.rel
+440a   0001   D  -          DIAGS.   diags.rel
+440b   003d   D  -          MMC.Z8   mmc.rel
+4448   0022   D  -          DISASS   disass.rel
+446a   020b   D  -          CPM.Z8   cpm.rel
+4675   0010   D  -          CPM3.Z   cpm3.rel
+4685   0927   D  -          CACHE.   cache.rel
+4fac   0100   D  -          MEMORY   memory.rel
+50ac   0001   D  -          TOP.Z8   top.rel
 
 Symbol   Value Module   File
 ======================================================================
-CACOLD   33c9  CACHE.   cache.rel
-CACRS    3609  CACHE.   cache.rel
-CACWS    3633  CACHE.   cache.rel
-CAFLUS   3501  CACHE.   cache.rel
-CARPT    3441  CACHE.   cache.rel
-CARS     356c  CACHE.   cache.rel
-CAWARM   33e3  CACHE.   cache.rel
-CAWS     35bc  CACHE.   cache.rel
-CONRCH   1853  IO.Z80   io.rel
-CONSTA   1861  IO.Z80   io.rel
-CONWCH   1839  IO.Z80   io.rel
-CONWMN   197e  UTILIT   utility.rel
-CONWMS   1975  UTILIT   utility.rel
+BTIME    3ed2  BTIME.   btime.rel
+CACOLD   3539  CACHE.   cache.rel
+CACRS    3975  CACHE.   cache.rel
+CACWS    39a6  CACHE.   cache.rel
+CAFLUS   3820  CACHE.   cache.rel
+CARPT    3629  CACHE.   cache.rel
+CARS     38a7  CACHE.   cache.rel
+CAWARM   3594  CACHE.   cache.rel
+CAWS     390e  CACHE.   cache.rel
+CONRCH   17d5  IO.Z80   io.rel
+CONSTA   17e3  IO.Z80   io.rel
+CONWCH   17bb  IO.Z80   io.rel
+CONWMN   18fc  UTILIT   utility.rel
+CONWMS   18f5  UTILIT   utility.rel
 COPORT   43e5  IO.Z80   io.rel
-CPINIT   3240  CPM.Z8   cpm.rel
-CPMEM    3315  CPM.Z8   cpm.rel
-CPPAGS   4858  CPM.Z8   cpm.rel
-CPUSPD   2011  DIAGS.   diags.rel
-CRC16X   1ca4  MATHS.   maths.rel
-CWNWLN   196b  UTILIT   utility.rel
-CWPDBY   19f0  UTILIT   utility.rel
-CWPDLO   1a37  UTILIT   utility.rel
-CWPDWD   19fa  UTILIT   utility.rel
-CWPHBY   19dc  UTILIT   utility.rel
-CWPHNB   19cf  UTILIT   utility.rel
-CWPHWD   19e8  UTILIT   utility.rel
-CWPSPC   19bb  UTILIT   utility.rel
-CWPTM    1efc  TIME.Z   time.rel
-CWVICH   19c0  UTILIT   utility.rel
-DIPRNT   2fb8  DISASS   disass.rel
-DIPROC   2a27  DISASS   disass.rel
-HALLOC   388c  HEAP.Z   heap.rel
-HINIT    3883  HEAP.Z   heap.rel
-I2CRD    18b9  IO.Z80   io.rel
-I2CWR    188e  IO.Z80   io.rel
-MADBBU   1c3a  MATHS.   maths.rel
-MADLBU   1c14  MATHS.   maths.rel
-MADWBU   1c29  MATHS.   maths.rel
-MAMLBU   1c66  MATHS.   maths.rel
-MAMWWU   1c4a  MATHS.   maths.rel
-MCEXEC   09b0  COMMAN   commands.rel
-MCINIT   2207  MMC.Z8   mmc.rel
-MCPRER   26f2  MMC.Z8   mmc.rel
-MCPROT   09ed  COMMAN   commands.rel
-MCRRS    24ac  MMC.Z8   mmc.rel
-MCRUN    0370  MONITO   monitor.rel
-MCRWS    24e5  MMC.Z8   mmc.rel
-MCSPD    4056  MONITO   monitor.rel
-MCSTAT   4432  MMC.Z8   mmc.rel
-MDISRG   0618  MONITO   monitor.rel
-MEMTAL   212f  DIAGS.   diags.rel
-MEMTST   2048  DIAGS.   diags.rel
-MPALL    3921  MEMORY   memory.rel
-MPFREE   3975  MEMORY   memory.rel
-MPINIT   38a8  MEMORY   memory.rel
-MPPNAM   399d  MEMORY   memory.rel
-MPRPT    38d2  MEMORY   memory.rel
-MPSTAT   3983  MEMORY   memory.rel
+CP3INI   3423  CPM3.Z   cpm3.rel
+CPINIT   3284  CPM.Z8   cpm.rel
+CPMEM    3327  CPM.Z8   cpm.rel
+CPPAGS   466d  CPM.Z8   cpm.rel
+CPPRT    335d  CPM.Z8   cpm.rel
+CPUSPD   2028  DIAGS.   diags.rel
+CRC16X   1c1c  MATHS.   maths.rel
+CWNWLN   18ed  UTILIT   utility.rel
+CWPDBY   196c  UTILIT   utility.rel
+CWPDLO   19b1  UTILIT   utility.rel
+CWPDWD   1976  UTILIT   utility.rel
+CWPHBY   1958  UTILIT   utility.rel
+CWPHNB   194b  UTILIT   utility.rel
+CWPHWD   1964  UTILIT   utility.rel
+CWPSPC   1937  UTILIT   utility.rel
+CWPTM    1f1b  TIME.Z   time.rel
+CWVICH   193c  UTILIT   utility.rel
+DIPRNT   3002  DISASS   disass.rel
+DIPROC   2a71  DISASS   disass.rel
+I2CRD    183b  IO.Z80   io.rel
+I2CWR    1810  IO.Z80   io.rel
+MADBBU   1bb2  MATHS.   maths.rel
+MADLBU   1b8c  MATHS.   maths.rel
+MADWBU   1ba1  MATHS.   maths.rel
+MALADD   1ccb  MATHS.   maths.rel
+MALINC   1c37  MATHS.   maths.rel
+MALLD    1cb2  MATHS.   maths.rel
+MALST    1cbe  MATHS.   maths.rel
+MAMLBU   1bde  MATHS.   maths.rel
+MAMWWU   1bc2  MATHS.   maths.rel
+MAPCNT   1c42  MATHS.   maths.rel
+MCCOLD   2209  MMC.Z8   mmc.rel
+MCEXEC   090f  COMMAN   commands.rel
+MCINIT   220a  MMC.Z8   mmc.rel
+MCPRC    443c  MMC.Z8   mmc.rel
+MCPRER   2730  MMC.Z8   mmc.rel
+MCPROT   0948  COMMAN   commands.rel
+MCPWC    4440  MMC.Z8   mmc.rel
+MCRUN    02f7  MONITO   monitor.rel
+MCRVRS   249f  MMC.Z8   mmc.rel
+MCRWS    24e4  MMC.Z8   mmc.rel
+MCSPD    4057  MONITO   monitor.rel
+MCSTAT   443b  MMC.Z8   mmc.rel
+MCUWSC   4444  MMC.Z8   mmc.rel
+MDISRG   0581  MONITO   monitor.rel
+MEMTAL   2136  DIAGS.   diags.rel
+MEMTST   205f  DIAGS.   diags.rel
+MPALL    3df6  MEMORY   memory.rel
+MPFREE   3e4a  MEMORY   memory.rel
+MPINIT   3d71  MEMORY   memory.rel
+MPPNAM   3e72  MEMORY   memory.rel
+MPRPT    3d9b  MEMORY   memory.rel
+MPSTAT   3e58  MEMORY   memory.rel
 MSCNT    4001  MONITO   monitor.rel
-MSTATE   4165  MONITO   monitor.rel
-MTWDLI   1ad4  UTILIT   utility.rel
-PANIC    04db  MONITO   monitor.rel
-PRPNAM   0cd3  COMMAN   commands.rel
-RDDULO   1ba4  UTILIT   utility.rel
-RDDUWD   1b6c  UTILIT   utility.rel
-RDHXWD   1b2e  UTILIT   utility.rel
-RUSBY    0775  MONITO   monitor.rel
-RUSWD    076a  MONITO   monitor.rel
-S1RCH    187d  IO.Z80   io.rel
-S1STA    1881  IO.Z80   io.rel
-S1WCH    187a  IO.Z80   io.rel
-S2RCH    1888  IO.Z80   io.rel
-S2STA    188b  IO.Z80   io.rel
-S2WCH    1884  IO.Z80   io.rel
-SKPSPC   19a2  UTILIT   utility.rel
-SPIINI   1932  IO.Z80   io.rel
-SPISS    193f  IO.Z80   io.rel
-SPITR    1954  IO.Z80   io.rel
-TIITOS   1d64  TIME.Z   time.rel
-TIKDIV   4054  MONITO   monitor.rel
-TIRD     1cbf  TIME.Z   time.rel
-TISTOI   1e51  TIME.Z   time.rel
-TIWR     1d3b  TIME.Z   time.rel
-TOLOCA   19b2  UTILIT   utility.rel
-TOUPCA   19a9  UTILIT   utility.rel
-TRARCH   1875  IO.Z80   io.rel
-TRAWCH   186f  IO.Z80   io.rel
+MSTATE   4166  MONITO   monitor.rel
+MTWDLI   1a4c  UTILIT   utility.rel
+PANIC    0448  MONITO   monitor.rel
+PRPNAM   0c14  COMMAN   commands.rel
+RDDULO   1b1c  UTILIT   utility.rel
+RDDUWD   1ae4  UTILIT   utility.rel
+RDHXWD   1aa6  UTILIT   utility.rel
+RUSBY    06c2  MONITO   monitor.rel
+RUSWD    06b7  MONITO   monitor.rel
+S1RCH    17ff  IO.Z80   io.rel
+S1STA    1803  IO.Z80   io.rel
+S1WCH    17fc  IO.Z80   io.rel
+S2RCH    180a  IO.Z80   io.rel
+S2STA    180d  IO.Z80   io.rel
+S2WCH    1806  IO.Z80   io.rel
+SKPSPC   191e  UTILIT   utility.rel
+SPIINI   18b4  IO.Z80   io.rel
+SPISS    18c1  IO.Z80   io.rel
+SPITR    18d6  IO.Z80   io.rel
+TIITOS   1d83  TIME.Z   time.rel
+TIRD     1cde  TIME.Z   time.rel
+TISTOI   1e70  TIME.Z   time.rel
+TIWR     1d5a  TIME.Z   time.rel
+TOLOCA   192e  UTILIT   utility.rel
+TOUPCA   1925  UTILIT   utility.rel
+TRARCH   17f7  IO.Z80   io.rel
+TRAWCH   17f1  IO.Z80   io.rel
 TRPORT   43e6  IO.Z80   io.rel
 WARM1    4000  MONITO   monitor.rel
-WUSBY    0789  MONITO   monitor.rel
-WUSWD    077c  MONITO   monitor.rel
+WARM2    50ac  TOP.Z8   top.rel
+WUSBY    06d6  MONITO   monitor.rel
+WUSWD    06c9  MONITO   monitor.rel

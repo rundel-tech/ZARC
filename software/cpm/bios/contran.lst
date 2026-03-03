@@ -1,0 +1,2132 @@
+   1:				; *******************************************************
+   2:				; * CP/M BIOS Console Translation for ZARC Z80 Computer *
+   3:				; * Version: V1.0                                       *
+   4:				; * Merlin Skinner, 31/5/2025                           *
+   5:				; *******************************************************
+   6:				;
+   7:				; IMPORTANT: This module is intended for use with both CP/M 2.2 and CP/M 3
+   8:				; BIOSes.
+   9:				;
+  10:				; Console escape codes are are translated so as to provide the appearance of a
+  11:				; simple terminal to applications. Translation is useful because few terminal
+  12:				; emulators support ADM-3A, and some CP/M programs cannot support VT-100
+  13:				; sequences. Codes based on the VT-52 were chosen for output as it offers
+  14:				; relatively simple control codes and is the basis for a variety of later CP/M
+  15:				; machines such as the Amstrad PCW range and Spectrum +3. An external VT-100 /
+  16:				; ANSI terminal or terminal emulator can then be used with a wide range of CP/M
+  17:				; software.
+  18:				;
+  19:				; Input escape codes are translated to single characters where appropriate. This
+  20:				; is the approach taken by later CP/M machines such as the Amstrad PCW range and
+  21:				; Spectrum +3.
+  22:				;
+  23:				; Translation may be disabled by starting CP/M from the monitor with the
+  24:				; "rawcon" option.
+  25:				;
+  26:				; For CP/M 3, one option to shrink the common area usage of this code
+  27:				; would be to move some of it into the banked area (CP/M bank 0).
+  28:				;
+  29:				                title "Console Translation for ZARC"
+  30:				;
+  31:				;
+  32:				;
+  33:				; ************
+  34:				; * Includes *
+  35:				; ************
+  36:				;
+  37:				                include "macros.i"
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/macros.i ****
+   1:				; ***********************************
+   2:				; * ZARC Macro Definitions          *
+   3:				; * Written by: Merlin Skinner      *
+   4:				; * Date Started: 30/7/2020         *
+   5:				; ***********************************
+   6:				;
+   7:				;
+   8:				;
+   9:				; **********
+  10:				; * Macros *
+  11:				; **********
+  12:				;
+  13:				;
+  14:				; Initialise enumeration.
+  15:				; The absolute segment is used so the offsets are not marked as relocatable. This
+  16:				; avoids "Not relocatable" errors.
+  17:				ENUM_START      macro
+  18:				                .aseg
+  19:				enum_counter    set 0
+  20:				                endm
+  21:				;
+  22:				; Invoke for each item.
+  23:				ENUM            macro x
+  24:				x               equ enum_counter
+  25:				enum_counter    set enum_counter + 1
+  26:				                endm
+  27:				;
+  28:				ENUM_END        macro x
+  29:				x               set enum_counter    ; Set label to count of items
+  30:				                .cseg
+  31:				                endm
+  32:				;
+  33:				;
+  34:				; Initialise a structure. This is used to generate offsets for data structures.
+  35:				; The absolute segment is used so the offsets are not marked as relocatable. This
+  36:				; avoids "Not relocatable" errors.
+  37:				STRUCT          macro
+  38:				                .aseg
+  39:				str_offset      set 0
+  40:				                endm
+  41:				;
+  42:				; Add a byte entry.
+  43:				STR_BYTE        macro x
+  44:				x               equ str_offset
+  45:				str_offset      set str_offset + 1
+  46:				                endm
+  47:				;
+  48:				; Add a word (16-bit) entry.
+  49:				STR_WORD        macro x
+  50:				x               equ str_offset
+  51:				str_offset      set str_offset + 2
+  52:				                endm
+  53:				;
+  54:				; Add a 3 byte (24-bit) entry.
+  55:				STR_24BIT       macro x
+  56:				x               equ str_offset
+  57:				str_offset      set str_offset + 3
+  58:				                endm
+  59:				;
+  60:				; Add a long (32-bit) entry.
+  61:				STR_LONG        macro x
+  62:				x               equ str_offset
+  63:				str_offset      set str_offset + 4
+  64:				                endm
+  65:				;
+  66:				; Add an arbitrary length entry.
+  67:				STR_BLOCK       macro x, size   ; <name>, <size>
+  68:				x               equ str_offset
+  69:				str_offset      set str_offset + size
+  70:				                endm
+  71:				;
+  72:				; End of structure (used to set size)
+  73:				STR_END         macro x
+  74:				x               equ str_offset
+  75:				                .cseg
+  76:				                endm
+  77:				;
+  78:				;
+  79:				; Allocate space. This is used to generate variable addresses, affectively
+  80:				; providing a new variables segment. Allocated size is kept track of separately
+  81:				; to the address as the latter may overflow in certain error cases.
+  82:				ALLOC           macro x
+  83:				                .aseg
+  84:				all_addr        set x
+  85:				all_size        set 0
+  86:				                endm
+  87:				;
+  88:				; Add a byte entry.
+  89:				ALL_BYTE        macro x
+  90:				x               equ all_addr
+  91:				all_addr        set all_addr + 1
+  92:				all_size        set all_size + 1
+  93:				                endm
+  94:				;
+  95:				; Add a word (16-bit) entry.
+  96:				ALL_WORD        macro x
+  97:				x               equ all_addr
+  98:				all_addr        set all_addr + 2
+  99:				all_size        set all_size + 2
+ 100:				                endm
+ 101:				;
+ 102:				; Add a 3 byte (24-bit) entry.
+ 103:				ALL_24BIT       macro x
+ 104:				x               equ all_addr
+ 105:				all_addr        set all_addr + 3
+ 106:				all_size        set all_size + 3
+ 107:				                endm
+ 108:				;
+ 109:				; Add a long (32-bit) entry.
+ 110:				ALL_LONG        macro x
+ 111:				x               equ all_addr
+ 112:				all_addr        set all_addr + 4
+ 113:				all_size        set all_size + 4
+ 114:				                endm
+ 115:				;
+ 116:				; Add an arbitrary length entry.
+ 117:				ALL_BLOCK       macro x, size   ; <name>, <size>
+ 118:				x               equ all_addr
+ 119:				all_addr        set all_addr + size
+ 120:				all_size        set all_size + size
+ 121:				                endm
+ 122:				;
+ 123:				; End of allocated space. Returns size of block.
+ 124:				ALL_END         macro x
+ 125:				x               equ all_size
+ 126:				                .cseg
+ 127:				                endm
+ 128:				;
+ 129:				;
+ 130:				; Calculate offsets into jump tables.
+ 131:				; The absolute segment is used so the offsets are not marked as relocatable. This
+ 132:				; avoids "Not relocatable" errors.
+ 133:				JPTBL_START     macro x
+ 134:				                .aseg
+ 135:				jptbl_addr      set x               ; Set start address
+ 136:				                endm
+ 137:				;
+ 138:				; Invoke for each item.
+ 139:				JPTBL_ENTRY     macro x
+ 140:				x               equ jptbl_addr
+ 141:				jptbl_addr      set jptbl_addr + 3
+ 142:				                endm
+ 143:				;
+ 144:				; Invoke for a data block in the jump table
+ 145:				JPTBL_BLOCK     macro x, size   ; <name>, <size>
+ 146:				x               equ jptbl_addr
+ 147:				jptbl_addr      set jptbl_addr + size
+ 148:				                endm
+ 149:				;
+ 150:				JPTBL_END       macro x
+ 151:				x               set jptbl_addr      ; Set label to next address
+ 152:				                .cseg
+ 153:				                endm
+ 154:				;
+ 155:				;
+ 156:				; Define bits and masks. This is inspired by the Commodore Amiga BITDEF mechanism.
+ 157:				; Given:
+ 158:				; BITDEF I2C_CSR_STOP, 2
+ 159:				; Yields:
+ 160:				; I2C_CSR_STOP_BIT  EQU 2       ; Bit number
+ 161:				; I2C_CSR_STOP_MASK EQU 1<<2    ; Bit mask
+ 162:				BITDEF          macro n, b      ; <Name>, <bit>
+ 163:				n`_BIT          equ b
+ 164:				n`_MASK         equ 1 << b
+ 165:				                endm
+ 166:				;
+ 167:				;
+ 168:				; Force alignment. This asserts an appropriate number of zero bytes to achieve
+ 169:				; the required alignment. Note that these macros cannot work for relocatable
+ 170:				; files.
+ 171:				; 16-bit
+ 172:				ALIGN_WORD      macro
+ 173:				                if $ and 1
+ 174:				                    byte 0
+ 175:				                endif
+ 176:				                endm
+ 177:				;
+ 178:				; 32-bit
+ 179:				ALIGN_LONG      macro
+ 180:				                ALIGN_WORD
+ 181:				                if $ and 2
+ 182:				                    byte 0, 0
+ 183:				                endif
+ 184:				                endm
+ 185:				;
+ 186:				;
+ 187:				; Write message to console (short for "call conwms").
+ 188:				CON_WR_MSG      macro
+ 189:				                rst 08
+ 190:				                endm
+ 191:				;
+ 192:				;
+ 193:				; Write character to console (short for "call conwch").
+ 194:				CON_WR_CHAR     macro
+ 195:				                rst 16
+ 196:				                endm
+ 197:				
+**** contran.z80 ****
+  38:				                include "z80.i"
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/z80.i ****
+   1:				; ***********************************
+   2:				; * ZARC Z80 Definitions            *
+   3:				; * Written by: Merlin Skinner      *
+   4:				; * Date Started: 28/5/2020         *
+   5:				; ***********************************
+   6:				;
+   7:				; Definitions related to the Z80 itself.
+   8:				;
+   9:				; Z80 Vectors
+  10:     -	0000'         	Z80_RST00_VEC   equ 0x0000      ; RST instruction vectors
+  11:     -	0008'         	Z80_RST08_VEC   equ 0x0008
+  12:     -	0010'         	Z80_RST10_VEC   equ 0x0010
+  13:     -	0018'         	Z80_RST18_VEC   equ 0x0018
+  14:     -	0020'         	Z80_RST20_VEC   equ 0x0020
+  15:     -	0028'         	Z80_RST28_VEC   equ 0x0028
+  16:     -	0030'         	Z80_RST30_VEC   equ 0x0030
+  17:     -	0038'         	Z80_RST38_VEC   equ 0x0038
+  18:     -	0066'         	Z80_NMI_VEC     equ 0x0066      ; NMI vectors
+  19:				
+**** contran.z80 ****
+  39:				;                include "zarc.i"        ; Hardware definitions
+  40:				;                include "monitor.i"
+  41:				;                include "io_map.i"      ; I/O addresses mapping
+  42:				                include "terminal.i"    ; Terminal constants
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/terminal.i ****
+   1:				; ***********************************
+   2:				; * ZARC Terminal Definitions       *
+   3:				; * Written by: Merlin Skinner      *
+   4:				; * Date Started: 16/5/2020         *
+   5:				; ***********************************
+   6:				;
+   7:				; Definitions associated with terminals connected to an RS-232 port.
+   8:				;
+   9:     -	0005'         	ASCII_ENQ           equ 0x05        ; Enquiry
+  10:     -	0008'         	ASCII_BS            equ 0x08        ; Backspace
+  11:     -	0009'         	ASCII_HT            equ 0x09
+  12:     -	000A'         	ASCII_LF            equ 0x0a        ; Line feed
+  13:     -	000B'         	ASCII_VT            equ 0x0b        ; Upline (ADM-3A)
+  14:     -	000C'         	ASCII_FF            equ 0x0c        ; Forward space (ADM-3A)
+  15:     -	000D'         	ASCII_CR            equ 0x0d        ; Carriage return
+  16:     -	0016'         	ASCII_SYN           equ 0x16        ; Synchronous idle
+  17:     -	001A'         	ASCII_SUB           equ 0x1a        ; Clear screen (ADM-3A)
+  18:     -	001B'         	ASCII_ESC           equ 0x1b        ; Escape
+  19:     -	001E'         	ASCII_RS            equ 0x1e        ; Home cursor (ADM-3A)
+  20:     -	007F'         	ASCII_DEL           equ 0x7f        ; Delete
+  21:				;
+  22:				; ZARC CP/M terminal input key codes. Some are copied from Amstrad PCW and
+  23:				; Spectrum +3, others are unique to ZARC. Delete seems very common.
+  24:     -	001F'         	ZKEY_CSR_UP         equ 0x1f        ; Cursor up
+  25:     -	001E'         	ZKEY_CSR_DOWN       equ 0x1e        ; Cursor down
+  26:     -	0006'         	ZKEY_CSR_RIGHT      equ 0x06        ; Cursor right
+  27:     -	0001'         	ZKEY_CSR_LEFT       equ 0x01        ; Cursor left
+  28:     -	0002'         	ZKEY_HOME           equ 0x02
+  29:     -	0016'         	ZKEY_INSERT         equ 0x16
+  30:     -	007F'         	ZKEY_DELETE         equ 0x7f
+  31:     -	0004'         	ZKEY_END            equ 0x04
+  32:     -	001D'         	ZKEY_PAGE_UP        equ 0x1d
+  33:     -	001C'         	ZKEY_PAGE_DOWN      equ 0x1c
+  34:				
+**** contran.z80 ****
+  43:				;                include "io.i"          ; I/O routines
+  44:				;                include "utility.i"     ; Utility functions
+  45:				;                include "maths.i"       ; Mathematical functions
+  46:				;                include "interrupts.i"  ; Interrupts
+  47:				;                include "time.i"        ; Routines associated with time
+  48:				;                include "diags.i"       ; Diagnostics
+  49:				;                include "heap.i"
+  50:				                include "cpm.i"
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/cpm.i ****
+   1:				; *******************************************************
+   2:				; * ZARC Monitor CP/M 2.2 Definitions                   *
+   3:				; * Written by: Merlin Skinner                          *
+   4:				; * Date Started: 26/5/2020                             *
+   5:				; *******************************************************
+   6:				;
+   7:				; Definitions related to CP/M running under the monitor programme. It may also
+   8:				; be used for CP/M applications.
+   9:				;
+  10:				; Note that ld80 only considers the first six characters of labels significant.
+  11:				;
+  12:				; The following conditionals are intended to allow the same include file to be
+  13:				; used in the defining module and elsewhere as required. Some includes are used
+  14:				; for other applications than the monitor, such as the CP/M BIOS. In these cases,
+  15:				; the extern and public statements are not desirable.
+  16:				;
+  17:     -	0000'         	            ifdef monitor           ; Meaningful for monitor build only
+  30:				            endif
+  31:				;
+  32:				;
+  33:				;
+  34:				; ****************
+  35:				; * Memory Usage *
+  36:				; ****************
+  37:				;
+  38:				;
+  39:				; Note: memory banks are allocated by the monitor's initialisation code.
+  40:     -	0004'         	MMAP_CPM_PAGES      equ 4               ; Number of 16 kB pages
+  41:				;
+  42:				; The MS byte of INT_VEC_TABLE comes from the Z80 I register, and the LS byte
+  43:				; from the FPGA. The 0xe0 offset is chosen to allow the table to reside at the
+  44:				; top of memory (0xffe0 to 0xffff).
+  45:     -	FFE0'         	INT_VEC_TABLE   equ 0xffe0              ; Interrupt mode 2 vector table
+  46:				;
+  47:				; Copied from CP/M manual appendix A.
+  48:				; MSIZE             equ 64              ; CP/M version memory size in kilobytes
+  49:				;
+  50:				; "BIAS" is the address offset from 0x3400 for memory systems other than 16 K.
+  51:				;BIAS               equ (MSIZE-20) * 1024
+  52:     -	A200'         	CPM_BIAS            equ 0xa200          ; For CompuPro64K_CPM
+  53:     -	D600'         	CCP_START           equ 0x3400 + CPM_BIAS   ; Base of CCP
+  54:     -	DE06'         	BDOS_START          equ CCP_START + 0x0806  ; Base of BDOS
+  55:     -	EC00'         	BIOS_START          equ CCP_START + 0x1600  ; Base of BIOS
+  56:     -	002C'         	BIOS_CPM_START_SEC  equ 44              ; First CP/M sector of BIOS
+  57:     -	1000'         	BIOS_MAX_SIZE       equ 4096            ; 2 KB allocation for BIOS stored on MMC (ZARC)
+  58:     -	0100'         	TPA_START           equ 0x0100          ; Transient Programme Area
+  59:				;
+  60:				; Page zero.
+  61:     -	0003'         	IOBYTE              equ 0x0003          ; Intel I/O byte
+  62:     -	0004'         	CDISK               equ 0x0004          ; Current disk (0="A") & user no. (in high nibble)
+  63:     -	005C'         	FCB1                equ 0x005c          ; Default FCB 1
+  64:     -	006C'         	FCB2                equ 0x006c          ; Default FCB 2 (overwritten if FCB 1 is opened)
+  65:				; Default 128-byte disk buffer, also filled with the command line when a transient
+  66:				; is loaded under the CCP.
+  67:     -	0080'         	DEF_BUFFER          equ 0x80
+  68:     -	0080'         	DEF_BUFFER_SIZE     equ 0x80
+  69:				;
+  70:				; IOBYTE bit definitions.
+  71:     -	0003'         	IOB_CON_MASK        equ 0x03
+  72:     -	000C'         	IOB_RDR_MASK        equ 0x0c
+  73:     -	0030'         	IOB_PUN_MASK        equ 0x30
+  74:     -	00C0'         	IOB_LST_MASK        equ 0xc0
+  75:				;
+  76:				; BIOS option bits.
+  77:     -	        	BITDEF BIOS_OPT_DEBUG, 0                ; Enable BIOS debugging messages
+  78:     -	        	BITDEF BIOS_OPT_NOINTS, 1               ; Disables interrupts (use basic I/O mode)
+  79:     -	        	BITDEF BIOS_OPT_RAWCON, 2               ; Disables ADM-3A to VT-100 translation
+  80:				;
+  81:				;
+  82:				;
+  83:				; ***************
+  84:				; * Disk System *
+  85:				; ***************
+  86:				;
+  87:				;
+  88:				; Note: NUM_DISKS reduced to 9 from 16 in preparation for adding CP/M 3 support.
+  89:     -	0080'         	CPM_SECTOR_SIZE     equ 128             ; CP/M disk sector size
+  90:     -	0009'         	NUM_DISKS           equ 9               ; Number of disk drives
+  91:     -	0010'         	NUM_DISKS_MAX       equ 16              ; Maximum number of disk drives
+  92:     -	0000'         	CPM_SYS_SIZE        equ 1024 * 1024     ; System area size (bytes)
+  93:     -	0000'         	CPM_DISK_SIZE       equ 1024 * 1024     ; Disk size (bytes)
+  94:     -	0800'         	CPM_BLOCK_SIZE      equ 2048            ; Allocation block size (bytes)
+  95:     -	0200'         	CPM_DIR_ENTRIES     equ 512             ; Number of directory entries
+  96:     -	0008'         	FILENAME_SIZE       equ 8               ; Filename size
+  97:     -	0003'         	FILEEXT_SIZE        equ 3               ; File extension size
+  98:     -	001A'         	FILE_EOF            equ 0x1a            ; End of file (^Z)
+  99:     -	000F'         	MAX_USER            equ 15              ; Maximum user number
+ 100:				;
+ 101:     -	0001'         	BDOS_READ_SEQ_EOF   equ 1               ; Sequential read EOF error code
+ 102:				;
+ 103:				; CP/M 2.2 Disk Parameter Header (DPH) structure.
+ 104:     -	        	                STRUCT
+ 105:     -	        	                STR_WORD DPH_XLT        ; Address of sector translation table
+ 106:     -	        	                STR_WORD DPH_SCRATCH0   ; BDOS scratch area
+ 107:     -	        	                STR_WORD DPH_SCRATCH1
+ 108:     -	        	                STR_WORD DPH_SCRATCH2
+ 109:     -	        	                STR_WORD DPH_DIRBF      ; BDOS directory scratch area
+ 110:     -	        	                STR_WORD DPH_DPB        ; Pointer to DPB
+ 111:     -	        	                STR_WORD DPH_CSV        ; Pointer to the directory checksum vector
+ 112:     -	        	                STR_WORD DPH_ALV        ; Pointer to the allocation vector
+ 113:     -	        	                STR_END DPH_SIZE
+ 114:				;
+ 115:				;
+ 116:				; CP/M 2.2 Disk Parameter Block (DPB) structure.
+ 117:     -	        	                STRUCT
+ 118:     -	        	                STR_WORD DPB_SPT        ; Number of 128-byte records per track
+ 119:     -	        	                STR_BYTE DPB_BSH        ; Block shift. 3 => 1k, 4 => 2k, 5 => 4k....
+ 120:     -	        	                STR_BYTE DPB_BLM        ; Block mask. 7 => 1k, 0Fh => 2k, 1Fh => 4k...
+ 121:     -	        	                STR_BYTE DPB_EXM        ; Extent mask
+ 122:     -	        	                STR_WORD DPB_DSM        ; Maximum block number
+ 123:     -	        	                STR_WORD DPB_DRM        ; Maximum directory entry number
+ 124:     -	        	                STR_BYTE DPB_AL0        ; Directory allocation bitmap
+ 125:     -	        	                STR_BYTE DPB_AL1
+ 126:     -	        	                STR_WORD DPB_CKS        ; Checksum vector size, 0 for a fixed disc
+ 127:     -	        	                STR_WORD DPB_OFF        ; Offset, number of reserved tracks
+ 128:     -	        	                STR_END DPB_SIZE
+ 129:				;
+ 130:				;
+ 131:				; Directory entry structure.
+ 132:     -	        	                STRUCT
+ 133:     -	        	                STR_BYTE DIRE_USER      ; User number. 0xe5 if entry unused
+ 134:     -	        	                STR_BLOCK DIRE_NAME, FILENAME_SIZE  ; Filename
+ 135:     -	        	                STR_BLOCK DIRE_TYP, FILEEXT_SIZE    ; File type
+ 136:     -	        	                STR_BYTE DIRE_EX        ; Extent counter, low byte (0-31)
+ 137:     -	        	                STR_BYTE DIRE_S1        ; Reserved, set to 0
+ 138:     -	        	                STR_BYTE DIRE_S2        ; Extent counter, high byte
+ 139:     -	        	                STR_BYTE DIRE_RC        ; Record count (low byte)
+ 140:     -	        	                STR_BLOCK DIRE_ALLOC, 16 ; Associated block numbers
+ 141:     -	        	                STR_END DIRE_SIZE
+ 142:				;
+ 143:     -	0001'         	                assert DIRE_SIZE = 0x20
+ 144:				;
+ 145:				;
+ 146:				; File Control Block (FCB) structure.
+ 147:     -	        	                STRUCT
+ 148:     -	        	                STR_BYTE FCB_DRIVE      ; Drive. 0 for default, 1-16 for A-P
+ 149:     -	        	                STR_BLOCK FCB_NAME, FILENAME_SIZE   ; Filename in ASCII upper-case
+ 150:     -	        	                STR_BLOCK FCB_TYP, FILEEXT_SIZE     ; File type
+ 151:     -	        	                STR_BYTE FCB_EX         ; Current extent (*)
+ 152:     -	        	                STR_BYTE FCB_S1         ; Reserved (*)
+ 153:     -	        	                STR_BYTE FCB_S2         ; Extent high byte (*)
+ 154:     -	        	                STR_BYTE FCB_RC         ; Record count (*)
+ 155:     -	        	                STR_BLOCK FCB_ALLOC, 16 ; Associated block numbers
+ 156:     -	        	                STR_BYTE FCB_CR         ; Current record within extent
+ 157:     -	        	                STR_BLOCK FCB_RECORD, 3 ; Record number (low byte first)
+ 158:     -	        	                STR_END FCB_SIZE
+ 159:				;
+ 160:				; * - Set this to 0 when opening a file and then leave it to CP/M. You can
+ 161:				; rewind a file by setting EX, RC, S2 and CR to 0.
+ 162:				;
+ 163:				;
+ 164:				;
+ 165:				; **************
+ 166:				; * BIOS Calls *
+ 167:				; **************
+ 168:				;
+ 169:				;
+ 170:				; Calculate offsets into jump tables. Entries here must match the jump table in
+ 171:				; the BIOS. The base address of the BIOS must be added to these addresses. A
+ 172:				; call routine might look like:
+ 173:				;
+ 174:				; Call BIOS, allowing for its unknown base address.
+ 175:				; Call with:
+ 176:				; BC - operand (depends on BIOS function called)
+ 177:				; DE - operand (depends on BIOS function called)
+ 178:				; HL - offset for the routine (e.g. BIOS_CONIN)
+ 179:				; call_bios       push de
+ 180:				;                 ex de, hl
+ 181:				;                 ld hl, (1)              ; Find WBOOT (warm boot) address
+ 182:				;                 add hl, de              ; Add offset
+ 183:				;                 pop de
+ 184:				;                 jp (hl)                 ; Jump to BIOS then return to caller
+ 185:				;
+ 186:				; The above method is a bit clumsy, but then application code shouldn't normally
+ 187:				; call the BIOS directly.
+ 188:				;
+ 189:     -	        	    JPTBL_START 0                   ; Generate offsets as BIOS_START isn't always known
+ 190:				;
+ 191:				; Note - cold start routine omitted to align with use of address at (1) to find BIOS.
+ 192:     -	        	    JPTBL_ENTRY BIOS_WBOOT          ; Warm boot - reload command processor
+ 193:     -	        	    JPTBL_ENTRY BIOS_CONST          ; Console status
+ 194:     -	        	    JPTBL_ENTRY BIOS_CONIN          ; Console input
+ 195:     -	        	    JPTBL_ENTRY BIOS_CONOUT         ; Console output
+ 196:     -	        	    JPTBL_ENTRY BIOS_PLIST          ; Printer output
+ 197:     -	        	    JPTBL_ENTRY BIOS_PUNCH          ; Paper tape punch output
+ 198:     -	        	    JPTBL_ENTRY BIOS_READER         ; Paper tape reader input
+ 199:     -	        	    JPTBL_ENTRY BIOS_HOME           ; Move disc head to track 0
+ 200:     -	        	    JPTBL_ENTRY BIOS_SELDSK         ; Select disc drive
+ 201:     -	        	    JPTBL_ENTRY BIOS_SETTRK         ; Set track number
+ 202:     -	        	    JPTBL_ENTRY BIOS_SETSEC         ; Set sector number
+ 203:     -	        	    JPTBL_ENTRY BIOS_SETDMA         ; Set DMA address
+ 204:     -	        	    JPTBL_ENTRY BIOS_READ           ; Read a sector
+ 205:     -	        	    JPTBL_ENTRY BIOS_WRITE          ; Write a sector
+ 206:				; CP/M 2 functions.
+ 207:     -	        	    JPTBL_ENTRY BIOS_LISTST         ; Status of list device
+ 208:     -	        	    JPTBL_ENTRY BIOS_SECTRAN        ; Sector translation for skewing
+ 209:				; CP/M 3 functions (not supported yet). From https://www.seasip.info/Cpm/bios.html
+ 210:     -	        	    JPTBL_ENTRY BIOS_CONOST         ; Status of console output
+ 211:     -	        	    JPTBL_ENTRY BIOS_AUXIST         ; Status of auxiliary input
+ 212:     -	        	    JPTBL_ENTRY BIOS_AUXOST         ; Status of auxiliary output
+ 213:     -	        	    JPTBL_ENTRY BIOS_DEVTBL         ; Address of devices table
+ 214:     -	        	    JPTBL_ENTRY BIOS_DEVINI         ; Initialise a device
+ 215:     -	        	    JPTBL_ENTRY BIOS_DRVTBL         ; Address of discs table
+ 216:     -	        	    JPTBL_ENTRY BIOS_MULTIO         ; Read/write multiple sectors
+ 217:     -	        	    JPTBL_ENTRY BIOS_FLUSH          ; Flush host buffers
+ 218:     -	        	    JPTBL_ENTRY BIOS_MOVE           ; Move a block of memory
+ 219:     -	        	    JPTBL_ENTRY BIOS_TIME           ; Real time clock
+ 220:     -	        	    JPTBL_ENTRY BIOS_SELMEM         ; Select memory bank
+ 221:     -	        	    JPTBL_ENTRY BIOS_SETBNK         ; Select bank for DMA operation
+ 222:     -	        	    JPTBL_ENTRY BIOS_XMOVE          ; Preload banks for MOVE
+ 223:     -	        	    JPTBL_ENTRY BIOS_USERF          ; System-depedent functions
+ 224:     -	        	    JPTBL_ENTRY BIOS_RESERV1        ; Reserved
+ 225:     -	        	    JPTBL_ENTRY BIOS_RESERV2        ; Reserved
+ 226:				; ZARC-specific items.
+ 227:     -	        	    JPTBL_BLOCK BIOS_ID, 3          ; BIOS ID ("ZRC")
+ 228:     -	        	    JPTBL_BLOCK BIOS_VER, 3         ; Version (see below)
+ 229:     -	        	    JPTBL_ENTRY BIOS_STARTUP        ; CP/M startup entry point
+ 230:     -	        	    JPTBL_ENTRY BIOS_MON_CALL       ; Call monitor function
+ 231:     -	        	    JPTBL_ENTRY BIOS_SUPER          ; Set supervisor state
+ 232:     -	        	    JPTBL_ENTRY BIOS_INT_DISABLE    ; Disable interrupts and keep count
+ 233:     -	        	    JPTBL_ENTRY BIOS_INT_ENABLE     ; Enable interrupts if safe
+ 234:     -	        	    JPTBL_ENTRY BIOS_TIRD           ; Read time and date (ZARC format)
+ 235:     -	        	    JPTBL_ENTRY BIOS_SET_TIMER      ; Set timer
+ 236:     -	        	    JPTBL_ENTRY BIOS_GET_TIMER      ; Get timer
+ 237:				;
+ 238:     -	        	    JPTBL_END BIOS_JPTBL_NEXT
+ 239:				;
+ 240:				; BIOS_VER is <reserved (zero)>, <major version>, <minor version>. The reserved
+ 241:				; byte may flag capabilities at some point.
+ 242:				;
+ 243:				;
+ 244:				;
+ 245:				; **************
+ 246:				; * BDOS Calls *
+ 247:				; **************
+ 248:				;
+ 249:				;
+ 250:				; From http://www.gaby.de/cpm/manuals/archive/cpm22htm/ch5.htm#Section_5.2
+ 251:				; In general, the function number is passed in register C with the information
+ 252:				; address in the double byte pair DE. Single byte values are returned in register
+ 253:				; A, with double byte values returned in HL. A zero value is returned when the
+ 254:				; function number is out of range. For reasons of compatibility, register A = L
+ 255:				; and register B = H upon return in all cases. Example call:
+ 256:				;   ld c, BDOS_CONIN    ; Read next character
+ 257:				;   call BDOS           ; Return character in A
+ 258:				;
+ 259:     -	0005'         	BDOS        equ 5               ; BDOS entry point
+ 260:				;
+ 261:     -	0000'         	BDOS_SYS_RST        equ 0       ; System Reset
+ 262:     -	0001'         	BDOS_CON_IN         equ 1       ; Console Input
+ 263:     -	0002'         	BDOS_CON_OUT        equ 2       ; Console Output
+ 264:     -	0003'         	BDOS_RDR_IN         equ 3       ; Reader Input
+ 265:     -	0004'         	BDOS_PUN_OUT        equ 4       ; Punch Output
+ 266:     -	0005'         	BDOS_LST_OUT        equ 5       ; List Output
+ 267:     -	0006'         	BDOS_DIRECT_CON_IO  equ 6       ; Direct Console I/O
+ 268:     -	0007'         	BDOS_GET_IO_BYTE    equ 7       ; Get I/O Byte
+ 269:     -	0008'         	BDOS_SET_IO_BYTE    equ 8       ; Set I/O Byte
+ 270:     -	0009'         	BDOS_PRINT_STRING   equ 9       ; Print String
+ 271:     -	000A'         	BDOS_READ_CON_BUFF  equ 10      ; Read Console Buffer
+ 272:     -	000B'         	BDOS_GET_CON_STAT   equ 11      ; Get Console Status
+ 273:     -	000C'         	BDOS_VERSION        equ 12      ; Return Version Number
+ 274:     -	000D'         	BDOS_RESET_DISK_SYS equ 13      ; Reset Disk System
+ 275:     -	000E'         	BDOS_SEL_DISK       equ 14      ; Select Disk
+ 276:     -	000F'         	BDOS_OPEN_FILE      equ 15      ; Open File
+ 277:     -	0010'         	BDOS_CLOSE_FILE     equ 16      ; Close File
+ 278:     -	0011'         	BDOS_SEARCH_FIRST   equ 17      ; Search for first matching directory entry
+ 279:     -	0012'         	BDOS_SEARCH_NEXT    equ 18      ; Search for next matching directory entry
+ 280:     -	0013'         	BDOS_DELETE_FILE    equ 19      ; Delete File
+ 281:     -	0014'         	BDOS_READ_SEQ       equ 20      ; Read Sequential
+ 282:     -	0015'         	BDOS_WRITE_SEQ      equ 21      ; Write Sequential
+ 283:     -	0016'         	BDOS_MAKE_FILE      equ 22      ; Make File
+ 284:     -	0017'         	BDOS_RENAME_FILE    equ 23      ; Rename File
+ 285:     -	0018'         	BDOS_GET_LOGIN_VEC  equ 24      ; Return Login Vector
+ 286:     -	0019'         	BDOS_GET_CURR_DISK  equ 25      ; Return Current Disk
+ 287:     -	001A'         	BDOS_SET_DMA_ADDR   equ 26      ; Set DMA Address
+ 288:     -	001B'         	BDOS_GET_ALLOC_ADDR equ 27      ; Get Addr (Alloc)
+ 289:     -	001C'         	BDOS_WRITE_PROT     equ 28      ; Write Protect Disk
+ 290:     -	001D'         	BDOS_GET_RO_VEC     equ 29      ; Get R/O Vector
+ 291:     -	001E'         	BDOS_SET_FILE_ATTR  equ 30      ; Set File Attributes
+ 292:     -	001F'         	BDOS_GET_DPB        equ 31      ; Get Addr (Disk Parms)
+ 293:     -	0020'         	BDOS_GET_SET_USER   equ 32      ; Set/Get User Code
+ 294:     -	0021'         	BDOS_READ_RANDOM    equ 33      ; Read Random
+ 295:     -	0022'         	BDOS_WRITE_RANDOM   equ 34      ; Write Random
+ 296:     -	0023'         	BDOS_GET_FILE_SIZE  equ 35      ; Compute File Size
+ 297:     -	0024'         	BDOS_SET_RANDOM_REC equ 36      ; Set Random Record
+ 298:     -	0025'         	BDOS_RESET_DRIVES   equ 37      ; Selectively reset disc drives
+ 299:     -	0028'         	BDOS_WRITE_RAN_ZFILL equ 40     ; Write Random with Zero Fill
+ 300:				;
+ 301:				; Functions 28 and 32 should be avoided in application programs to maintain upward
+ 302:				; compatibility with CP/M.
+ 303:				;
+ 304:				; Direct Console I/O (BDOS_DIRECT_CON_IO) command codes. There are additional
+ 305:				; codes supported by CP/M 3 (see cpm3.i).
+ 306:     -	00FF'         	DCONIO_GET_NO_WT    equ 0xff    ; Get character (no echo) else return zero
+ 307:     -	0000'         	DCONIO_PUT          equ 0x00    ; Put (write) character
+ 308:				;
+ 309:				
+**** contran.z80 ****
+  51:				                include "cpm3.i"
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/cpm3.i ****
+   1:				; *******************************************************
+   2:				; * ZARC Monitor CP/M 3 Definitions                     *
+   3:				; * Written by: Merlin Skinner                          *
+   4:				; * Date Started: 26/5/2020                             *
+   5:				; *******************************************************
+   6:				;
+   7:				; Definitions related CP/M running under the monitor programme. It may also
+   8:				; be used for CP/M applications.
+   9:				;
+  10:				; This include file contains defintions specific to CP/M 3. It is not a
+  11:				; replacement for cpm.i, but rather an addition to it.
+  12:				;
+  13:				; Note that ld80 only considers the first six characters of labels significant.
+  14:				;
+  15:				; The following conditionals are intended to allow the same include file to be
+  16:				; used in the defining module and elsewhere as required. Some includes are used
+  17:				; for other applications than the monitor, such as the CP/M BIOS. In these cases,
+  18:				; the extern and public statements are not desirable.
+  19:				;
+  20:     -	0000'         	            ifdef monitor           ; Meaningful for monitor build only
+  31:				            endif
+  32:				;
+  33:				;
+  34:				;
+  35:				; ****************
+  36:				; * Memory Usage *
+  37:				; ****************
+  38:				;
+  39:				;
+  40:				; Note: memory banks are allocated by the monitor's initialisation code.
+  41:     -	0004'         	MMAP_CP3_BANKS      equ 4               ; Number of CP/M 3 banks
+  42:     -	000D'         	MMAP_CP3_PAGES      equ (3 * MMAP_CP3_BANKS) + 1    ; Number of 16 kB pages
+  43:     -	0000'         	MMAP_CP3_BK0_ST     equ 0               ; CP/M bank 0 first page
+  44:     -	0003'         	MMAP_CP3_BK1_ST     equ 3               ; CP/M bank 1 first page
+  45:     -	0006'         	MMAP_CP3_BK2_ST     equ 6               ; CP/M bank 2 first page
+  46:     -	0009'         	MMAP_CP3_BK3_ST     equ 9               ; CP/M bank 3 first page
+  47:     -	000C'         	MMAP_CP3_COMM_PG    equ 0xc             ; CP/M common bank
+  48:				;
+  49:				;
+  50:				;
+  51:				; ***************
+  52:				; * Disk System *
+  53:				; ***************
+  54:				;
+  55:				;
+  56:     -	0013'         	CPMLDR_START_SEC    equ 19              ; First MMC sector of CPMLDR
+  57:				; CPMLDR_MAX_SIZE must be a multiple of MMC_SECTOR_SIZE (512).
+  58:     -	2800'         	CPMLDR_MAX_SIZE     equ 10240           ; 10 KB allocation for CPMLDR
+  59:     -	0100'         	TPA_START           equ 0x0100          ; Transient Programme Area
+  60:     -	0008'         	CP3_NUM_DISKS       equ 8               ; Number of disk drives
+  61:     -	0010'         	CP3_NUM_DISKS_MAX   equ 16              ; Maximum number of disk drives
+  62:				; CP/M 3 drive A is CP/M 2.2 drive P to allow for initialisation.
+  63:     -	0008'         	CP3_DRIVE_A         equ 8               ; Drive A MB offset
+  64:     -	0001'         	CP3_DRIVE_B         equ 1               ; Drives B to H MB offset
+  65:     -	0019'         	CP3_DPH_SIZE        equ 25              ; Disk Parameter Header size
+  66:     -	0023'         	CP3_XDPH_SIZE       equ CP3_DPH_SIZE + 10   ; Extended Disk Parameter Header size
+  67:     -	0008'         	DLBLE_NAME_SIZE     equ 8               ; Disk label name size
+  68:     -	0003'         	DLBLE_TYP_SIZE      equ 3               ; Disk label type size
+  69:     -	0008'         	DIR_PWD_SIZE        equ 8               ; Directory password size
+  70:				;
+  71:				;
+  72:				; CP/M 3 Disk Parameter Block (DPB) structure.
+  73:     -	        	                STRUCT
+  74:     -	        	                STR_WORD CP3_DPB_SPT        ; Number of 128-byte records per track
+  75:     -	        	                STR_BYTE CP3_DPB_BSH        ; Block shift. 3 => 1k, 4 => 2k, 5 => 4k....
+  76:     -	        	                STR_BYTE CP3_DPB_BLM        ; Block mask. 7 => 1k, 0Fh => 2k, 1Fh => 4k...
+  77:     -	        	                STR_BYTE CP3_DPB_EXM        ; Extent mask
+  78:     -	        	                STR_WORD CP3_DPB_DSM        ; Maximum block number
+  79:     -	        	                STR_WORD CP3_DPB_DRM        ; Maximum directory entry number
+  80:     -	        	                STR_BYTE CP3_DPB_AL0        ; Directory allocation bitmap
+  81:     -	        	                STR_BYTE CP3_DPB_AL1
+  82:     -	        	                STR_WORD CP3_DPB_CKS        ; Checksum vector size, 0 for a fixed disc
+  83:     -	        	                STR_WORD CP3_DPB_OFF        ; Offset, number of reserved tracks
+  84:     -	        	                STR_BYTE CP3_DPB_PSH        ; Physical record shift factor
+  85:     -	        	                STR_BYTE CP3_DPB_PHM        ; Physical record mask
+  86:     -	        	                STR_END CP3_DPB_SIZE
+  87:				;
+  88:				;
+  89:				; Directory date stamp structure.
+  90:     -	        	                STRUCT
+  91:     -	        	                STR_WORD DSTAMP_DAY         ; Julien day number (1 = 1 Jan 78)
+  92:     -	        	                STR_BYTE DSTAMP_HOUR        ; BCD hour
+  93:     -	        	                STR_BYTE DSTAMP_MIN         ; BCD minute
+  94:     -	        	                STR_END DSTAMP_SIZE 
+  95:				;
+  96:     -	0001'         	                assert DSTAMP_SIZE = 4
+  97:				;
+  98:				;
+  99:				; Disk label structure.
+ 100:     -	        	                STRUCT
+ 101:     -	        	                STR_BYTE DLBLE_USER      ; "User number" (0x20)
+ 102:     -	        	                STR_BLOCK DLBLE_NAME, DLBLE_NAME_SIZE ; Name
+ 103:     -	        	                STR_BLOCK DLBLE_TYP, DLBLE_TYP_SIZE   ; Label type
+ 104:     -	        	                STR_BYTE DLBLE_LB        ; Label byte (flags)
+ 105:     -	        	                STR_BYTE DLBLE_PB        ; Password decode byte
+ 106:     -	        	                STR_BYTE DLBLE_RR0       ; Reserved, should be zero
+ 107:     -	        	                STR_BYTE DLBLE_RR1
+ 108:     -	        	                STR_BLOCK DLBLE_PWD, DIR_PWD_SIZE    ; Password
+ 109:     -	        	                STR_BLOCK DLBLE_CREATE_DATE, DSTAMP_SIZE ; Create date stamp
+ 110:     -	        	                STR_BLOCK DLBLE_UPDATE_DATE, DSTAMP_SIZE ; Update date stamp
+ 111:     -	        	                STR_END DLBLE_SIZE
+ 112:				;
+ 113:     -	0001'         	                assert DLBLE_SIZE = 0x20
+ 114:				;
+ 115:				;
+ 116:				; Date stamp directory entry structure.
+ 117:     -	        	                STRUCT
+ 118:     -	        	                STR_BYTE DSTE_USER      ; "User number" (0x21)
+ 119:     -	        	                STR_BLOCK DSTE_F1_DATE, DSTAMP_SIZE ; File 1 *
+ 120:     -	        	                STR_BLOCK DSTE_F1_UPD_DATE, DSTAMP_SIZE ; File 1 update date
+ 121:     -	        	                STR_BYTE DSTE_M1        ; File 1 password mode
+ 122:     -	        	                STR_BYTE DSTE_R0        ; Reserved, should be zero
+ 123:     -	        	                STR_BLOCK DSTE_F2_DATE, DSTAMP_SIZE ; File 2 *
+ 124:     -	        	                STR_BLOCK DSTE_F2_UPD_DATE, DSTAMP_SIZE ; File 2 update date
+ 125:     -	        	                STR_BYTE DSTE_M2        ; File 2 password mode
+ 126:     -	        	                STR_BYTE DSTE_R1        ; Reserved, should be zero
+ 127:     -	        	                STR_BLOCK DSTE_F3_DATE, DSTAMP_SIZE ; File 3 *
+ 128:     -	        	                STR_BLOCK DSTE_F3_UPD_DATE, DSTAMP_SIZE ; File 3 update date
+ 129:     -	        	                STR_BYTE DSTE_M3        ; File 3 password mode
+ 130:     -	        	                STR_BYTE DSTE_R2        ; Reserved, should be zero
+ 131:     -	        	                STR_BYTE DSTE_R3
+ 132:     -	        	                STR_END DSTE_SIZE
+ 133:				;
+ 134:				; * Create OR access date stamp.
+ 135:				;
+ 136:     -	0001'         	                assert DSTE_SIZE = 0x20
+ 137:				;
+ 138:				;
+ 139:				; Password directory entry structure.
+ 140:     -	        	                STRUCT
+ 141:     -	        	                STR_BYTE DPWDE_USER     ; User number
+ 142:     -	        	                STR_BLOCK DPWDE_NAME, FILENAME_SIZE ; Filename
+ 143:     -	        	                STR_BLOCK DPWDE_TYP, FILEEXT_SIZE   ; File type
+ 144:     -	        	                STR_BYTE DPWDE_PM       ; Mode byte
+ 145:     -	        	                STR_BYTE DPWDE_PB       ; Decode byte
+ 146:     -	        	                STR_BLOCK DPWDE_RESVD1, 2
+ 147:     -	        	                STR_BLOCK DPWDE_PWD, DIR_PWD_SIZE   ; Password
+ 148:     -	        	                STR_BLOCK DPWDE_RESVD2, 8
+ 149:     -	        	                STR_END DPWDE_SIZE
+ 150:				;
+ 151:     -	0001'         	                assert DPWDE_SIZE = 0x20
+ 152:				;
+ 153:				; DPWDE_PM bits.
+ 154:     -	        	BITDEF DPWDE_PM_DEL, 5                 ; Password required to delete file
+ 155:     -	        	BITDEF DPWDE_PM_WRITE, 6               ; Password required to write to file
+ 156:     -	        	BITDEF DPWDE_PM_READ, 7                ; Password required to read file
+ 157:				;
+ 158:				;
+ 159:				;
+ 160:				; ********
+ 161:				; * BIOS *
+ 162:				; ********
+ 163:				;
+ 164:				;
+ 165:				; PUNCH and READER are replaced by AUXOUT and AUXIN for CP/M 3. This allows the
+ 166:				; use of either name.
+ 167:     -	000F'         	BIOS_AUXOUT         equ BIOS_PUNCH
+ 168:     -	0012'         	BIOS_AUXIN          equ BIOS_READER
+ 169:				;
+ 170:				;
+ 171:				;
+ 172:				; ********
+ 173:				; * BDOS *
+ 174:				; ********
+ 175:				;
+ 176:				;
+ 177:				; Direct Console I/O (BDOS_DIRECT_CON_IO) command codes not supported by CP/M 2.
+ 178:     -	00FE'         	DCONIO_IN_STAT      equ 0xfe    ; Return console input status. Zero if no character is waiting, nonzero
+ 179:     -	00FD'         	DCONIO_GET_WT       equ 0xfd    ; Get character (no echo), wait if no key
+ 180:				;
+ 181:				;
+ 182:				;
+ 183:				; ***************
+ 184:				; * CMPLDR BIOS *
+ 185:				; ***************
+ 186:				;
+ 187:				;
+ 188:				; BIOS parameters structure. This is passed from the monitor to the CPMLDR
+ 189:				; BIOS and the CP/M 3 BIOS.
+ 190:     -	        	                STRUCT
+ 191:     -	        	                STR_BYTE BPS_OPTIONS    ; See BIOS_OPT_xxx definitions
+ 192:     -	        	                STR_BLOCK BPS_PAGES, MMAP_CP3_PAGES ; Memory page list
+ 193:     -	        	                STR_WORD BPS_PARTITION  ; Pointer to partition table entry
+ 194:     -	        	                STR_END BPS_SIZE
+ 195:				;
+**** contran.z80 ****
+  52:				;                include "disks.i"
+  53:				                include "mmc.i"
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/mmc.i ****
+   1:				; *******************************************
+   2:				; * ZARC Monitor Memory Card Include File   *
+   3:				; * Written by: Merlin Skinner              *
+   4:				; * Date Started: 7/8/2020                  *
+   5:				; *******************************************
+   6:				;
+   7:				;
+   8:				; Note that ld80 only considers the first six characters of labels significant.
+   9:				;
+  10:				; The following conditionals are intended to allow the same include file to be
+  11:				; used in the defining module and elsewhere as required. Some includes are used
+  12:				; for other applications than the monitor, such as the CP/M BIOS. In these cases,
+  13:				; the extern and public statements are not desirable.
+  14:				;
+  15:     -	0000'         	            ifdef monitor           ; Meaningful for monitor build only
+  31:				            endif
+  32:				;
+  33:				;
+  34:     -	0200'         	MMC_SECTOR_SIZE             equ 512     ; Sector size
+  35:     -	0009'         	MMC_LOG2_SEC_SIZE           equ 9       ; Save number of shifts for above
+  36:     -	0040'         	MMC_CMD_START               equ 0x40    ; Command start bits (01b) shifted for
+  37:				                                        ; command byte
+  38:     -	0001'         	MMC_CMD_STOP                equ 0x01    ; Stop bit (in CRC byte)
+  39:				;
+  40:				;
+  41:				; Card state (mcstat) states.
+  42:     -	        	                ENUM_START
+  43:     -	        	                ENUM MMC_STAT_IDLE      ; Not initialised
+  44:     -	        	                ENUM MMC_STAT_INIT      ; Initialised (can do raw read / writes)
+  45:				
+  46:     -	        	                ENUM_END MC_STATES  ; Number of states
+  47:				;
+  48:				;
+  49:				; Memory card command structure
+  50:     -	        	                STRUCT
+  51:     -	        	                STR_BYTE MMC_CMD    ; Command including start bits
+  52:     -	        	                STR_BYTE MMC_ARG1   ; Arguments
+  53:     -	        	                STR_BYTE MMC_ARG2   ; Arguments
+  54:     -	        	                STR_BYTE MMC_ARG3   ; Arguments
+  55:     -	        	                STR_BYTE MMC_ARG4   ; Arguments
+  56:     -	        	                STR_BYTE MMC_CRC    ; CRC and stop bit
+  57:     -	        	                STR_END MMC_SIZE
+  58:				;
+  59:				;
+  60:				; SPI mode commands (CMDn from MMC-System-Spec-v3.31.pdf chapter 4.9).
+  61:     -	0000'         	MMC_CMD_GO_IDLE_STATE       equ 0   ; Resets the memory card
+  62:     -	0001'         	MMC_CMD_SEND_OP_COND        equ 1   ; Sends host capacity support information and init.
+  63:     -	0009'         	MMC_CMD_SEND_CSD            equ 9   ; Read card specific data
+  64:     -	000A'         	MMC_CMD_SEND_CID            equ 10  ; Read card identification
+  65:     -	000D'         	MMC_CMD_SEND_STATUS         equ 13  ; Read card status register
+  66:     -	0010'         	MMC_CMD_SET_BLOCKLEN        equ 16  ; Set block length (in bytes)
+  67:     -	0011'         	MMC_CMD_READ_SINGLE_BLOCK   equ 17  ; Reads a block
+  68:     -	0018'         	MMC_CMD_WRITE_BLOCK         equ 24  ; Writes a block
+  69:     -	0037'         	MMC_CMD_APP_CMD             equ 55  ; Next command is an application specific command
+  70:     -	003B'         	MMC_CMD_CRC_ON_OFF          equ 59  ; Turns the CRC option on or off
+  71:				;
+  72:				; The list describes all the application specific commands supported/reserved by the 
+  73:				; memory card. All the following commands shall be preceded with APP_CMD (CMD55).
+  74:     -	0029'         	MMC_ACMD_MC_SEND_OP_COND    equ 41  ; Sends host capacity support information and init
+  75:				;
+  76:				; R1 response bits
+  77:     -	        	BITDEF MMC_R1_IDLE, 0           ; In idle state
+  78:     -	        	BITDEF MMC_R1_ERA_RST, 1        ; Erase reset
+  79:     -	        	BITDEF MMC_R1_ILL_CMD, 2        ; Illegal command
+  80:     -	        	BITDEF MMC_R1_CMD_CRC_ERR, 3    ; Command CRC error
+  81:     -	        	BITDEF MMC_R1_ERA_SEQ_ERR, 4    ; Erase sequence error
+  82:     -	        	BITDEF MMC_R1_ADDR_ERR, 5       ; Address error
+  83:     -	        	BITDEF MMC_R1_PAR_ERR, 6        ; Parameter error
+  84:     -	        	BITDEF MMC_R1_START, 7          ; Zero identifies an R1 response
+  85:				;
+  86:				;
+  87:     -	0006'         	MMC_CID_PNM_SIZE      equ 6   ; Product name length (bytes)
+  88:				;
+  89:				; Card IDentification (CID) register (128 bits)
+  90:     -	        	                STRUCT
+  91:     -	        	                STR_BYTE MMC_CID_MID    ; Manufacturer ID
+  92:     -	        	                STR_WORD MMC_CID_OID    ; OEM/Application ID
+  93:     -	        	                STR_BLOCK MMC_CID_PNM, MMC_CID_PNM_SIZE ; Product name
+  94:     -	        	                STR_BYTE MMC_CID_PRV    ; Product revision
+  95:     -	        	                STR_LONG MMC_CID_PSN    ; Product serial number
+  96:     -	        	                STR_BYTE MMC_CID_MDT    ; Manufacturing date
+  97:     -	        	                STR_BYTE MMC_CID_CRC    ; CRC7 checksum and "1"
+  98:     -	        	                STR_END MMC_CID_SIZE
+  99:				;
+ 100:				;
+ 101:				; Card-Specific Data (CSD) register (128 bits). It contains a number of bit fields
+ 102:				; that aren't necessarily byte aligned. In these cases, the entries simply identify
+ 103:				; the bit numbers contained.
+ 104:     -	        	                STRUCT
+ 105:     -	        	                STR_BYTE MMC_CSD_VERSION    ; (127-120) CSD version, spec version
+ 106:     -	        	                STR_BYTE MMC_CSD_TAAC       ; (119-112) data read access-time-1
+ 107:     -	        	                STR_BYTE MMC_CSD_NSAC       ; (111-104) data read access-time-2
+ 108:     -	        	                STR_BYTE MMC_CSD_TR_SPD     ; (103-96) max. data transfer rate
+ 109:     -	        	                STR_BYTE MMC_CSD_95_88      ; Card command classes (MS 8 bits)
+ 110:     -	        	                STR_BYTE MMC_CSD_87_80      ; CCC (LS bits) and max. read data length
+ 111:     -	        	                STR_BYTE MMC_CSD_79_72      ; Flags and C_SIZE bits 10 and 11
+ 112:     -	        	                STR_BYTE MMC_CSD_71_64      ; C_SIZE bits 2 to 9
+ 113:     -	        	                STR_BYTE MMC_CSD_63_56      ; C_SIZE bits 1 to 0 and some currents
+ 114:     -	        	                STR_BYTE MMC_CSD_55_48      ; Currents & C_SIZE_MULT (MS 2 bits)
+ 115:     -	        	                STR_BYTE MMC_CSD_47_40      ; C_SIZE_MULT (LS bit) and erase size (part)
+ 116:     -	        	                STR_BYTE MMC_CSD_39_32      ; Erase size (part) and WP group size
+ 117:     -	        	                STR_BYTE MMC_CSD_31_24      ; WP group enable, ECC and write parameters (part)
+ 118:     -	        	                STR_BYTE MMC_CSD_23_16      ; Write block lenth (part) and reserved
+ 119:     -	        	                STR_BYTE MMC_CSD_15_8       ; Flags
+ 120:     -	        	                STR_BYTE MMC_CSD_CRC        ; CRC7 checksum and "1"
+ 121:     -	        	                STR_END MMC_CSD_SIZE
+ 122:				
+**** contran.z80 ****
+  54:				                include "memory.i"      ; Memory page allocation
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/memory.i ****
+   1:				; *******************************************
+   2:				; * ZARC Memory Include File                *
+   3:				; * Written by: Merlin Skinner              *
+   4:				; * Date Started: 24/11/2021                *
+   5:				; *******************************************
+   6:				;
+   7:				;
+   8:				; Note that ld80 only considers the first six characters of labels significant.
+   9:				;
+  10:				; The following conditionals are intended to allow the same include file to be
+  11:				; used in the defining module and elsewhere as required. Some includes are used
+  12:				; for other applications than the monitor, such as the CP/M BIOS. In these cases,
+  13:				; the extern and public statements are not desirable.
+  14:				;
+  15:     -	0000'         	            ifdef monitor           ; Meaningful for monitor build only
+  26:				            endif
+  27:				;
+  28:				; Physical memory constants are found in zarc.i
+  29:				;
+  30:     -	0004'         	MPA_NAME_LEN        equ 4               ; Page owner name length (bytes)
+  31:				;
+  32:				; Memory map
+  33:     -	4000'         	MMAP_PAGE_SIZE      equ 0x4000          ; Memory mapping bank / page size
+  34:     -	0004'         	MMAP_BANKS          equ 4               ; Number of 16 kB banks
+  35:     -	0040'         	MMAP_PAGES          equ 0x40            ; Number of 16 kB RAM pages
+  36:     -	0000'         	MMAP_BANK0_START    equ 0x0000
+  37:     -	3FFF'         	MMAP_BANK0_END      equ 0x3fff
+  38:     -	4000'         	MMAP_BANK1_START    equ 0x4000
+  39:     -	7FFF'         	MMAP_BANK1_END      equ 0x7fff
+  40:     -	8000'         	MMAP_BANK2_START    equ 0x8000
+  41:     -	BFFF'         	MMAP_BANK2_END      equ 0xbfff
+  42:     -	C000'         	MMAP_BANK3_START    equ 0xc000
+  43:     -	FFFF'         	MMAP_BANK3_END      equ 0xffff
+  44:				;
+  45:				;
+  46:				;
+  47:				; ****************
+  48:				; * Memory Usage *
+  49:				; ****************
+  50:				;
+  51:				;
+  52:				; Memory banks setup.
+  53:				; 0 (0000 - 3FFF): 3f read only, supervisor - monitor program
+  54:				; 1 (4000 - 7FFF): 3e writeable - monitor variables, stacks, buffers etc.
+  55:				; 2 (8000 - BFFF): (not used)
+  56:				; 3 (C000 - FFFF): (mapped as required)
+  57:				;
+  58:     -	003F'         	MMAP_MON_B0_PAGE    equ 0x3f        ; Page for bank 0
+  59:     -	003E'         	MMAP_MON_B1_PAGE    equ 0x3e        ; Page for bank 1
+  60:				;
+  61:				; This may seem large, but MMC sector writes for example require over 70 bytes
+  62:				; of stack!
+  63:     -	0080'         	STACKS_SIZE     equ 128             ; Space allocated to normal stacks
+  64:				;
+  65:     -	7FFF'         	HEAP_TOP        equ MMAP_BANK1_END  ; Top (end) of heap space.
+  66:				
+**** contran.z80 ****
+  55:				                include "bios.i"        ; Local definitions
+**** bios.i ****
+   1:				; *******************************************************
+   2:				; * CP/M 2 BIOS for ZARC Z80 Computer Include File      *
+   3:				; * Written by: Merlin Skinner                          *
+   4:				; * Date Started: 31/5/2025                             *
+   5:				; *******************************************************
+   6:				;
+   7:				;
+   8:				;
+   9:				; *************
+  10:				; * Constants *
+  11:				; *************
+  12:				;
+  13:				;
+  14:     -	0002'         	BIOS_CPM_VER        equ 2               ; Supported CP/M version
+  15:				;
+  16:				; Version
+  17:     -	0001'         	BIOS_MAJ_VER        equ 1
+  18:     -	0006'         	BIOS_MIN_VER        equ 6
+  19:				;
+  20:				; The interrupt stack need only be deep enough to meet the requirements of the
+  21:				; interrupt service routines plus a NMI. As the monitor switches to its own
+  22:				; stack for NMIs, this is a light requirement.
+  23:     -	0010'         	INT_STACK_SIZE      equ 16              ; Interrupt service routine stack size
+  24:				;
+  25:     -	0100'         	DISK_SPT            equ 256             ; Sectors per track
+  26:     -	01FF'         	DISK_DSM            equ 511             ; Maximum block number
+  27:				
+**** contran.z80 ****
+  56:				                include "contran.i"     ; Console translation
+**** contran.i ****
+   1:				; *******************************************************
+   2:				; * CP/M 2 BIOS for ZARC Z80 Computer Include File      *
+   3:				; * Console translation definitions                     *
+   4:				; * Written by: Merlin Skinner                          *
+   5:				; * Date Started: 31/5/2025                             *
+   6:				; *******************************************************
+   7:				;
+   8:				;
+   9:				;
+  10:				; *************
+  11:				; * Constants *
+  12:				; *************
+  13:				;
+  14:				;
+  15:     -	0004'         	CIT_BUF_MAX_LEN     equ 4               ; Maximum sequence length
+  16:     -	0004'         	COT_BUF_MAX_LEN     equ 4               ; Maximum sequence length
+  17:				;
+  18:				;
+  19:				; Console output translation state machine states (cot_state).
+  20:     -	        	                ENUM_START
+  21:     -	        	                ENUM COTST_NORM         ; Normal state
+  22:     -	        	                ENUM COTST_ESC          ; Escape received
+  23:     -	        	                ENUM COTST_LOAD         ; Cursor load sequence
+  24:     -	        	                ENUM COTST_Y            ; Cursor load Y received
+  25:     -	        	                ENUM_END COTST_STATES   ; Number of states
+  26:				;
+  27:     -	0001'         	                assert COTST_NORM = 0   ; Code assumes this
+  28:				;
+  29:				;
+  30:				; Console input translation state machine states (cistm).
+  31:     -	        	                ENUM_START
+  32:     -	        	                ENUM CITST_NORM         ; Normal state
+  33:     -	        	                ENUM CITST_REPLAY       ; Replay unrecognised sequence
+  34:     -	        	                ENUM_END CITST_STATES   ; Number of states
+  35:				;
+  36:     -	0001'         	                assert CITST_NORM = 0   ; Code assumes this
+  37:				
+**** contran.z80 ****
+  57:				;
+  58:				;
+  59:				;
+  60:				; *************
+  61:				; * Externals *
+  62:				; *************
+  63:				;
+  64:				;
+  65:				                public ctinit           ; Initialise console translation
+  66:				                public citr             ; Console translate input
+  67:				                extern ciraw            ; Console input raw read
+  68:				                public cistm            ; Console input translation state
+  69:				                public cotr             ; Console translate output
+  70:				                extern coraw            ; Console output raw write 
+  71:				                extern CONST            ; Console status
+  72:				;
+  73:				                extern bpanic           ; BIOS panic
+  74:				                public cittmr           ; Console input translation timer
+  75:				;
+  76:				;
+  77:				;
+  78:				; *************
+  79:				; * Constants *
+  80:				; *************
+  81:				;
+  82:				;
+  83:				; None
+  84:				;
+  85:				;
+  86:				;
+  87:				; *************
+  88:				; * Main Code *
+  89:				; *************
+  90:				;
+  91:				;
+  92:				; Use code segment (CP/M 2.2) / common segment (CP/M 3)
+  93:				                cseg
+  94:				;
+  95:				;
+  96:				; Initialise console translation.
+  97:    0+4	0000' AF      	ctinit          xor a          
+  98:    4+13	0001' 320000  	                ld (cot_state), a       ; Console output translation state
+  99:   17+13	0004' 320600  	                ld (cistm), a           ; Console input translation state
+ 100:   30+13	0007' 320B00  	                ld (cit_count), a       ; Number of characters in buffer
+ 101:   43+13	000A' 320500  	                ld (cot_count), a       ; Number of characters in buffer
+ 102:				;
+ 103:   56+10	000D' C9      	                ret
+ 104:				;
+ 105:				;
+ 106:				; *** Console Input ***
+ 107:				;
+ 108:				; Waits if no character is available.
+ 109:				; Returns with:
+ 110:				; A - next input character
+ 111:				;
+ 112:				; Console input translation. Unrecognised sequences are returned without
+ 113:				; modification, so applications can still receive VT-100 / ANSI sequences if
+ 114:				; desired.
+ 115:   66+13	000E' 3A0600  	citr            ld a, (cistm)           ; Fetch state
+ 116:   79+4	0011' A7      	                and a
+ 117:   83+7+5	0012' 2808    	                jr z, cit_norm          ; Jump if COTST_NORM
+ 118:   90+7	0014' FE01    	                cp CITST_REPLAY         ; Replay unrecognised sequence
+ 119:   97+10	0016' CA9900  	                jp z, cit_replay
+ 120:				;
+ 121:				; Panic if state is unknown.
+ 122:  107+17	0019' CD0000  	                call bpanic             ; System error monitor entry
+ 123:				;
+ 124:				; Normal state (CITST_NORM).
+ 125:  124+17	001C' CD0000  	cit_norm        call ciraw              ; Fetch next character
+ 126:  141+7	001F' FE1B    	                cp ASCII_ESC
+ 127:  148+5+6	0021' C0      	                ret nz                  ; Return with character unless <Esc>
+ 128:				;
+ 129:  153+11	0022' C5      	                push bc                 ; Save registers
+ 130:  164+11	0023' D5      	                push de
+ 131:  175+11	0024' E5      	                push hl
+ 132:				;
+ 133:				; The <Esc> may be the beginning of a VT-100 / ANSI sequence or a single
+ 134:				; character. We will allow at least one tick before assuming this is an isolated
+ 135:				; character. At this point, we can't return as we have to return a character,
+ 136:				; but may or may not want to translate depending on what follows. We will wait
+ 137:				; for at least one tick to see what arrives.
+ 138:  186+11	0025' F5      	                push af
+ 139:  197+4	0026' AF      	                xor a
+ 140:  201+13	0027' 320B00  	                ld (cit_count), a       ; Flush buffer
+ 141:  214+10	002A' F1      	                pop af                  ; Restore <Esc>
+ 142:  224+17	002B' CDC600  	                call cit_store          ; Store character
+ 143:  241+7	002E' 3E02    	                ld a, 2
+ 144:  248+13	0030' 320C00  	                ld (cittmr), a          ; Set timer (1 to 2 ticks)
+ 145:  261+17	0033' CDAF00  	                call cit_getch          ; Read character or time out
+ 146:  278+7+5	0036' 3853    	                jr c, cit_do_replay     ; Replay sequence on timeout
+ 147:				; Second character received.
+ 148:  285+7	0038' FE5B    	                cp "["
+ 149:  292+7+5	003A' 2806    	                jr z, cit_csi
+ 150:  299+7	003C' FE4F    	                cp "O"
+ 151:  306+7+5	003E' 2833    	                jr z, cit_ss3           ; Jump if "single-shift-3" SS3
+ 152:  313+12	0040' 1849    	                jr cit_do_replay
+ 153:				;
+ 154:				; CSI (Esc [) received. Read the next character.
+ 155:  325+17	0042' CDAF00  	cit_csi         call cit_getch          ; Read character or time out
+ 156:  342+7+5	0045' 3844    	                jr c, cit_do_replay     ; Replay sequence on timeout
+ 157:  349+4	0047' 4F      	                ld c, a
+ 158:				;                
+ 159:				; Search table for character.
+ 160:  353+10	0048' 217102  	                ld hl, cit_csi_list
+ 161:  363+7	004B' 7E      	cit_srch_lp     ld a, (hl)
+ 162:  370+4	004C' A7      	                and a
+ 163:  374+7+5	004D' 283C    	                jr z, cit_do_replay     ; End of table found
+ 164:  381+4	004F' B9      	                cp c
+ 165:  385+7+5	0050' 2806    	                jr z, cit_srch_found
+ 166:  392+6	0052' 23      	                inc hl
+ 167:  398+6	0053' 23      	                inc hl
+ 168:  404+6	0054' 23      	                inc hl
+ 169:  410+6	0055' 23      	                inc hl
+ 170:  416+12	0056' 18F3    	                jr cit_srch_lp
+ 171:				;
+ 172:				; Code found.
+ 173:  428+6	0058' 23      	cit_srch_found  inc hl
+ 174:  434+7	0059' 46      	                ld b, (hl)              ; Fetch ZARC key code
+ 175:  441+6	005A' 23      	                inc hl
+ 176:  447+7	005B' 5E      	                ld e, (hl)
+ 177:  454+6	005C' 23      	                inc hl
+ 178:  460+7	005D' 56      	                ld d, (hl)
+ 179:  467+4	005E' EB      	                ex de, hl
+ 180:				; B - ZARC key code
+ 181:				; C - VT100 / ANSI code code
+ 182:				; HL - handling routine address
+ 183:  471+4	005F' E9      	                jp (hl)                 ; Jump to handler
+ 184:				;
+ 185:				;
+ 186:				; Return with ZARC code.
+ 187:				; B - ZARC key code
+ 188:				; C - VT100 / ANSI key code
+ 189:  475+4	0060' 78      	cith_single     ld a, b
+ 190:				;
+ 191:  479+10	0061' E1      	cit_exit        pop hl                  ; Restore registers
+ 192:  489+10	0062' D1      	                pop de
+ 193:  499+10	0063' C1      	                pop bc
+ 194:  509+10	0064' C9      	                ret
+ 195:				;
+ 196:				;
+ 197:				; Consume following tilde and return with ZARC code.
+ 198:				; B - ZARC key code
+ 199:				; C - VT100 / ANSI key code
+ 200:  519+11	0065' C5      	cith_tilde      push bc
+ 201:  530+17	0066' CDAF00  	                call cit_getch          ; Read character or time out
+ 202:  547+10	0069' C1      	                pop bc
+ 203:  557+7+5	006A' 381F    	                jr c, cit_do_replay     ; Replay sequence on timeout
+ 204:  564+7	006C' FE7E    	                cp "~"
+ 205:  571+7+5	006E' 201B    	                jr nz, cit_do_replay
+ 206:				; We have a sequence of the form <Esc>[<code>~
+ 207:  578+4	0070' 78      	                ld a, b
+ 208:  582+12	0071' 18EE    	                jr cit_exit
+ 209:				;
+ 210:				;
+ 211:				; Single-shift-3 (SS3 - Esc O) received. Read the next character.
+ 212:  594+17	0073' CDAF00  	cit_ss3         call cit_getch          ; Read character or time out
+ 213:  611+7+5	0076' 3813    	                jr c, cit_do_replay     ; Replay sequence on timeout
+ 214:  618+4	0078' 4F      	                ld c, a
+ 215:				;
+ 216:				; Search table for character.
+ 217:  622+10	0079' 21A202  	                ld hl, cit_ss3_list
+ 218:  632+7	007C' 7E      	cit_ss3_srch_lp ld a, (hl)
+ 219:  639+4	007D' A7      	                and a
+ 220:  643+7+5	007E' 280B    	                jr z, cit_do_replay     ; End of table found
+ 221:  650+4	0080' B9      	                cp c
+ 222:  654+7+5	0081' 2804    	                jr z, cit_ss3_srch_fd
+ 223:  661+6	0083' 23      	                inc hl
+ 224:  667+6	0084' 23      	                inc hl
+ 225:  673+12	0085' 18F5    	                jr cit_ss3_srch_lp
+ 226:				;
+ 227:				; Code found.
+ 228:  685+6	0087' 23      	cit_ss3_srch_fd inc hl
+ 229:  691+7	0088' 46      	                ld b, (hl)              ; Fetch ZARC key code
+ 230:				; B - ZARC key code
+ 231:  698+12	0089' 18D5    	                jr cith_single          ; Return with code
+ 232:				;
+ 233:				;
+ 234:				; <Esc><something> received, where <something> is not recognised. We will
+ 235:				; supply the received sequence for possible handling by the application.
+ 236:  710+7	008B' 3E01    	cit_do_replay   ld a, CITST_REPLAY      ; Replay unrecognised sequence
+ 237:  717+13	008D' 320600  	                ld (cistm), a           ; Set state
+ 238:  730+10	0090' 210700  	                ld hl, cit_buffer       ; Set pointer to first character
+ 239:  740+16	0093' 220D00  	                ld (cit_buff_ptr), hl
+ 240:				; Fall into following code to return with the first character from the buffer.
+ 241:  756+10	0096' E1      	                pop hl                  ; Restore registers
+ 242:  766+10	0097' D1      	                pop de
+ 243:  776+10	0098' C1      	                pop bc
+ 244:				;
+ 245:				; We are replaying an unrecognised sequence.
+ 246:				; Find address in sequence buffer.
+ 247:  786+11	0099' E5      	cit_replay      push hl
+ 248:  797+16	009A' 2A0D00  	                ld hl, (cit_buff_ptr)
+ 249:  813+7	009D' 7E      	                ld a, (hl)              ; Fetch character
+ 250:				; Update pointer.
+ 251:  820+6	009E' 23      	                inc hl
+ 252:  826+16	009F' 220D00  	                ld (cit_buff_ptr), hl
+ 253:				; Update counter.
+ 254:  842+10	00A2' 210B00  	                ld hl, cit_count        ; Number of characters in buffer
+ 255:  852+11	00A5' 35      	                dec (hl)
+ 256:  863+10	00A6' E1      	                pop hl
+ 257:  873+5+6	00A7' C0      	                ret nz
+ 258:				; We are about to return the last character. We can stop replaying now.
+ 259:  878+11	00A8' F5      	                push af
+ 260:  889+4	00A9' AF      	                xor a
+ 261:  893+13	00AA' 320600  	                ld (cistm), a           ; Set COTST_NORM state
+ 262:  906+10	00AD' F1      	                pop af
+ 263:  916+10	00AE' C9      	                ret
+ 264:				;
+ 265:				;
+ 266:				; Read character or time out (cittmr reaches zero). If a character is received,
+ 267:				; it is stored in cit_buffer and returned. Returns with:
+ 268:				; A - character received if no timeout.
+ 269:				; Carry flag - set on timeout
+ 270:				; Registers are not preserved!
+ 271:  926+13	00AF' 3A0C00  	cit_getch       ld a, (cittmr)          ; Fetch timer
+ 272:  939+7	00B2' C6FF    	                add 0xff
+ 273:				; Carry will be set if timer > 0 (not timed out).
+ 274:  946+4	00B4' 3F      	                ccf
+ 275:  950+5+6	00B5' D8      	                ret c
+ 276:  955+17	00B6' CD0000  	                call CONST              ; Console status (does not save regs)
+ 277:				; A - 0xff if character ready, 0x00 if not.
+ 278:  972+4	00B9' A7      	                and a
+ 279:  976+7+5	00BA' 28F3    	                jr z, cit_getch
+ 280:				; A character has been received.
+ 281:  983+17	00BC' CD0000  	                call ciraw              ; Fetch it
+ 282:				; A - character received
+ 283: 1000+11	00BF' F5      	                push af
+ 284: 1011+17	00C0' CDC600  	                call cit_store          ; Store character
+ 285: 1028+10	00C3' F1      	                pop af
+ 286: 1038+4	00C4' A7      	                and a                   ; Reset carry
+ 287: 1042+10	00C5' C9      	                ret                     ; Return (no timeout)
+ 288:				;
+ 289:				;
+ 290:				; Store character in console input buffer.
+ 291:				; A - character to store.
+ 292: 1052+11	00C6' C5      	cit_store       push bc
+ 293: 1063+11	00C7' E5      	                push hl
+ 294: 1074+4	00C8' 4F      	                ld c, a
+ 295: 1078+13	00C9' 3A0B00  	                ld a, (cit_count)       ; Number of characters in buffer
+ 296: 1091+7	00CC' FE04    	                cp CIT_BUF_MAX_LEN
+ 297: 1098+10+7	00CE' D40000  	                call nc, bpanic         ; System error monitor entry
+ 298:				; Find address in sequence buffer.
+ 299: 1108+10	00D1' 210700  	                ld hl, cit_buffer
+ 300: 1118+4	00D4' 85      	                add l
+ 301: 1122+4	00D5' 6F      	                ld l, a
+ 302: 1126+4	00D6' 7C      	                ld a, h
+ 303: 1130+7	00D7' CE00    	                adc 0                   ; Propagate carry
+ 304: 1137+4	00D9' 67      	                ld h, a
+ 305:				; HL - address in buffer
+ 306: 1141+7	00DA' 71      	                ld (hl), c              ; Store character
+ 307:				; Update counter
+ 308: 1148+10	00DB' 210B00  	                ld hl, cit_count
+ 309: 1158+11	00DE' 34      	                inc (hl)
+ 310: 1169+10	00DF' E1      	                pop hl
+ 311: 1179+10	00E0' C1      	                pop bc
+ 312: 1189+10	00E1' C9      	                ret
+ 313:				;
+ 314:				;
+ 315:				;
+ 316:				; *** Console Output ***
+ 317:				;
+ 318:				; Translates a character. Call with character in C.
+ 319:				;
+ 320:				; Console translation is enabled. Unrecognised sequences are
+ 321:				; transmitted without modification, so applications can still send VT-100 /
+ 322:				; ANSI sequences if desired. Translations are:
+ 323:				; Esc A to Esc [ A - Cursor up
+ 324:				; Esc B to Esc [ B - Cursor down
+ 325:				; Esc C to Esc [ C - Cursor right
+ 326:				; Esc D to Esc [ D - Cursor left
+ 327:				; Esc H to Esc [ H - Cursor home
+ 328:				; Esc J to Esc [ J - Clear to end of display
+ 329:				; Esc K to Esc [ K - Clear to end of line
+ 330:				; Esc Y <y> <x> to Esc [ <y> ; <x> H - Set cursor position
+ 331:				; Esc p to Esc [ 7 m - Reverse video on
+ 332:				; Esc q to Esc [ 27 m - Normal (positive) video
+ 333:				; Esc r to Esc [ 4 m - Underline on
+ 334:				; Esc u to Esc [ 24 m - Underline off
+ 335:				; Added 30/5/2025, initially to make the ZDE editor work properly:
+ 336:				; Esc L to Esc [ L - Insert line at cursor, pushing lines down
+ 337:				; Esc M to Esc [ M - Delete line at cursor, pulling lines up
+ 338:				; Esc E to Esc [ H Esc [ J - Home cursor and clear screen
+ 339:				; Esc d to Esc [ 1 J - Clear to start of display
+ 340:				; Esc e to Esc [ 25 h - Enable cursor
+ 341:				; Esc f to Esc [ 25 l - Disable cursor
+ 342: 1199+13	00E2' 3A0000  	cotr            ld a, (cot_state)
+ 343: 1212+4	00E5' A7      	                and a
+ 344: 1216+7+5	00E6' 2811    	                jr z, cot_norm        	; Jump if COTST_NORM
+ 345: 1223+7	00E8' FE01    	                cp COTST_ESC
+ 346: 1230+7+5	00EA' 2821    	                jr z, cot_esc
+ 347: 1237+7	00EC' FE02    	                cp COTST_LOAD
+ 348: 1244+10	00EE' CA9E01  	                jp z, cot_load
+ 349: 1254+7	00F1' FE03    	                cp COTST_Y
+ 350: 1261+10	00F3' CAB101  	                jp z, cot_y
+ 351:				; Panic if state is unknown.
+ 352: 1271+17	00F6' CD0000  	                call bpanic             ; System error monitor entry
+ 353:				;
+ 354:				;
+ 355:				; Normal state (COTST_NORM).
+ 356: 1288+4	00F9' 79      	cot_norm        ld a, c
+ 357: 1292+7	00FA' FE1B    	                cp ASCII_ESC
+ 358: 1299+10	00FC' C20000  	                jp nz, coraw            ; Don't translate if not Esc
+ 359:				; Escape found.
+ 360: 1309+4	00FF' AF      	                xor a
+ 361: 1313+13	0100' 320500  	                ld (cot_count), a       ; Flush buffer
+ 362: 1326+4	0103' 79      	                ld a, c
+ 363: 1330+17	0104' CD0202  	                call cot_store          ; Store it
+ 364: 1347+7	0107' 3E01    	                ld a, COTST_ESC         ; Set state for next character
+ 365: 1354+13	0109' 320000  	                ld (cot_state), a
+ 366: 1367+10	010C' C9      	                ret
+ 367:				;
+ 368:				;
+ 369:				; Previous character was an escape.
+ 370: 1377+11	010D' C5      	cot_esc         push bc                 ; Save registers
+ 371: 1388+11	010E' D5      	                push de
+ 372: 1399+11	010F' E5      	                push hl
+ 373:				;
+ 374: 1410+4	0110' 79      	                ld a, c
+ 375: 1414+17	0111' CD0202  	                call cot_store          ; Store it
+ 376:				;                
+ 377:				; Search table for character.
+ 378: 1431+10	0114' 212802  	                ld hl, cot_list
+ 379: 1441+7	0117' 7E      	cot_srch_lp     ld a, (hl)
+ 380: 1448+4	0118' A7      	                and a
+ 381: 1452+7+5	0119' 2811    	                jr z, cot_pass          ; End of table found
+ 382: 1459+4	011B' B9      	                cp c
+ 383: 1463+7+5	011C' 2806    	                jr z, cot_srch_found
+ 384: 1470+6	011E' 23      	                inc hl
+ 385: 1476+6	011F' 23      	                inc hl
+ 386: 1482+6	0120' 23      	                inc hl
+ 387: 1488+6	0121' 23      	                inc hl
+ 388: 1494+12	0122' 18F3    	                jr cot_srch_lp
+ 389:				;
+ 390:				; Code found.
+ 391: 1506+6	0124' 23      	cot_srch_found  inc hl
+ 392: 1512+7	0125' 46      	                ld b, (hl)              ; Fetch data byte, used for some entries
+ 393: 1519+6	0126' 23      	                inc hl
+ 394: 1525+7	0127' 5E      	                ld e, (hl)
+ 395: 1532+6	0128' 23      	                inc hl
+ 396: 1538+7	0129' 56      	                ld d, (hl)
+ 397: 1545+4	012A' EB      	                ex de, hl
+ 398:				; B - data byte
+ 399:				; C - command character
+ 400:				; HL - handling routine address
+ 401: 1549+4	012B' E9      	                jp (hl)                 ; Jump to handler
+ 402:				;
+ 403:				; Unrecognised sequence. Send whatever we received. This code assumes that
+ 404:				; there is at least one character in cot_buffer.
+ 405: 1553+13	012C' 3A0500  	cot_pass        ld a, (cot_count)       ; Number of characters in buffer
+ 406: 1566+4	012F' 47      	                ld b, a
+ 407: 1570+10	0130' 210100  	                ld hl, cot_buffer       ; Point to buffer
+ 408: 1580+7	0133' 4E      	cot_pass_lp     ld c, (hl)
+ 409: 1587+11	0134' C5      	                push bc
+ 410: 1598+11	0135' E5      	                push hl
+ 411: 1609+17	0136' CD0000  	                call coraw
+ 412: 1626+10	0139' E1      	                pop hl
+ 413: 1636+10	013A' C1      	                pop bc
+ 414: 1646+6	013B' 23      	                inc hl
+ 415: 1652+8+5	013C' 10F5    	                djnz cot_pass_lp
+ 416: 1660+12	013E' 1808    	                jr cot_to_norm          ; Set normal state and exit
+ 417:				;
+ 418:				;
+ 419:				; Send CSI followed by command with no further translation.
+ 420:				; B - data byte (not used)
+ 421:				; C - command character
+ 422: 1672+11	0140' C5      	coth_same       push bc
+ 423: 1683+17	0141' CD1E02  	                call cot_csi            ; Send <Esc>[
+ 424: 1700+10	0144' C1      	                pop bc
+ 425: 1710+17	0145' CD0000  	                call coraw              ; Send command
+ 426:				; Set state to normal for the next character.
+ 427: 1727+4	0148' AF      	cot_to_norm     xor a
+ 428: 1731+13	0149' 320000  	                ld (cot_state), a       ; Set state to COTST_NORM
+ 429:				;
+ 430: 1744+10	014C' E1      	cot_exit        pop hl                  ; Restore registers
+ 431: 1754+10	014D' D1      	                pop de
+ 432: 1764+10	014E' C1      	                pop bc
+ 433: 1774+10	014F' C9      	                ret
+ 434:				;
+ 435:				;
+ 436:				; Select graphics rendition.
+ 437:				; B - required ANSI / VT-100 SGR code in decimal
+ 438:				; C - command character (not used)
+ 439: 1784+11	0150' C5      	coth_sgr        push bc
+ 440: 1795+17	0151' CD1E02  	                call cot_csi
+ 441: 1812+10	0154' C1      	                pop bc
+ 442: 1822+4	0155' 78      	                ld a, b
+ 443: 1826+17	0156' CDDE01  	                call cot_dec            ; Send decimal parameter
+ 444: 1843+7	0159' 0E6D    	                ld c, "m"
+ 445: 1850+17	015B' CD0000  	                call coraw
+ 446: 1867+10	015E' C34801  	                jp cot_to_norm          ; Set normal state and exit
+ 447:				;
+ 448:				;
+ 449:				; Set cursor position sequence (Esc Y). The next characters are <y> and <x>.
+ 450:				; B - data byte (not used)
+ 451:				; C - command character (not used)
+ 452: 1877+7	0161' 3E02    	coth_set_csr    ld a, COTST_LOAD
+ 453: 1884+13	0163' 320000  	                ld (cot_state), a
+ 454: 1897+12	0166' 18E4    	                jr cot_exit
+ 455:				;
+ 456:				;
+ 457:				; Home & clear display. Send Esc [ H Esc [ J
+ 458:				; B - data byte (not used)
+ 459:				; C - command character (not used)
+ 460: 1909+17	0168' CD1E02  	coth_cls        call cot_csi
+ 461: 1926+7	016B' 0E48    	                ld c, "H"               ; Home
+ 462: 1933+17	016D' CD0000  	                call coraw
+ 463: 1950+17	0170' CD1E02  	                call cot_csi
+ 464: 1967+7	0173' 0E4A    	                ld c, "J"               ; Clear to end of display
+ 465: 1974+17	0175' CD0000  	                call coraw
+ 466: 1991+10	0178' C34801  	                jp cot_to_norm          ; Set normal state and exit
+ 467:				;
+ 468:				;
+ 469:				; Clear display. Send Esc [ <n> J 
+ 470:				; B - data byte "0" (clear to end of display) or "1" (clear to start of display)
+ 471:				; C - command character (not used)
+ 472: 2001+17	017B' CD1E02  	coth_clr        call cot_csi
+ 473: 2018+4	017E' 48      	                ld c, b
+ 474: 2022+17	017F' CD0000  	                call coraw
+ 475: 2039+7	0182' 0E4A    	                ld c, "J"               ; Clear command
+ 476: 2046+17	0184' CD0000  	                call coraw
+ 477: 2063+10	0187' C34801  	                jp cot_to_norm          ; Set normal state and exit
+ 478:				;
+ 479:				;
+ 480:				; Enable or disable cursor. Send Esc [ 25 h (enable) or l (disable).
+ 481:				; B - data byte "h" or "l"
+ 482:				; C - command character (not used)
+ 483: 2073+17	018A' CD1E02  	coth_cur_endis  call cot_csi
+ 484: 2090+7	018D' 0E32    	                ld c, "2"
+ 485: 2097+17	018F' CD0000  	                call coraw
+ 486: 2114+7	0192' 0E35    	                ld c, "5"
+ 487: 2121+17	0194' CD0000  	                call coraw
+ 488: 2138+4	0197' 48      	                ld c, b
+ 489: 2142+17	0198' CD0000  	                call coraw
+ 490: 2159+10	019B' C34801  	                jp cot_to_norm          ; Set normal state and exit
+ 491:				;
+ 492:				;
+ 493:				; Cursor load state (COTST_LOAD).
+ 494: 2169+11	019E' C5      	cot_load        push bc                 ; Save registers
+ 495: 2180+11	019F' D5      	                push de
+ 496: 2191+11	01A0' E5      	                push hl
+ 497:				;
+ 498: 2202+4	01A1' 79      	                ld a, c
+ 499: 2206+17	01A2' CD0202  	                call cot_store          ; Store it
+ 500: 2223+4	01A5' 79      	                ld a, c                 ; Y coordinate
+ 501: 2227+7	01A6' FE20    	                cp 0x20
+ 502: 2234+7+5	01A8' 3882    	                jr c, cot_pass          ; Discard if Y is negative
+ 503: 2241+7	01AA' 3E03    	                ld a, COTST_Y
+ 504: 2248+13	01AC' 320000  	                ld (cot_state), a
+ 505: 2261+12	01AF' 189B    	                jr cot_exit
+ 506:				;
+ 507:				;
+ 508:				; Cursor load Y state (COTST_Y).
+ 509: 2273+11	01B1' C5      	cot_y           push bc                 ; Save registers
+ 510: 2284+11	01B2' D5      	                push de
+ 511: 2295+11	01B3' E5      	                push hl
+ 512:				;
+ 513: 2306+4	01B4' 79      	                ld a, c
+ 514: 2310+17	01B5' CD0202  	                call cot_store          ; Store it
+ 515: 2327+4	01B8' 79      	                ld a, c                 ; X coordinate
+ 516: 2331+7	01B9' FE20    	                cp 0x20
+ 517: 2338+10	01BB' DA2C01  	                jp c, cot_pass          ; Discard if X is negative
+ 518:				; Send VT-100 console load sequence: <ESC> [ pl ; pc H
+ 519: 2348+17	01BE' CD1E02  	                call cot_csi
+ 520: 2365+13	01C1' 3A0300  	                ld a, (cot_buffer + 2)  ; y
+ 521: 2378+7	01C4' D61F    	                sub 0x1f                ; Make origin 0x01
+ 522: 2385+17	01C6' CDDE01  	                call cot_dec
+ 523: 2402+7	01C9' 0E3B    	                ld c, ";"
+ 524: 2409+17	01CB' CD0000  	                call coraw
+ 525: 2426+13	01CE' 3A0400  	                ld a, (cot_buffer + 3)  ; x
+ 526: 2439+7	01D1' D61F    	                sub 0x1f                ; Make origin 0x01
+ 527: 2446+17	01D3' CDDE01  	                call cot_dec
+ 528: 2463+7	01D6' 0E48    	                ld c, "H"
+ 529: 2470+17	01D8' CD0000  	                call coraw
+ 530: 2487+10	01DB' C34801  	                jp cot_to_norm          ; Set normal state and exit
+ 531:				;
+ 532:				;
+ 533:				; Send decimal number in A to console.
+ 534: 2497+11	01DE' C5      	cot_dec         push bc
+ 535: 2508+7	01DF' 0664    	                ld b, 100
+ 536: 2515+17	01E1' CDF001  	                call cot_dec_div
+ 537: 2532+7	01E4' 060A    	                ld b, 10
+ 538: 2539+17	01E6' CDF001  	                call cot_dec_div
+ 539: 2556+10	01E9' C1      	                pop bc
+ 540:				; Output digit (0 to 9) in A.
+ 541: 2566+7	01EA' C630    	cot_dec_digit   add "0"                 ; Convert to ASCII
+ 542: 2573+4	01EC' 4F      	                ld c, a
+ 543: 2577+10	01ED' C30000  	                jp coraw                ; Send it and return
+ 544:				; Divide by A by B using repeated subtraction.
+ 545: 2587+7	01F0' 0E30    	cot_dec_div     ld c, "0"
+ 546: 2594+4	01F2' 90      	cot_dec_loop    sub b
+ 547: 2598+7+5	01F3' 3803    	                jr c, cot_dec_carry
+ 548: 2605+4	01F5' 0C      	                inc c
+ 549: 2609+12	01F6' 18FA    	                jr cot_dec_loop
+ 550: 2621+4	01F8' 80      	cot_dec_carry   add b                   ; Reverse subtract that carried
+ 551:				; Now A is the remainder and C is the digit.
+ 552: 2625+11	01F9' F5      	                push af
+ 553: 2636+4	01FA' 79      	                ld a, c
+ 554: 2640+7	01FB' FE30    	                cp "0"
+ 555: 2647+10+7	01FD' C40000  	                call nz, coraw          ; Output if not zero
+ 556: 2657+10	0200' F1      	                pop af
+ 557: 2667+10	0201' C9      	                ret
+ 558:				;
+ 559:				;
+ 560:				; Store character in console output buffer.
+ 561:				; A - character to store.
+ 562: 2677+11	0202' C5      	cot_store       push bc
+ 563: 2688+11	0203' E5      	                push hl
+ 564: 2699+4	0204' 4F      	                ld c, a
+ 565: 2703+13	0205' 3A0500  	                ld a, (cot_count)       ; Number of characters in buffer
+ 566: 2716+7	0208' FE04    	                cp COT_BUF_MAX_LEN
+ 567: 2723+10+7	020A' D40000  	                call nc, bpanic         ; System error monitor entry
+ 568:				; Find address in sequence buffer.
+ 569: 2733+10	020D' 210100  	                ld hl, cot_buffer
+ 570: 2743+4	0210' 85      	                add l
+ 571: 2747+4	0211' 6F      	                ld l, a
+ 572: 2751+4	0212' 7C      	                ld a, h
+ 573: 2755+7	0213' CE00    	                adc 0                   ; Propagate carry
+ 574: 2762+4	0215' 67      	                ld h, a
+ 575:				; HL - address in buffer
+ 576: 2766+7	0216' 71      	                ld (hl), c              ; Store character
+ 577:				; Update counter
+ 578: 2773+10	0217' 210500  	                ld hl, cot_count
+ 579: 2783+11	021A' 34      	                inc (hl)
+ 580: 2794+10	021B' E1      	                pop hl
+ 581: 2804+10	021C' C1      	                pop bc
+ 582: 2814+10	021D' C9      	                ret
+ 583:				;
+ 584:				;
+ 585:				; Send VT-100 CSI sequence ("<Esc>[") to console.
+ 586: 2824+7	021E' 0E1B    	cot_csi         ld c, ASCII_ESC
+ 587: 2831+17	0220' CD0000  	                call coraw
+ 588: 2848+7	0223' 0E5B    	                ld c, "["
+ 589: 2855+10	0225' C30000  	                jp coraw
+ 590:				;
+ 591:				;
+ 592:				;
+ 593:				; **********
+ 594:				; * Tables *
+ 595:				; **********
+ 596:				;
+ 597:				;
+ 598:				; Console output translation table. Each entry consists of four bytes:
+ 599:				; 0 - character received after Esc. Zero terminates table.
+ 600:				; 1 - data byte, used for some entries
+ 601:				; 2 & 3 - vector to handling routine
+ 602:     -	0228' 4100    	cot_list        byte "A", 0     ; Cursor up
+ 603:     -	022A' 4001    	                word coth_same
+ 604:     -	022C' 4200    	                byte "B", 0     ; Cursor down
+ 605:     -	022E' 4001    	                word coth_same
+ 606:     -	0230' 4300    	                byte "C", 0     ; Cursor right
+ 607:     -	0232' 4001    	                word coth_same
+ 608:     -	0234' 4400    	                byte "D", 0     ; Cursor left
+ 609:     -	0236' 4001    	                word coth_same
+ 610:     -	0238' 4500    	                byte "E", 0     ; Home cursor and clear screen
+ 611:     -	023A' 6801    	                word coth_cls
+ 612:     -	023C' 4800    	                byte "H", 0     ; Cursor home
+ 613:     -	023E' 4001    	                word coth_same
+ 614:     -	0240' 4A30    	                byte "J", "0"   ; Clear to end of display
+ 615:     -	0242' 7B01    	                word coth_clr
+ 616:     -	0244' 4B00    	                byte "K", 0     ; Clear to end of line
+ 617:     -	0246' 4001    	                word coth_same
+ 618:     -	0248' 4C00    	                byte "L", 0     ; Insert line at cursor, pushing lines down
+ 619:     -	024A' 4001    	                word coth_same
+ 620:     -	024C' 4D00    	                byte "M", 0     ; Delete line at cursor, pulling lines up
+ 621:     -	024E' 4001    	                word coth_same
+ 622:     -	0250' 5900    	                byte "Y", 0     ; Set cursor position
+ 623:     -	0252' 6101    	                word coth_set_csr
+ 624:     -	0254' 6431    	                byte "d", "1"   ; Clear to start of display
+ 625:     -	0256' 7B01    	                word coth_clr
+ 626:     -	0258' 6568    	                byte "e", "h"   ; Enable cursor
+ 627:     -	025A' 8A01    	                word coth_cur_endis
+ 628:     -	025C' 666C    	                byte "f", "l"   ; Disable cursor
+ 629:     -	025E' 8A01    	                word coth_cur_endis
+ 630:     -	0260' 7007    	                byte "p", 7     ; Reverse video on
+ 631:     -	0262' 5001    	                word coth_sgr
+ 632:     -	0264' 711B    	                byte "q", 27    ; Normal (positive) video
+ 633:     -	0266' 5001    	                word coth_sgr
+ 634:     -	0268' 7204    	                byte "r", 4     ; Underline on
+ 635:     -	026A' 5001    	                word coth_sgr
+ 636:     -	026C' 7518    	                byte "u", 24    ; Underline off
+ 637:     -	026E' 5001    	                word coth_sgr
+ 638:     -	0270' 00      	                byte 0          ; End of table
+ 639:				;
+ 640:				;
+ 641:				; Console CSI code input translation table. Each entry consists of four bytes:
+ 642:				; 0 - character received after CSI ("Esc ["). Zero terminates table.
+ 643:				; 1 - ZARC code
+ 644:				; 2 & 3 - vector to handling routine
+ 645:     -	0271' 411F    	cit_csi_list    byte "A", ZKEY_CSR_UP       ; Cursor up
+ 646:     -	0273' 6000    	                word cith_single
+ 647:     -	0275' 421E    	                byte "B", ZKEY_CSR_DOWN     ; Cursor down
+ 648:     -	0277' 6000    	                word cith_single
+ 649:     -	0279' 4306    	                byte "C", ZKEY_CSR_RIGHT    ; Cursor right
+ 650:     -	027B' 6000    	                word cith_single
+ 651:     -	027D' 4401    	                byte "D", ZKEY_CSR_LEFT     ; Cursor left
+ 652:     -	027F' 6000    	                word cith_single
+ 653:     -	0281' 3216    	                byte "2", ZKEY_INSERT       ; Ins
+ 654:     -	0283' 6500    	                word cith_tilde
+ 655:     -	0285' 337F    	                byte "3", ZKEY_DELETE       ; Del
+ 656:     -	0287' 6500    	                word cith_tilde
+ 657:     -	0289' 351D    	                byte "5", ZKEY_PAGE_UP      ; Page up
+ 658:     -	028B' 6500    	                word cith_tilde
+ 659:     -	028D' 361C    	                byte "6", ZKEY_PAGE_DOWN    ; Page down
+ 660:     -	028F' 6500    	                word cith_tilde
+ 661:     -	0291' 3102    	                byte "1", ZKEY_HOME         ; Home ("Esc [1~")
+ 662:     -	0293' 6500    	                word cith_tilde
+ 663:     -	0295' 4802    	                byte "H", ZKEY_HOME         ; Home ("Esc [H")
+ 664:     -	0297' 6000    	                word cith_single
+ 665:     -	0299' 3404    	                byte "4", ZKEY_END          ; End ("Esc [4~")
+ 666:     -	029B' 6500    	                word cith_tilde
+ 667:     -	029D' 4604    	                byte "F", ZKEY_END          ; End ("Esc [F")
+ 668:     -	029F' 6000    	                word cith_single
+ 669:     -	02A1' 00      	                byte 0                      ; End of table
+ 670:				;
+ 671:				;
+ 672:				; Console SS3 input translation table. Each entry consists of two bytes:
+ 673:				; 0 - character received after SS3 ("Esc O"). Zero terminates table.
+ 674:				; 1 - ZARC code
+ 675:     -	02A2' 4802    	cit_ss3_list    byte "H", ZKEY_HOME         ; Home ("Esc OH")
+ 676:     -	02A4' 4604    	                byte "F", ZKEY_END          ; End ("Esc OF")
+ 677:     -	02A6' 00      	                byte 0                      ; End of table
+ 678:				;
+ 679:				;
+ 680:				; *************
+ 681:				; * Variables *
+ 682:				; *************
+ 683:				;
+ 684:				;
+ 685:				; For CP/M 2.2, use the data segment. For CP/M 3, remain in the code (common)
+ 686:				; segment.
+ 687:     -	0001'         	                if BIOS_CPM_VER = 2
+ 688:				; Note: linker "-c" option is used, so no data is initialised here.
+ 689:				                dseg                ; Data segment
+ 690:				                endif
+ 691:				;
+ 692:				; Console output translation.
+ 693:     -	0000"         	cot_state       defs 1              ; Console output translation state
+ 694:     -	0001"         	cot_buffer      defs COT_BUF_MAX_LEN    ; Sequence buffer
+ 695:     -	0005"         	cot_count       defs 1              ; Number of characters in buffer
+ 696:				; Console input translation.
+ 697:     -	0006"         	cistm           defs 1              ; Console input translation state
+ 698:     -	0007"         	cit_buffer      defs CIT_BUF_MAX_LEN    ; Sequence buffer
+ 699:     -	000B"         	cit_count       defs 1              ; Number of characters in buffer
+ 700:     -	000C"         	cittmr          defs 1              ; Console input translation timer
+ 701:     -	000D"         	cit_buff_ptr    defs 2              ; Pointer within cit_buffer
+ 702:				;
+ 703:     -	000F"         	                end
+
+
+
+Statistics:
+
+     4	passes
+     0	jr promotions
+   434	symbols
+   679	bytes
+
+   213	macro calls
+  2391	macro bytes
+     0	invented symbols
+
+
+
+Symbol Table:
+
+ASCII_BS       =08        8
+ASCII_CR       =0D        13
+ASCII_DEL      =7F        127
+ASCII_ENQ      =05        5
+ASCII_ESC      =1B        27
+ASCII_FF       =0C        12
+ASCII_HT       =09        9
+ASCII_LF       =0A        10
+ASCII_RS       =1E        30
+ASCII_SUB      =1A        26
+ASCII_SYN      =16        22
+ASCII_VT       =0B        11
+BDOS           =05        5
+BDOS_CLOSE_FILE=10        16
+BDOS_CON_IN    =01        1
+BDOS_CON_OUT   =02        2
+BDOS_DELETE_FILE=13        19
+BDOS_DIRECT_CON_IO=06        6
+BDOS_GET_ALLOC_ADDR=1B        27
+BDOS_GET_CON_STAT=0B        11
+BDOS_GET_CURR_DISK=19        25
+BDOS_GET_DPB   =1F        31
+BDOS_GET_FILE_SIZE=23        35
+BDOS_GET_IO_BYTE=07        7
+BDOS_GET_LOGIN_VEC=18        24
+BDOS_GET_RO_VEC=1D        29
+BDOS_GET_SET_USER=20        32
+BDOS_LST_OUT   =05        5
+BDOS_MAKE_FILE =16        22
+BDOS_OPEN_FILE =0F        15
+BDOS_PRINT_STRING=09        9
+BDOS_PUN_OUT   =04        4
+BDOS_RDR_IN    =03        3
+BDOS_READ_CON_BUFF=0A        10
+BDOS_READ_RANDOM=21        33
+BDOS_READ_SEQ  =14        20
+BDOS_READ_SEQ_EOF=01        1
+BDOS_RENAME_FILE=17        23
+BDOS_RESET_DISK_SYS=0D        13
+BDOS_RESET_DRIVES=25        37
+BDOS_SEARCH_FIRST=11        17
+BDOS_SEARCH_NEXT=12        18
+BDOS_SEL_DISK  =0E        14
+BDOS_SET_DMA_ADDR=1A        26
+BDOS_SET_FILE_ATTR=1E        30
+BDOS_SET_IO_BYTE=08        8
+BDOS_SET_RANDOM_REC=24        36
+BDOS_START     =DE06      56838
+BDOS_SYS_RST   =00        0
+BDOS_VERSION   =0C        12
+BDOS_WRITE_PROT=1C        28
+BDOS_WRITE_RANDOM=22        34
+BDOS_WRITE_RAN_ZFILL=28        40
+BDOS_WRITE_SEQ =15        21
+BIOS_AUXIN     =12        18
+BIOS_AUXIST    =33        51
+BIOS_AUXOST    =36        54
+BIOS_AUXOUT    =0F        15
+BIOS_CONIN     =06        6
+BIOS_CONOST    =30        48
+BIOS_CONOUT    =09        9
+BIOS_CONST     =03        3
+BIOS_CPM_START_SEC=2C        44
+BIOS_CPM_VER   =02        2
+BIOS_DEVINI    =3C        60
+BIOS_DEVTBL    =39        57
+BIOS_DRVTBL    =3F        63
+BIOS_FLUSH     =45        69
+BIOS_GET_TIMER =7B        123
+BIOS_HOME      =15        21
+BIOS_ID        =60        96
+BIOS_INT_DISABLE=6F        111
+BIOS_INT_ENABLE=72        114
+BIOS_JPTBL_NEXT=7E        126
+BIOS_LISTST    =2A        42
+BIOS_MAJ_VER   =01        1
+BIOS_MAX_SIZE  =1000      4096
+BIOS_MIN_VER   =06        6
+BIOS_MON_CALL  =69        105
+BIOS_MOVE      =48        72
+BIOS_MULTIO    =42        66
+BIOS_OPT_DEBUG_BIT=00        0
+BIOS_OPT_DEBUG_MASK=01        1
+BIOS_OPT_NOINTS_BIT=01        1
+BIOS_OPT_NOINTS_MASK=02        2
+BIOS_OPT_RAWCON_BIT=02        2
+BIOS_OPT_RAWCON_MASK=04        4
+BIOS_PLIST     =0C        12
+BIOS_PUNCH     =0F        15
+BIOS_READ      =24        36
+BIOS_READER    =12        18
+BIOS_RESERV1   =5A        90
+BIOS_RESERV2   =5D        93
+BIOS_SECTRAN   =2D        45
+BIOS_SELDSK    =18        24
+BIOS_SELMEM    =4E        78
+BIOS_SETBNK    =51        81
+BIOS_SETDMA    =21        33
+BIOS_SETSEC    =1E        30
+BIOS_SETTRK    =1B        27
+BIOS_SET_TIMER =78        120
+BIOS_START     =EC00      60416
+BIOS_STARTUP   =66        102
+BIOS_SUPER     =6C        108
+BIOS_TIME      =4B        75
+BIOS_TIRD      =75        117
+BIOS_USERF     =57        87
+BIOS_VER       =63        99
+BIOS_WBOOT     =00        0
+BIOS_WRITE     =27        39
+BIOS_XMOVE     =54        84
+BPS_OPTIONS    =00        0
+BPS_PAGES      =01        1
+BPS_PARTITION  =0E        14
+BPS_SIZE       =10        16
+CCP_START      =D600      54784
+CDISK          =04        4
+CITST_NORM     =00        0
+CITST_REPLAY   =01        1
+CITST_STATES   =02        2
+CIT_BUF_MAX_LEN=04        4
+CONST           00        0 (extern)
+COTST_ESC      =01        1
+COTST_LOAD     =02        2
+COTST_NORM     =00        0
+COTST_STATES   =04        4
+COTST_Y        =03        3
+COT_BUF_MAX_LEN=04        4
+CP3_DPB_AL0    =09        9
+CP3_DPB_AL1    =0A        10
+CP3_DPB_BLM    =03        3
+CP3_DPB_BSH    =02        2
+CP3_DPB_CKS    =0B        11
+CP3_DPB_DRM    =07        7
+CP3_DPB_DSM    =05        5
+CP3_DPB_EXM    =04        4
+CP3_DPB_OFF    =0D        13
+CP3_DPB_PHM    =10        16
+CP3_DPB_PSH    =0F        15
+CP3_DPB_SIZE   =11        17
+CP3_DPB_SPT    =00        0
+CP3_DPH_SIZE   =19        25
+CP3_DRIVE_A    =08        8
+CP3_DRIVE_B    =01        1
+CP3_NUM_DISKS  =08        8
+CP3_NUM_DISKS_MAX=10        16
+CP3_XDPH_SIZE  =23        35
+CPMLDR_MAX_SIZE=2800      10240
+CPMLDR_START_SEC=13        19
+CPM_BIAS       =A200      41472
+CPM_BLOCK_SIZE = 800      2048
+CPM_DIR_ENTRIES= 200      512
+CPM_DISK_SIZE  =00100000  1048576
+CPM_SECTOR_SIZE=80        128
+CPM_SYS_SIZE   =00100000  1048576
+DCONIO_GET_NO_WT=FF        255
+DCONIO_GET_WT  =FD        253
+DCONIO_IN_STAT =FE        254
+DCONIO_PUT     =00        0
+DEF_BUFFER     =80        128
+DEF_BUFFER_SIZE=80        128
+DIRE_ALLOC     =10        16
+DIRE_EX        =0C        12
+DIRE_NAME      =01        1
+DIRE_RC        =0F        15
+DIRE_S1        =0D        13
+DIRE_S2        =0E        14
+DIRE_SIZE      =20        32
+DIRE_TYP       =09        9
+DIRE_USER      =00        0
+DIR_PWD_SIZE   =08        8
+DISK_DSM       = 1FF      511
+DISK_SPT       = 100      256
+DLBLE_CREATE_DATE=18        24
+DLBLE_LB       =0C        12
+DLBLE_NAME     =01        1
+DLBLE_NAME_SIZE=08        8
+DLBLE_PB       =0D        13
+DLBLE_PWD      =10        16
+DLBLE_RR0      =0E        14
+DLBLE_RR1      =0F        15
+DLBLE_SIZE     =20        32
+DLBLE_TYP      =09        9
+DLBLE_TYP_SIZE =03        3
+DLBLE_UPDATE_DATE=1C        28
+DLBLE_USER     =00        0
+DPB_AL0        =09        9
+DPB_AL1        =0A        10
+DPB_BLM        =03        3
+DPB_BSH        =02        2
+DPB_CKS        =0B        11
+DPB_DRM        =07        7
+DPB_DSM        =05        5
+DPB_EXM        =04        4
+DPB_OFF        =0D        13
+DPB_SIZE       =0F        15
+DPB_SPT        =00        0
+DPH_ALV        =0E        14
+DPH_CSV        =0C        12
+DPH_DIRBF      =08        8
+DPH_DPB        =0A        10
+DPH_SCRATCH0   =02        2
+DPH_SCRATCH1   =04        4
+DPH_SCRATCH2   =06        6
+DPH_SIZE       =10        16
+DPH_XLT        =00        0
+DPWDE_NAME     =01        1
+DPWDE_PB       =0D        13
+DPWDE_PM       =0C        12
+DPWDE_PM_DEL_BIT=05        5
+DPWDE_PM_DEL_MASK=20        32
+DPWDE_PM_READ_BIT=07        7
+DPWDE_PM_READ_MASK=80        128
+DPWDE_PM_WRITE_BIT=06        6
+DPWDE_PM_WRITE_MASK=40        64
+DPWDE_PWD      =10        16
+DPWDE_RESVD1   =0E        14
+DPWDE_RESVD2   =18        24
+DPWDE_SIZE     =20        32
+DPWDE_TYP      =09        9
+DPWDE_USER     =00        0
+DSTAMP_DAY     =00        0
+DSTAMP_HOUR    =02        2
+DSTAMP_MIN     =03        3
+DSTAMP_SIZE    =04        4
+DSTE_F1_DATE   =01        1
+DSTE_F1_UPD_DATE=05        5
+DSTE_F2_DATE   =0B        11
+DSTE_F2_UPD_DATE=0F        15
+DSTE_F3_DATE   =15        21
+DSTE_F3_UPD_DATE=19        25
+DSTE_M1        =09        9
+DSTE_M2        =13        19
+DSTE_M3        =1D        29
+DSTE_R0        =0A        10
+DSTE_R1        =14        20
+DSTE_R2        =1E        30
+DSTE_R3        =1F        31
+DSTE_SIZE      =20        32
+DSTE_USER      =00        0
+FCB1           =5C        92
+FCB2           =6C        108
+FCB_ALLOC      =10        16
+FCB_CR         =20        32
+FCB_DRIVE      =00        0
+FCB_EX         =0C        12
+FCB_NAME       =01        1
+FCB_RC         =0F        15
+FCB_RECORD     =21        33
+FCB_S1         =0D        13
+FCB_S2         =0E        14
+FCB_SIZE       =24        36
+FCB_TYP        =09        9
+FILEEXT_SIZE   =03        3
+FILENAME_SIZE  =08        8
+FILE_EOF       =1A        26
+HEAP_TOP       =7FFF      32767
+INT_STACK_SIZE =10        16
+INT_VEC_TABLE  =FFE0      65504
+IOBYTE         =03        3
+IOB_CON_MASK   =03        3
+IOB_LST_MASK   =C0        192
+IOB_PUN_MASK   =30        48
+IOB_RDR_MASK   =0C        12
+MAX_USER       =0F        15
+MC_STATES      =02        2
+MMAP_BANK0_END =3FFF      16383
+MMAP_BANK0_START=00        0
+MMAP_BANK1_END =7FFF      32767
+MMAP_BANK1_START=4000      16384
+MMAP_BANK2_END =BFFF      49151
+MMAP_BANK2_START=8000      32768
+MMAP_BANK3_END =FFFF      65535
+MMAP_BANK3_START=C000      49152
+MMAP_BANKS     =04        4
+MMAP_CP3_BANKS =04        4
+MMAP_CP3_BK0_ST=00        0
+MMAP_CP3_BK1_ST=03        3
+MMAP_CP3_BK2_ST=06        6
+MMAP_CP3_BK3_ST=09        9
+MMAP_CP3_COMM_PG=0C        12
+MMAP_CP3_PAGES =0D        13
+MMAP_CPM_PAGES =04        4
+MMAP_MON_B0_PAGE=3F        63
+MMAP_MON_B1_PAGE=3E        62
+MMAP_PAGES     =40        64
+MMAP_PAGE_SIZE =4000      16384
+MMC_ACMD_MC_SEND_OP_COND=29        41
+MMC_ARG1       =01        1
+MMC_ARG2       =02        2
+MMC_ARG3       =03        3
+MMC_ARG4       =04        4
+MMC_CID_CRC    =0F        15
+MMC_CID_MDT    =0E        14
+MMC_CID_MID    =00        0
+MMC_CID_OID    =01        1
+MMC_CID_PNM    =03        3
+MMC_CID_PNM_SIZE=06        6
+MMC_CID_PRV    =09        9
+MMC_CID_PSN    =0A        10
+MMC_CID_SIZE   =10        16
+MMC_CMD        =00        0
+MMC_CMD_APP_CMD=37        55
+MMC_CMD_CRC_ON_OFF=3B        59
+MMC_CMD_GO_IDLE_STATE=00        0
+MMC_CMD_READ_SINGLE_BLOCK=11        17
+MMC_CMD_SEND_CID=0A        10
+MMC_CMD_SEND_CSD=09        9
+MMC_CMD_SEND_OP_COND=01        1
+MMC_CMD_SEND_STATUS=0D        13
+MMC_CMD_SET_BLOCKLEN=10        16
+MMC_CMD_START  =40        64
+MMC_CMD_STOP   =01        1
+MMC_CMD_WRITE_BLOCK=18        24
+MMC_CRC        =05        5
+MMC_CSD_15_8   =0E        14
+MMC_CSD_23_16  =0D        13
+MMC_CSD_31_24  =0C        12
+MMC_CSD_39_32  =0B        11
+MMC_CSD_47_40  =0A        10
+MMC_CSD_55_48  =09        9
+MMC_CSD_63_56  =08        8
+MMC_CSD_71_64  =07        7
+MMC_CSD_79_72  =06        6
+MMC_CSD_87_80  =05        5
+MMC_CSD_95_88  =04        4
+MMC_CSD_CRC    =0F        15
+MMC_CSD_NSAC   =02        2
+MMC_CSD_SIZE   =10        16
+MMC_CSD_TAAC   =01        1
+MMC_CSD_TR_SPD =03        3
+MMC_CSD_VERSION=00        0
+MMC_LOG2_SEC_SIZE=09        9
+MMC_R1_ADDR_ERR_BIT=05        5
+MMC_R1_ADDR_ERR_MASK=20        32
+MMC_R1_CMD_CRC_ERR_BIT=03        3
+MMC_R1_CMD_CRC_ERR_MASK=08        8
+MMC_R1_ERA_RST_BIT=01        1
+MMC_R1_ERA_RST_MASK=02        2
+MMC_R1_ERA_SEQ_ERR_BIT=04        4
+MMC_R1_ERA_SEQ_ERR_MASK=10        16
+MMC_R1_IDLE_BIT=00        0
+MMC_R1_IDLE_MASK=01        1
+MMC_R1_ILL_CMD_BIT=02        2
+MMC_R1_ILL_CMD_MASK=04        4
+MMC_R1_PAR_ERR_BIT=06        6
+MMC_R1_PAR_ERR_MASK=40        64
+MMC_R1_START_BIT=07        7
+MMC_R1_START_MASK=80        128
+MMC_SECTOR_SIZE= 200      512
+MMC_SIZE       =06        6
+MMC_STAT_IDLE  =00        0
+MMC_STAT_INIT  =01        1
+MPA_NAME_LEN   =04        4
+NUM_DISKS      =09        9
+NUM_DISKS_MAX  =10        16
+STACKS_SIZE    =80        128
+TPA_START      = 100      256
+Z80_NMI_VEC    =66        102
+Z80_RST00_VEC  =00        0
+Z80_RST08_VEC  =08        8
+Z80_RST10_VEC  =10        16
+Z80_RST18_VEC  =18        24
+Z80_RST20_VEC  =20        32
+Z80_RST28_VEC  =28        40
+Z80_RST30_VEC  =30        48
+Z80_RST38_VEC  =38        56
+ZKEY_CSR_DOWN  =1E        30
+ZKEY_CSR_LEFT  =01        1
+ZKEY_CSR_RIGHT =06        6
+ZKEY_CSR_UP    =1F        31
+ZKEY_DELETE    =7F        127
+ZKEY_END       =04        4
+ZKEY_HOME      =02        2
+ZKEY_INSERT    =16        22
+ZKEY_PAGE_DOWN =1C        28
+ZKEY_PAGE_UP   =1D        29
+bpanic          00        0 (extern)
+ciraw           00        0 (extern)
+cistm           06"       6 (public)
+cit_buff_ptr    0D"       13
+cit_buffer      07"       7
+cit_count       0B"       11
+cit_csi         42'       66
+cit_csi_list     271'     625
+cit_do_replay   8B'       139
+cit_exit        61'       97
+cit_getch       AF'       175
+cit_norm        1C'       28
+cit_replay      99'       153
+cit_srch_found  58'       88
+cit_srch_lp     4B'       75
+cit_ss3         73'       115
+cit_ss3_list     2A2'     674
+cit_ss3_srch_fd 87'       135
+cit_ss3_srch_lp 7C'       124
+cit_store       C6'       198
+cith_single     60'       96
+cith_tilde      65'       101
+citr            0E'       14 (public)
+cittmr          0C"       12 (public)
+coraw           00        0 (extern)
+cot_buffer      01"       1
+cot_count       05"       5
+cot_csi          21E'     542
+cot_dec          1DE'     478
+cot_dec_carry    1F8'     504
+cot_dec_digit    1EA'     490
+cot_dec_div      1F0'     496
+cot_dec_loop     1F2'     498
+cot_esc          10D'     269
+cot_exit         14C'     332
+cot_list         228'     552
+cot_load         19E'     414
+cot_norm        F9'       249
+cot_pass         12C'     300
+cot_pass_lp      133'     307
+cot_srch_found   124'     292
+cot_srch_lp      117'     279
+cot_state       00"       0
+cot_store        202'     514
+cot_to_norm      148'     328
+cot_y            1B1'     433
+coth_clr         17B'     379
+coth_cls         168'     360
+coth_cur_endis   18A'     394
+coth_same        140'     320
+coth_set_csr     161'     353
+coth_sgr         150'     336
+cotr            E2'       226 (public)
+ctinit          00'       0 (public)
+enum_counter   =02        2
+jptbl_addr     =7E        126
+str_offset     =10        16

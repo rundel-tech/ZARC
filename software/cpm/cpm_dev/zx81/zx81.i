@@ -12,9 +12,14 @@
 ; *************
 ;
 ;
-;DEBUG           equ 1                   ; Define to enable debug messages
+; Version
+MAJ_VER         equ 1
+MIN_VER         equ 1
 ;
-STACK_SIZE      equ 64                  ; Stack space allocation
+;DEBUG           equ 1                   ; Define to enable debug messages
+;DEBUG_KEY       equ 1                   ; Define to enable keyboard debug messages
+;
+STACK_SIZE      equ 0x80                ; Stack space allocation
 BREAK_CHAR      equ 'C' - 0x40
 MMAP_ZX81_PAGES equ 4                   ; Number of pages allocated
 ;
@@ -28,7 +33,9 @@ ZX81_VERSN      equ 0x4009              ; 0x00 to identify ZX81 cassette files
 ;
 MON_VIS_VAR     equ MMAP_BANK2_START    ; Start of variables visible to the monitor
 EM_XFER_START   equ 0x1e00              ; Start of transfer code in emulated space
-
+;
+; Command line option flags. The order must match clopt_list in stran.z80.
+BITDEF CLOPT_BUILD, 0                   ; Show build time
 ;
 ; CP/M to emulated space command codes. These are passed to the emulated space
 ; in the C register.
@@ -47,6 +54,7 @@ EM_XFER_START   equ 0x1e00              ; Start of transfer code in emulated spa
                 ENUM ETOC_WAIT_KEY      ; Wait for a character from keyboard (DE)
                 ENUM ETOC_SAVE          ; Save BASIC programme
                 ENUM ETOC_LOAD          ; Load BASIC programme
+                ENUM ETOC_PAUSE         ; Pause for BC frames
                 ENUM_END CTOE_SIZE      ; Number of codes
 ;
 ; CTOE_RESET - start the emulated machine from location 0x0000. Parameters:

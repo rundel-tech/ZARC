@@ -1,10 +1,11 @@
 ; *******************************************************
-; * ZARC Monitor CP/M Definitions                       *
+; * ZARC Monitor CP/M 2.2 Definitions                   *
 ; * Written by: Merlin Skinner                          *
 ; * Date Started: 26/5/2020                             *
 ; *******************************************************
 ;
-; Definitions related CP/M running under the monitor programme.
+; Definitions related to CP/M running under the monitor programme. It may also
+; be used for CP/M applications.
 ;
 ; Note that ld80 only considers the first six characters of labels significant.
 ;
@@ -23,6 +24,7 @@
 ; Functions
                 extern cpinit       ; Load and start CP/M
                 extern cpmem        ; Allocate CP/M pages
+                extern cpprt        ; Find CP/M partition
 ;
                 endif
             endif
@@ -83,11 +85,14 @@ BITDEF BIOS_OPT_RAWCON, 2               ; Disables ADM-3A to VT-100 translation
 ; ***************
 ;
 ;
+; Note: NUM_DISKS reduced to 9 from 16 in preparation for adding CP/M 3 support.
 CPM_SECTOR_SIZE     equ 128             ; CP/M disk sector size
-NUM_DISKS           equ 16              ; Number of disk drives
+NUM_DISKS           equ 9               ; Number of disk drives
 NUM_DISKS_MAX       equ 16              ; Maximum number of disk drives
 CPM_SYS_SIZE        equ 1024 * 1024     ; System area size (bytes)
 CPM_DISK_SIZE       equ 1024 * 1024     ; Disk size (bytes)
+CPM_BLOCK_SIZE      equ 2048            ; Allocation block size (bytes)
+CPM_DIR_ENTRIES     equ 512             ; Number of directory entries
 FILENAME_SIZE       equ 8               ; Filename size
 FILEEXT_SIZE        equ 3               ; File extension size
 FILE_EOF            equ 0x1a            ; End of file (^Z)
@@ -95,7 +100,7 @@ MAX_USER            equ 15              ; Maximum user number
 ;
 BDOS_READ_SEQ_EOF   equ 1               ; Sequential read EOF error code
 ;
-; Disk Parameter Header (DPH) structure.
+; CP/M 2.2 Disk Parameter Header (DPH) structure.
                 STRUCT
                 STR_WORD DPH_XLT        ; Address of sector translation table
                 STR_WORD DPH_SCRATCH0   ; BDOS scratch area
@@ -108,7 +113,7 @@ BDOS_READ_SEQ_EOF   equ 1               ; Sequential read EOF error code
                 STR_END DPH_SIZE
 ;
 ;
-; Disk Parameter Block (DPB) structure.
+; CP/M 2.2 Disk Parameter Block (DPB) structure.
                 STRUCT
                 STR_WORD DPB_SPT        ; Number of 128-byte records per track
                 STR_BYTE DPB_BSH        ; Block shift. 3 => 1k, 4 => 2k, 5 => 4k....
@@ -135,6 +140,8 @@ BDOS_READ_SEQ_EOF   equ 1               ; Sequential read EOF error code
                 STR_BLOCK DIRE_ALLOC, 16 ; Associated block numbers
                 STR_END DIRE_SIZE
 ;
+                assert DIRE_SIZE = 0x20
+;
 ;
 ; File Control Block (FCB) structure.
                 STRUCT
@@ -143,15 +150,15 @@ BDOS_READ_SEQ_EOF   equ 1               ; Sequential read EOF error code
                 STR_BLOCK FCB_TYP, FILEEXT_SIZE     ; File type
                 STR_BYTE FCB_EX         ; Current extent (*)
                 STR_BYTE FCB_S1         ; Reserved (*)
-                STR_BYTE FCB_S2         ; Reserved (*)
-                STR_BYTE FCB_RC         ; Reserved (*)
+                STR_BYTE FCB_S2         ; Extent high byte (*)
+                STR_BYTE FCB_RC         ; Record count (*)
                 STR_BLOCK FCB_ALLOC, 16 ; Associated block numbers
                 STR_BYTE FCB_CR         ; Current record within extent
                 STR_BLOCK FCB_RECORD, 3 ; Record number (low byte first)
                 STR_END FCB_SIZE
 ;
-; * - Set this to 0 when opening a file and then leave it to CP/M. You can rewind
-; a file by setting EX, RC, S2 and CR to 0.
+; * - Set this to 0 when opening a file and then leave it to CP/M. You can
+; rewind a file by setting EX, RC, S2 and CR to 0.
 ;
 ;
 ;
@@ -161,8 +168,8 @@ BDOS_READ_SEQ_EOF   equ 1               ; Sequential read EOF error code
 ;
 ;
 ; Calculate offsets into jump tables. Entries here must match the jump table in
-; the BIOS. The base address of the BIOS must be added to these addresses. A call
-; routine might look like:
+; the BIOS. The base address of the BIOS must be added to these addresses. A
+; call routine might look like:
 ;
 ; Call BIOS, allowing for its unknown base address.
 ; Call with:
@@ -181,7 +188,6 @@ BDOS_READ_SEQ_EOF   equ 1               ; Sequential read EOF error code
 ;
     JPTBL_START 0                   ; Generate offsets as BIOS_START isn't always known
 ;
-; From monitor.z80
 ; Note - cold start routine omitted to align with use of address at (1) to find BIOS.
     JPTBL_ENTRY BIOS_WBOOT          ; Warm boot - reload command processor
     JPTBL_ENTRY BIOS_CONST          ; Console status
@@ -200,7 +206,7 @@ BDOS_READ_SEQ_EOF   equ 1               ; Sequential read EOF error code
 ; CP/M 2 functions.
     JPTBL_ENTRY BIOS_LISTST         ; Status of list device
     JPTBL_ENTRY BIOS_SECTRAN        ; Sector translation for skewing
-; CP/M 3 functions (not supported yet). From https://www.seasip.info/Cpm/bios.html
+; CP/M 3 functions. From https://www.seasip.info/Cpm/bios.html
     JPTBL_ENTRY BIOS_CONOST         ; Status of console output
     JPTBL_ENTRY BIOS_AUXIST         ; Status of auxiliary input
     JPTBL_ENTRY BIOS_AUXOST         ; Status of auxiliary output
@@ -225,7 +231,7 @@ BDOS_READ_SEQ_EOF   equ 1               ; Sequential read EOF error code
     JPTBL_ENTRY BIOS_SUPER          ; Set supervisor state
     JPTBL_ENTRY BIOS_INT_DISABLE    ; Disable interrupts and keep count
     JPTBL_ENTRY BIOS_INT_ENABLE     ; Enable interrupts if safe
-    JPTBL_ENTRY BIOS_TIRD           ; Read time and date
+    JPTBL_ENTRY BIOS_TIRD           ; Read time and date (ZARC format)
     JPTBL_ENTRY BIOS_SET_TIMER      ; Set timer
     JPTBL_ENTRY BIOS_GET_TIMER      ; Get timer
 ;
@@ -269,8 +275,8 @@ BDOS_RESET_DISK_SYS equ 13      ; Reset Disk System
 BDOS_SEL_DISK       equ 14      ; Select Disk
 BDOS_OPEN_FILE      equ 15      ; Open File
 BDOS_CLOSE_FILE     equ 16      ; Close File
-BDOS_SEARCH_FIRST   equ 17      ; Search for First
-BDOS_SEARCH_NEXT    equ 18      ; Search for Next
+BDOS_SEARCH_FIRST   equ 17      ; Search for first matching directory entry
+BDOS_SEARCH_NEXT    equ 18      ; Search for next matching directory entry
 BDOS_DELETE_FILE    equ 19      ; Delete File
 BDOS_READ_SEQ       equ 20      ; Read Sequential
 BDOS_WRITE_SEQ      equ 21      ; Write Sequential
@@ -290,9 +296,41 @@ BDOS_WRITE_RANDOM   equ 34      ; Write Random
 BDOS_GET_FILE_SIZE  equ 35      ; Compute File Size
 BDOS_SET_RANDOM_REC equ 36      ; Set Random Record
 BDOS_RESET_DRIVES   equ 37      ; Selectively reset disc drives
-BDOS_WRITE_RAN_ZFILL equ 40     ; Write Random with Zero Fill
-
+BDOS_WR_RND_ZFILL   equ 40      ; Write Random with Zero Fill
+BDOS_F_MULTISEC     equ 44      ; Set number of records to read/write at once
+BDOS_S_SYSVAR       equ 49      ; Access the System Control Block
+BDOS_S_BIOS         equ 50      ; Use the BIOS
+BDOS_P_LOAD         equ 59      ; Load overlay
+BDOS_CALL_RSX       equ 60      ; Call to RSX
+BDOS_DISK_CLEAN     equ 98      ; Clean up disc
+BDOS_F_TRUNCATE     equ 99      ; Truncate file
+BDOS_T_SET          equ 104     ; Set date and time
+BDOS_P_CODE         equ 108     ; Get/put program return code
+BDOS_C_MODE         equ 109     ; Set or get console mode
+BDOS_C_DELIMIT      equ 110     ; Get/set string delimiter
+BDOS_C_WRITEBLK     equ 111     ; Send block of text to console
+BDOS_L_WRITEBLK     equ 112     ; Send block of text to printer
+BDOS_F_PARSE        equ 152     ; Parse filename
+;
 ; Functions 28 and 32 should be avoided in application programs to maintain upward
 ; compatibility with CP/M.
+;
+; Direct Console I/O (BDOS_DIRECT_CON_IO) command codes. There are additional
+; codes supported by CP/M 3 (see cpm3.i).
+DCONIO_GET_NO_WT    equ 0xff    ; Get character (no echo) else return zero
+DCONIO_PUT          equ 0x00    ; Put (write) character
+;
+; BDOS_S_BIOS (function 50) parameter block.
+                STRUCT
+                STR_BYTE SBM_FUNC       ; BIOS function (0-32)
+                STR_BYTE SBM_A
+                STR_BYTE SBM_C
+                STR_BYTE SBM_B
+                STR_BYTE SBM_E
+                STR_BYTE SBM_D
+                STR_BYTE SBM_L
+                STR_BYTE SBM_H
+                STR_END SBM_SIZE
+;
 ;
 

@@ -5,20 +5,20 @@ Version 1.0, by Merlin Skinner, 14/7/09
 """
 
 """Convert the supplied 8-bit unsigned number into a two digit hex string"""
-def Hex8(n):
-    return(hex(n)[2:].zfill(2))
+def Hex8 (n):
+    return(hex (n)[2:].zfill (2).upper())
 
 """Convert the supplied 16-bit unsigned number into a four digit hex string"""
-def Hex16(n):
-    return(hex(n)[2:].zfill(4))
+def Hex16 (n):
+    return(hex (n)[2:].zfill (4).upper())
     
 """Convert the supplied 24-bit unsigned number into a six digit hex string"""
-def Hex24(n):
-    return(hex(n)[2:].zfill(6))
+def Hex24 (n):
+    return(hex (n)[2:].zfill (6).upper())
     
 """Convert the supplied 32-bit unsigned number into an eight digit hex string"""
-def Hex32(n):
-    return(hex(n)[2:].zfill(8))
+def Hex32 (n):
+    return(hex (n)[2:].zfill (8).upper())
     
 """Convert time period in microseconds to days, hours, minutes...microseconds"""
 def uSecsToString(t):

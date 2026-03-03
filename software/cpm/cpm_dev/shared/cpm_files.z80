@@ -87,13 +87,13 @@ CPMF            equ 1                   ; Flag module for includes
 ;
 ; Initialise FCBR structure.
 ; Call with:
-; IX - pointer to FCB (or FCBR structure)
+; IX - pointer to FCBR structure
 ; IX is preserved.
 finit           ld (ix + FCBR_FLAGS), 0  ; Initialise flags
                 ret
 ;
 ;
-; Build FCB or FCBR). The FCB is zeroed and the filename is copied in. The
+; Build FCB or FCBR. The FCB is zeroed and the filename is copied in. The
 ; default drive is selected, but this may be overwritten if required.
 ; Call with:
 ; HL - pointer to filename, e.g. "FOOFILE TXT"
@@ -126,7 +126,7 @@ rom_ld_clr_lp   ld (hl), a
 ;
 ; Delete file and report any errors to the console.
 ; Call with:
-; IX - pointer to FCB (or FCBR structure)
+; IX - pointer to FCBR structure
 ; Returns with:
 ; A - BDOS error code if carry = 1
 ; Carry flag is set if BDOS reported an error.
@@ -185,6 +185,13 @@ fopen           push bc
                     call fdfcb          ; Display FCB
                 endif
 ;
+; Panic if file is already open.
+                bit FCBR_FL_OPEN_BIT, (ix + FCBR_FLAGS)
+                call nz, panic
+;
+                call clr_fcb            ; Clear all but name and user num.
+;
+; Open the file.
                 push ix
                 pop de
                 ld c, BDOS_OPEN_FILE    ; Open File
@@ -198,14 +205,16 @@ fopen           push bc
                     call fdfcb          ; Display FCB
                 endif
 ;
-; Initialise FCBR variables.
-                set FCBR_FL_OPEN_BIT, (ix + FCBR_FLAGS)    ; Flag file is open
-                res FCBR_FL_DIRTY_BIT, (ix + FCBR_FLAGS)   ; Buffer is clean
+; Initialise FCBR variables and exit. Used by fopen and fmake.
+omf_exit_ok     ld a, FCBR_FL_OPEN_MASK
+; This also clears FCBR_FL_DIRTY, FCBR_FL_BYTES, and FCBR_FL_RECS.
+                ld (ix + FCBR_FLAGS), a
                 ld (ix + FCBR_CONTENTS), 0  ;RBUFF is empty
                 and a                   ; Flag success (carry = 0)
 ;
-; Return with carry set and BDOS error code in A on error.
-of_exit         pop hl
+; Return with carry set and BDOS error code in A on error. Used by fopen and
+; fmake.
+omf_exit        pop hl
                 pop de
                 pop bc
                 ret
@@ -215,9 +224,8 @@ of_error        push af                 ; Save BDOS error code
                 ld hl, open_err_msg     ; "Can't open file"
                 call conwms             ; Print $-terminated string to console
                 pop af
-                res FCBR_FL_OPEN_BIT, (ix + FCBR_FLAGS)  ; Flag file is closed
                 scf                     ; Flag error
-                jr of_exit
+                jr omf_exit
 ;
 ;
 ; Create new file for read / write and report any errors to the console. Any
@@ -252,6 +260,8 @@ mf_delete_dn
                     call fdfcb          ; Display FCB
                 endif
 ;
+                call clr_fcb            ; Clear all but name and user num.
+;
                 push ix
                 pop de
                 ld c, BDOS_MAKE_FILE    ; Open File
@@ -265,17 +275,8 @@ mf_delete_dn
                     call fdfcb          ; Display FCB
                 endif
 ;
-; Initialise FCBR variables.
-                set FCBR_FL_OPEN_BIT, (ix + FCBR_FLAGS)    ; Flag file is open
-                res FCBR_FL_DIRTY_BIT, (ix + FCBR_FLAGS)   ; Buffer is clean
-                ld (ix + FCBR_CONTENTS), 0  ;RBUFF is empty
-                and a                   ; Flag success (carry = 0)
-;
-; Return with carry set and BDOS error code in A on error.
-mf_exit         pop hl
-                pop de
-                pop bc
-                ret
+; Initialise FCBR variables and exit.
+                jr omf_exit_ok
 ;
 ; File open error.
 mf_error        push af                 ; Save BDOS error code
@@ -283,7 +284,7 @@ mf_error        push af                 ; Save BDOS error code
                 call conwms             ; Print $-terminated string to console
                 pop af
                 scf                     ; Flag error
-                jr mf_exit
+                jr omf_exit
 ;
 ;
 ; Write record buffer contents to the file and report any errors to the
@@ -294,7 +295,16 @@ mf_error        push af                 ; Save BDOS error code
 ; A - BDOS error code if carry = 1
 ; Carry flag is set if BDOS reported an error.
 ; IX is preserved.
-fwrrec          push bc
+;
+; Panic if we are using byte streams and a block write is attempted. A check
+; that the file is open is performed later.
+fwrrec          bit FCBR_FL_BYTES_BIT, (ix + FCBR_FLAGS)
+                call nz, panic
+; Flag that we are using record access.
+                set FCBR_FL_RECS_BIT, (ix + FCBR_FLAGS)
+;
+; Entry point for internal use by the byte stream code.
+fwrrec_raw      push bc
                 push de
                 push hl
 ;
@@ -355,6 +365,15 @@ fwrby           push bc
                 push de
                 push hl
 ;
+; Panic if file is not open.
+                bit FCBR_FL_OPEN_BIT, (ix + FCBR_FLAGS)
+                call z, panic
+; Panic if we are using record access, as we can't mix the two.
+                bit FCBR_FL_RECS_BIT, (ix + FCBR_FLAGS)
+                call nz, panic
+; Flag that we are using byte access.
+                set FCBR_FL_BYTES_BIT, (ix + FCBR_FLAGS)
+;
                 ld c, a                 ; Save byte for later
 ; Find address in record buffer.
                 push ix
@@ -373,7 +392,7 @@ fwrby           push bc
                 cp CPM_SECTOR_SIZE
                 jr c, wrb_ok
 ; Write record.
-                call fwrrec             ; Write record to file
+                call fwrrec_raw         ; Write record to file
                 jr c, wrb_exit          ; Exit on error
                 ld (ix + FCBR_CONTENTS), 0  ;RBUFF is empty
                 res FCBR_FL_DIRTY_BIT, (ix + FCBR_FLAGS)   ; Buffer is clean
@@ -450,7 +469,16 @@ wblk_exit       pop de
 ; A - BDOS error code if carry = 1 (e.g. BDOS_READ_SEQ_EOF)
 ; Carry flag is set if BDOS reported an error.
 ; IX is preserved.
-frdrec          push bc
+;
+; Panic if we are using byte streams and a block write is attempted. A check
+; that the file is open is performed later.
+frdrec          bit FCBR_FL_BYTES_BIT, (ix + FCBR_FLAGS)
+                call nz, panic
+; Flag that we are using record access.
+                set FCBR_FL_RECS_BIT, (ix + FCBR_FLAGS)
+;
+; Entry point for internal use by the byte stream code.
+frdrec_raw      push bc
                 push de
                 push hl
 ;
@@ -485,7 +513,7 @@ frdrec          push bc
                 jr z, rdr_error         ; Return with EOF error
 ; BDOS returned an error. EOF is not really an error, so nothing is displayed
 ; in this case.
-                call fdsrem             ; Display sequential write error message
+                call fdsrem             ; Display sequential read error message
 rdr_error       scf                     ; Flag error
 ;
 ; Return with carry set and BDOS error code in A on error.
@@ -507,6 +535,15 @@ frdby           push bc
                 push de
                 push hl
 ;
+; Panic if file is not open.
+                bit FCBR_FL_OPEN_BIT, (ix + FCBR_FLAGS)
+                call z, panic
+; Panic if we are using record access, as we can't mix the two.
+                bit FCBR_FL_RECS_BIT, (ix + FCBR_FLAGS)
+                call nz, panic
+; Flag that we are using byte access.
+                set FCBR_FL_BYTES_BIT, (ix + FCBR_FLAGS)
+;
                 bit FCBR_FL_DIRTY_BIT, (ix + FCBR_FLAGS)
                 jr z, rdb_clean
 ;
@@ -523,7 +560,7 @@ rdb_clean       ld a, (ix + FCBR_CONTENTS)
                 jr nz, rdb_fetch
 ;
 ; The buffer is empty, so read a record.
-                call frdrec             ; Read record from file
+                call frdrec_raw         ; Read record from file
                 jr c, rdb_exit          ; Exit on error
                 ld (ix + FCBR_CONTENTS), CPM_SECTOR_SIZE
 ;
@@ -620,7 +657,7 @@ fclose          push bc
 ;
 ; Exit if file is not open.
                 bit FCBR_FL_OPEN_BIT, (ix + FCBR_FLAGS)
-                jr z, cf_exit           ; Return with carry = 0
+                jr z, cf_exit_ok        ; Return with carry = 0
 
                 ifdef DEBUG
                     ld hl, close_msg    ; "Closing file"
@@ -652,10 +689,11 @@ cf_clean        push ix
                     call conwms         ; Print $-terminated string to console
                     call fdfcb          ; Display FCB
                 endif
-                and a                   ; Flag success (carry = 0)
+cf_exit_ok      and a                   ; Flag success (carry = 0)
 ;
 ; Return with carry set and BDOS error code in A on error.
 cf_exit         res FCBR_FL_OPEN_BIT, (ix + FCBR_FLAGS) ; Mark file closed
+;
                 pop hl
                 pop de
                 pop bc
@@ -668,6 +706,26 @@ cf_close_err    push af                 ; Save BDOS error code
                 pop af
                 scf                     ; Flag error
                 jr cf_exit
+;
+;
+; Clear all bus the name and user number of the FCB. Call with:
+; IX - pointer to FCB (or FCBR structure)
+clr_fcb         push bc
+                push hl
+;
+                push ix
+                pop hl
+                ld bc, FCB_EX           ; Clear from EX to end
+                add hl, bc              ; Find start address
+                ld b, FCB_SIZE - FCB_EX
+                xor a
+cfcb_clr_lp     ld (hl), a
+                inc hl
+                djnz cfcb_clr_lp
+;
+                pop hl
+                pop bc
+                ret
 ;
 ;
 ; Display File Control Block (FCB). This is mainly for use when debugging.
@@ -762,7 +820,7 @@ dfcb_al_data    call cwpspc             ; Print a space
                 pop bc
                 ret
 ;
-; Display accopanying text and next byte. Used by dfcb. Call with:
+; Display accompanying text and next byte. Used by dfcb. Call with:
 ; DE - pointer to text
 ; HL - pointer to data in FCB
 ; Carry flag - set to display preceding ", ".

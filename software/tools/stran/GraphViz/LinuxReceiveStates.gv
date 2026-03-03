@@ -8,49 +8,52 @@ digraph CPU_Block {
 #    course -- "C-I" [label="n"];
 #   "AM-AC-2WT1" -- "AM-AF-3330" [label="F1303\n61611937AA00",len=1\n00];
 
-    graph [rankdir=LR]
+#    graph [rankdir=LR]
+    graph [rankdir=TB]
     edge [color=black];
 
-    node [shape=ellipse color=aquamarine style=filled];
+    node [shape=box color=aquamarine style=filled];
 
     {
-        node [shape=box color=lightskyblue]
+        node [shape=ellipse color=lightskyblue]
         rank=source;
         "Start";
     }
 
     {
-        node [shape=box color=lightskyblue]
+        node [shape=box color=lightskyblue shape=ellipse]
         rank=sink;
         "End";
-        node [color=firebrick1]
+        node [color=tomato]
         "Error";
     }
 
+    {
+        # node [shape=diamond]
+        # "End of\nData?";
+    }
 
-    "Start" -> "Send Rx0\n(Filename)";
+    "Start" -> "Calculate\nChecksums";
+    "Calculate\nChecksums" -> "Send Rx\nCommand"
 
-    "Send Rx0\n(Filename)" -> "Rx0 Await\nResponse";
-    "Rx0 Await\nResponse" -> "Send Rx0\n(Filename)" [label = "Timeout,\nretry"];
-    "Rx0 Await\nResponse" -> "Error" [label = "Timeout\nOut of retries"];
-    "Rx0 Await\nResponse" -> "Rxn Await\nResponse" [label = "ACK"]
-    "Rx0 Await\nResponse" -> "Send Rx0\n(Filename)" [label = "NAK\n(CRC)"]
-    "Rx0 Await\nResponse" -> "Error" [label = "NAK (not CRC)\nor unexpected packet type"]
+    "Send Rx\nCommand" -> "Await Cmd\nResponse"
+    "Await Cmd\nResponse" -> "Send Rx\nCommand" [label = "Timeout,\nretry"]
+    "Await Cmd\nResponse" -> "Error" [label = "Timeout\nOut of retries"]
+    "Await Cmd\nResponse" -> "Send\nData\nReq" [label = "ACK\n(Not\nIdentical)"]
+    "Await Cmd\nResponse" -> "End" [label = "ACK\n(Checksums\nMatch)"]
+    "Await Cmd\nResponse" -> "Send Rx\nCommand" [label = "NAK"]
 
-    "Rxn Await\nResponse" -> "Error" [label = "Timeout"];
-    "Rxn Await\nResponse" -> "Store\ndata" [label = "Rx\nCRC OK"]
-    "Rxn Await\nResponse" -> "Send\nNAK" [label = "Bad CRC"]
-    "Rxn Await\nResponse" -> "End\nSend ACK" [label = "Exit"]
-    "Rxn Await\nResponse" -> "Error" [label = "Unexpected\npacket type"]
+    "Send\nData\nReq" -> "Await\nData\nResponse"
+    "Await\nData\nResponse" -> "Send\nData\nReq" [label = "Timeout,\nretry"]
+    "Await\nData\nResponse" -> "Error" [label = "Timeout\nOut of retries"]
+    "Await\nData\nResponse" -> "Store\nData" [label = "Data\nPacket"]
+    "Await\nData\nResponse" -> "Close\nFile" [label = "End\nPacket"]
 
-    "Store\ndata" -> "Send ACK"
-    "Send ACK" -> "Rxn Await\nResponse"
+    "Store\nData" -> "Send\nData\nReq"
 
-    "Send\nNAK" -> "Rxn Await\nResponse"
+    "Close\nFile" -> "End"
 
-    "End\nSend ACK" -> "End"
-
-    label = "Linux Side Receive File State Diagram";
+    label = "Linux Side Receive File State Diagram"
     fontsize=20;
 }
 

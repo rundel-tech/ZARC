@@ -23,6 +23,7 @@
                 extern mamwwu       ; 16-bit * 16-bit unsigned multiply
                 extern mamlbu       ; 32-bit * 8-bit unsigned multiply
                 extern crc16x       ; Software CRC-16 (XMODEM)
+                extern adler        ; Adler-32 checksum
 ;
             endif
 ;

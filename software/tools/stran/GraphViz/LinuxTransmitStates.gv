@@ -8,53 +8,60 @@ digraph CPU_Block {
 #    course -- "C-I" [label="n"];
 #   "AM-AC-2WT1" -- "AM-AF-3330" [label="F1303\n61611937AA00",len=1\n00];
 
-    graph [rankdir=LR]
+#    graph [rankdir=LR]
+    graph [rankdir=TB]
     edge [color=black];
 
-    node [shape=ellipse color=aquamarine style=filled];
+    node [shape=box color=aquamarine style=filled];
 
     {
-        node [shape=box color=lightskyblue]
+        node [shape=ellipse color=lightskyblue]
         rank=source;
         "Start";
     }
 
     {
-        node [shape=box color=lightskyblue]
+        node [shape=box color=lightskyblue shape=ellipse]
         rank=sink;
         "End";
-        node [color=firebrick1]
+        node [color=tomato]
         "Error";
     }
 
+    {
+        node [shape=diamond]
+        "End of\nData?";
+    }
 
-    "Start" -> "Send Tx0\n(Filename)";
+    "Start" -> "Calculate\nChecksums";
+    "Calculate\nChecksums" -> "Send Tx\nCommand";
 
-    "Send Tx0\n(Filename)" -> "Tx0 Await\nResponse";
-    "Tx0 Await\nResponse" -> "Send Tx0\n(Filename)" [label = "Timeout,\nretry"];
-    "Tx0 Await\nResponse" -> "Error" [label = "Timeout\nOut of retries"];
-    "Tx0 Await\nResponse" -> "Build next\nTxn (data)\npacket" [label = "ACK"]
-    "Tx0 Await\nResponse" -> "Send Tx0\n(Filename)" [label = "NAK\n(CRC)"]
-    "Tx0 Await\nResponse" -> "Error" [label = "NAK (not CRC)\nor unexpected packet type"]
-    "Tx0 Await\nResponse" -> "Error" [label = "A (abort)"]
+    "Send Tx\nCommand" -> "Await Cmd\nResponse";
+    "Await Cmd\nResponse" -> "Send Tx\nCommand" [label = "Timeout,\nretry"];
+    "Await Cmd\nResponse" -> "Error" [label = "Timeout\nOut of retries"];
+    "Await Cmd\nResponse" -> "End of\nData?" [label = "ACK\n(Not\nIdentical)"]
+    "Await Cmd\nResponse" -> "Send Tx\nCommand" [label = "NAK\n(CRC)"]
+    "Await Cmd\nResponse" -> "Error" [label = "NAK (not CRC)\nor unexpected packet type"]
+    "Await Cmd\nResponse" -> "End" [label = "ACK\n(Identical)"]
 
-    "Build next\nTxn (data)\npacket" -> "Send\npacket"
-    "Send\npacket" -> "Txn Await\nResponse";
+    "End of\nData?" -> "Build Next\nTxn (Data)\nPacket" [label = "No"]
+    "End of\nData?" -> "Close\nFile" [label = "Yes"]
 
-    "Txn Await\nResponse" -> "Send\npacket" [label = "Timeout,\nretry"];
-    "Txn Await\nResponse" -> "Error" [label = "Timeout\nOut of retries"];
-    "Txn Await\nResponse" -> "Build next\nTxn (data)\npacket" [label = "ACK not\nlast block"]
-    "Txn Await\nResponse" -> "Send Exit" [label = "ACK\nlast block"]
-    "Txn Await\nResponse" -> "Send\npacket" [label = "NAK\n(CRC)"]
-    "Txn Await\nResponse" -> "Error" [label = "NAK (not CRC)\nor unexpected packet type"]
-    "Txn Await\nResponse" -> "Error" [label = "A (abort)"]
+    "Build Next\nTxn (Data)\nPacket" -> "Send\nPacket"
+    "Send\nPacket" -> "Await\nData Response";
 
-    "Send Exit" -> "Exit Await\nResponse"
-    "Exit Await\nResponse" -> "Send Exit" [label = "Timeout,\nretry"];
-    "Exit Await\nResponse" -> "Error" [label = "Timeout\nOut of retries"];
-    "Exit Await\nResponse" -> "End" [label = "ACK"]
-    "Exit Await\nResponse" -> "Send Exit" [label = "NAK\n(CRC)"]
-    "Exit Await\nResponse" -> "Error" [label = "NAK (not CRC)\nor unexpected packet type"]
+    "Await\nData Response" -> "Send\nPacket" [label = "Timeout,\nRetry"];
+    "Await\nData Response" -> "Error" [label = "Timeout\nOut of Retries"];
+    "Await\nData Response" -> "Send\nPacket" [label = "NAK"]
+    "Await\nData Response" -> "End of\nData?" [label = "ACK"]
+
+    "Close\nFile" -> "Send End"
+
+    "Send End" -> "Await\nEnd Response"
+    "Await\nEnd Response" -> "Send End" [label = "Timeout,\nRetry"];
+    "Await\nEnd Response" -> "Error" [label = "Timeout\nOut of Retries"];
+    "Await\nEnd Response" -> "Send End" [label = "NAK"]
+    "Await\nEnd Response" -> "End" [label = "ACK"]
 
     label = "Linux Side Transmit File State Diagram";
     fontsize=20;

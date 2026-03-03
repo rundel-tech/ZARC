@@ -15,12 +15,17 @@
             ifdef monitor           ; Meaningful for monitor build only
                 ifndef mmc          ; Inhibit for this module
 ; Functions
+                extern mccold       ; Cold start initialisation
                 extern mcinit       ; Initialise memory card
                 extern mcprer       ; Print memory card error text
-                extern mcrrs        ; Raw read sector
+                extern mcrvrs       ; Raw read / verify sector
                 extern mcrws        ; Raw write sector
 ; Variables
                 extern mcstat       ; Card state (MC_STAT_xxx)
+                extern mcstat       ; Card state (MMC_STAT_xxx)
+                extern mcprc        ; Physical read sector counter
+                extern mcpwc        ; Physical write sector counter
+                extern mcuwsc       ; Unchanged sector writes skipped
 ;
                 endif
             endif

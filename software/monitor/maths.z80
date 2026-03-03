@@ -1,5 +1,5 @@
 ; *******************************************************
-; * Basic I/O for ZARC Z80 Computer                     *
+; * Mathematical routines for ZARC Z80 Computer         *
 ; * Written by: Merlin Skinner                          *
 ; * Date Started: 29/5/2020                             *
 ; *******************************************************
@@ -40,6 +40,12 @@ maths           equ 1                   ; Flag module for includes
                 public mamwwu   ; 16-bit * 16-bit unsigned multiply
                 public mamlbu   ; 32-bit * 8-bit unsigned multiply
                 public crc16x   ; Software CRC-16 (XMODEM)
+;                public malclr   ; 32-bit clear (HL)
+                public malinc   ; 32-bit increment (HL)
+                public mapcnt   ; Calculate percentage of two 32-bit values
+                public malld	    ; Load a 32-bit number from memory
+                public malst    ; Store 32-bit number to memory
+                public maladd   ; 32-bit add
 ;
 ;
 ; *************
@@ -53,7 +59,7 @@ maths           equ 1                   ; Flag module for includes
 ; * Main Code *
 ; *************
 ;
-                cseg                ; Code segment
+                cseg                    ; Code segment
 ;
 ; 32-bit / 8-bit unsigned divide. Uses restoring algorithm. Derived from code at
 ; https://wikiti.brandonw.net/index.php?title=Z80_Routines:Math:Division
@@ -64,12 +70,12 @@ maths           equ 1                   ; Flag module for includes
 ; DEHL - quotient
 ; A - remainder
 madlbu          push bc
-                ld b, 32            ; Loop counter
+                ld b, 32                ; Loop counter
                 xor a
-dulb_bitloop    add	hl, hl          ; Shift MS bit of dividend into carry
+dulb_bitloop    add	hl, hl              ; Shift MS bit of dividend into carry
                 rl e
                 rl d
-                rla                 ; Collect bit in LS of A
+                rla                     ; Collect bit in LS of A
                 jr c, dulb_dosub
                 cp c
                 jr c, dulb_nextbit
@@ -89,10 +95,10 @@ dulb_nextbit    djnz	dulb_bitloop
 ; HL - quotient
 ; A - remainder
 madwbu          push bc
-                ld b, 16            ; Loop counter
+                ld b, 16                ; Loop counter
                 xor a
-duwb_bitloop    add hl, hl          ; Shift MS bit of dividend into carry
-                rla                 ; Collect bit in LS of A
+duwb_bitloop    add hl, hl              ; Shift MS bit of dividend into carry
+                rla                     ; Collect bit in LS of A
                 jr c, duwb_dosub
                 cp c
                 jr c, duwb_nextbit
@@ -112,10 +118,10 @@ duwb_nextbit    djnz duwb_bitloop
 ; L - quotient
 ; A - remainder
 madbbu          push bc
-                ld b, 8             ; Loop counter
+                ld b, 8                 ; Loop counter
                 xor a
-dubb_bitloop    sla l               ; Shift MS bit of dividend into carry
-                rla                 ; Collect bit in LS of A
+dubb_bitloop    sla l                   ; Shift MS bit of dividend into carry
+                rla                     ; Collect bit in LS of A
                 cp c
                 jr c, dubb_nextbit
 dubb_dosub      sub c
@@ -132,9 +138,9 @@ dubb_nextbit    djnz dubb_bitloop
 ; DE - multiplier
 ; Returns with:
 ; DEHL - result
-mamwwu          ld hl, 0            ; Zero LSW of result
+mamwwu          ld hl, 0                ; Zero LSW of result
 ; Optimised 1st iteration
-                sla	e               ; Shift multiplier
+                sla	e                   ; Shift multiplier
                 rl d
                 jr nc, muww_sk_ld
 ; Set result to multiplicand if the MS bit of the multiplier was set.
@@ -145,13 +151,13 @@ muww_sk_ld      ld a, 15
 ; BC - multiplicand
 ; DE - multiplier (MS bits) and result (LS bits).
 ; HL - LSW of result
-muww_loop       add hl, hl          ; Shift result (DEHL) left
+muww_loop       add hl, hl              ; Shift result (DEHL) left
                 rl e
                 rl d
-                jr nc, muww_nc      ; Jump if multiplier bit is zero
-                add hl, bc          ; Add multiplicand to result
+                jr nc, muww_nc          ; Jump if multiplier bit is zero
+                add hl, bc              ; Add multiplicand to result
                 jr nc, muww_nc
-                inc de              ; Propagate the carry into DE
+                inc de                  ; Propagate the carry into DE
 muww_nc         dec a
                 jr nz, muww_loop
                 ret
@@ -174,19 +180,19 @@ mamlbu          ld a, c
 ; Setup registers for the multiply.
                 push de
                 push hl
-                pop bc              ; LSW of multiplicand
-                and a               ; Reset carry
-                sbc hl, hl          ; Zero LS 32-bits of result
+                pop bc                  ; LSW of multiplicand
+                and a                   ; Reset carry
+                sbc hl, hl              ; Zero LS 32-bits of result
                 exx
-                pop bc              ; MSW of multiplicand
-                sbc hl, hl          ; Zero MS 32-bits of result
+                pop bc                  ; MSW of multiplicand
+                sbc hl, hl              ; Zero MS 32-bits of result
                 exx
-                ld e, a             ; Multiplier
+                ld e, a                 ; Multiplier
 ; B'C'BC - multiplicand
 ; E - multiplier
 ; H'L'HL - result
 ; Optimised 1st iteration
-                sla	e		        ; Shift multiplier
+                sla	e                            ; Shift multiplier
                 jr nc, mulb_sk_ld
 ; Set result to multiplicand if the MS bit of the multiplier was set.
                 ld l, c
@@ -200,23 +206,23 @@ mulb_sk_ld      ld a, 7
 ; B'C'BC - multiplicand
 ; E - multiplier (MS bits) and result (LS bits).
 ; H'L'HL - result
-mulb_loop       add hl, hl          ; Shift result (CH'L'HL) left
+mulb_loop       add hl, hl              ; Shift result (CH'L'HL) left
                 exx
                 adc hl, hl
                 exx
                 rl e
-                jr nc, mulb_nc      ; Jump if multiplier bit is zero
-                add hl, bc          ; Add multiplicand to result
+                jr nc, mulb_nc          ; Jump if multiplier bit is zero
+                add hl, bc              ; Add multiplicand to result
                 exx
                 adc hl, bc
                 exx
                 jr nc, mulb_nc
-                inc e               ; Propagate the carry into result
+                inc e                   ; Propagate the carry into result
 mulb_nc         dec a
                 jr nz, mulb_loop
-                ld a, e             ; Top bits of result
+                ld a, e                 ; Top bits of result
                 exx
-                push hl             ; MSW of result
+                push hl                 ; MSW of result
                 exx
                 pop de
 ; Restore registers
@@ -268,6 +274,209 @@ crc16x          push bc
                 ret
 ;
 ;
+; 32-bit clear (HL). Call with:
+; HL - address of first byte
+;malclr          xor a
+;                ld (hl), a
+;                inc hl
+;                ld (hl), a
+;                inc hl
+;                ld (hl), a
+;                inc hl
+;                ld (hl), a
+;                ret
+;
+;
+; 32-bit increment (HL). Call with:
+; HL - address of first byte
+malinc          inc (hl)
+                ret nz
+                inc hl
+                inc (hl)
+                ret nz
+                inc hl
+                inc (hl)
+                ret nz
+                inc hl
+                inc (hl)
+                ret
+;
+;
+; Calculate percentage of two 32-bit values. Call with:
+; HL - points to 32-bit total count
+; DE - points to 32-bit fraction count
+; Returns with:
+; A - 8-bit integer result or 0xff on error.
+; Assumes total >= fraction.
+mapcnt          push bc
+                push de
+;
+; Copy total to working area.
+                ld de, pcnt_sc_tot
+                ld bc, 4
+                ldir
+;
+; Find fraction * 100.
+                pop hl
+                call malld              ; Load 32-bit number from memory
+; DEHL - fraction
+                ld c, 100
+; DEHL - multiplicand (fraction)
+; C - multiplier
+                call mamlbu             ; 32-bit * 8-bit unsigned multiply
+; CDEHL - result
+                push bc                 ; Save bits 32 to 39
+; Store result.
+                ld bc, pcnt_sc_frac     ; Address
+                call malst	            ; Store 32-bit number to memory
+                pop bc
+                ld (hl), c              ; Store bits 32 to 39
+;
+; Scale to make sure that fraction * 100 fits in 32 bits AND the total fits in
+; 8 bits so we can use the 32 bit by 8 bit divide routine later.
+pcnt_sc_lp      ld a, (pcnt_sc_frac + 4) ; Bits 32 to 39 of fraction * 100
+                and a
+                jr nz, pcnt_scale       ; Scale if fraction * 100 > 32 bits
+;
+; We need to scale if any of bits 8 to 31 are non-zero.
+                ld hl, pcnt_sc_tot + 1  ; Scaled total
+                ld a, (hl)
+                and a
+                jr nz, pcnt_scale
+                inc hl
+                ld a, (hl)
+                and a
+                jr nz, pcnt_scale
+                inc hl
+                ld a, (hl)
+                and a
+                jr z, pcnt_fr_sc_dn     ; Jump if all is scaled appropriately
+;
+; Divide both total and fraction by two.
+pcnt_scale      ld hl, pcnt_sc_tot      ; Start
+                ld b, 4                 ; Length
+                call shr_mb_value       ; Shift right multi-byte value
+                ld hl, pcnt_sc_frac     ; Start
+                ld b, 5                 ; Length
+                call shr_mb_value       ; Shift right multi-byte value
+                jr pcnt_sc_lp           ; Keep going
+;
+; Scaling complete.
+pcnt_fr_sc_dn   ld hl, pcnt_sc_frac
+                call malld              ; Load 32-bit number from memory
+; DEHL - dividend (scaled fraction)
+                ld a, (pcnt_sc_tot)
+                ld c, a
+; C - divisor (scaled total)
+                call madlbu             ; 32-bit / 8-bit unsigned divide
+; DEHL - quotient
+; A - remainder
+; Error if result > 100
+                ld a, d
+                or e
+                or h
+                jr nz, pcnt_err
+                ld a, l
+                cp 101
+                jr nc, pcnt_err
+;
+pcnt_exit       pop bc
+;
+                ret
+;
+pcnt_err        ld a, 0xff              ; Error code
+                jr pcnt_exit
+;
+;
+; Shift right a multi-byte value in memory. Call with:
+; HL - points to value
+; B - length of value in bytes
+; Returns with:
+; Carry flag - set to bit that "falls off" the end of the value.
+shr_mb_value    push bc
+                ld c, b
+                ld b, 0
+                add hl, bc
+                dec hl
+                pop bc
+; HL - points to last byte of value.
+                and a                   ; Shift in a zero
+shrmb_loop      rr (hl)
+                dec hl
+                djnz shrmb_loop
+                ret
+;
+;
+; Load a 32-bit number from memory into registers. Call with:
+; HL - pointer to number
+; Returns with:
+; DEHL - 32-bit number
+malld           push bc
+;
+                ld c, (hl)
+                inc hl
+                ld b, (hl)
+                inc hl
+                ld e, (hl)
+                inc hl
+                ld d, (hl)
+                ld l, c
+                ld h, b
+;
+                pop bc
+                ret
+;
+;
+; Store a 32-bit number from register into memory. Call with:
+; BC - pointer to store
+; DEHL - 32-bit number
+; Returns with:
+; HL - points to location after last memory address used.
+malst           push hl
+;
+                ld l, c
+                ld h, b
+                pop bc
+; DEBC - number
+; HL - pointer
+                ld (hl), c
+                inc hl
+                ld (hl), b
+                inc hl
+                ld (hl), e
+                inc hl
+                ld (hl), d
+                inc hl
+;
+                ret
+;
+;
+; 32-bit add. (HL) = (HL) + (DE). Call with:
+; DE - pointer to first addend
+; HL - pointer to second addend and sum (result)
+; Returns with:
+; Carry flag - set if carry occurs.
+maladd          ld a, (de)
+                add (hl)
+                ld (hl), a
+                inc de
+                inc hl
+                ld a, (de)
+                adc (hl)
+                ld (hl), a
+                inc de
+                inc hl
+                ld a, (de)
+                adc (hl)
+                ld (hl), a
+                inc de
+                inc hl
+                ld a, (de)
+                adc (hl)
+                ld (hl), a
+                ret
+;
+;
 ;
 ; *************
 ; * Variables *
@@ -277,7 +486,9 @@ crc16x          push bc
 ; Note: linker "-c" option is used, so no data is initialised here.
                 dseg                ; Data segment
 ;
-; match         defs 1              ; Current command length
+; Percentage calculations.
+pcnt_sc_tot     defs 4              ; 32-bit scaled total
+pcnt_sc_frac    defs 5              ; 40-bit scaled fraction
 ;
                 end
 

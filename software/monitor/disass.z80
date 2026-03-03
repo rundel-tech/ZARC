@@ -1103,7 +1103,7 @@ dipr_offset     ld a, (hl)          ; Fetch value
                 neg                 ; Make value positive
 dipro_sign      push af             ; Save value
                 ld a, c
-                call conwch         ; Write sign to the console
+                CON_WR_CHAR         ; Write sign to the console
                 call cwpspc         ; Print a space
                 pop af
                 call cwpdby         ; Print A in decimal. Leading zeros are suppressed.
@@ -1116,9 +1116,9 @@ dipr_illegal    ld hl, illegal_msg
 ;
 ; Print hexadecimal prefix ("0x").
 hex_pref        ld a, '0'
-                call conwch         ; Write character in A to the console
+                CON_WR_CHAR         ; Write character in A to the console
                 ld a, 'x'
-                call conwch         ; Write character in A to the console
+                CON_WR_CHAR         ; Write character in A to the console
                 ret
 ;
 ;

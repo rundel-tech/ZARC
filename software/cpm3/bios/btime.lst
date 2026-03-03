@@ -1,0 +1,25 @@
+   1:				    public btime
+   2:				    dseg
+   3:     -	0000" 6275696C	btime byte "build: Fri 14/11/25 23:46:19", 0
+	              643A2046
+	              72692031
+	              342F3131
+	              2F323520
+	              32333A34
+	              363A3139
+	              00
+
+
+
+Statistics:
+
+     3	passes
+     0	jr promotions
+     1	symbols
+    29	bytes
+
+
+
+Symbol Table:
+
+btime           00"       0 (public)

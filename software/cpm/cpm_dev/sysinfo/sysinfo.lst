@@ -1,0 +1,375 @@
+   1:				; Copyright (c) 2009 John Elliott
+   2:				; 
+   3:				; This software is provided 'as-is', without any express or implied warranty. 
+   4:				; In no event will the author be held liable for any damages arising from the 
+   5:				; use of this software.
+   6:				;
+   7:				; Permission is granted to anyone to use this software for any purpose, 
+   8:				; including commercial applications, and to alter it and redistribute it 
+   9:				; freely, subject to the following restrictions:
+  10:				;
+  11:				;    1. The origin of this software must not be misrepresented; you must not 
+  12:				; claim that you wrote the original software. If you use this software in a 
+  13:				; product, an acknowledgement in the product documentation would be appreciated 
+  14:				; but is not required.
+  15:				; 
+  16:				;    2. Altered source versions must be plainly marked as such, and must not 
+  17:				; be misrepresented as being the original software.
+  18:				; 
+  19:				;    3. This notice may not be removed or altered from any source distribution.
+  20:				
+  21:				; 28/2/2025: Modified to compile with ZMAC by Merlin Skinner-Oakes
+  22:				
+  23:     -	0005'         	fdos            equ 5
+  24:     -	000D'         	cr              equ 0Dh
+  25:     -	000A'         	lf              equ 0Ah
+  26:     -	001A'         	eof equ         1Ah
+  27:				
+  28:				; The CP/M transient area start address is set in the linker invocation (see
+  29:				; makefile).
+  30:				                cseg                    ; Code segment
+  31:				
+  32:     -	0000' EB04    	                defb 0EBh, 04h          ;DOS protection: JMPS code
+  33:    0+4	0002' EB      	                ex de, hl
+  34:    4+10	0003' C34A00  	                jp begin
+  35:     -	0006' B409    	                defb 0B4h, 09h          ; code: MOV AH, 9
+  36:     -	0008' BA      	                defb 0BAh               ; MOV DX, dosmsg
+  37:     -	0009' 3802    	                defw dosmsg
+  38:     -	000B' CD21    	                defb 0CDh, 021h         ; INT 21h
+  39:     -	000D' CD20    	                defb 0CDh, 020h         ; INT 20h
+  40:				;
+  41:     -	000F' 0D537973	                defb cr, 'Sysinfo: Copyright 2009 John Elliott',cr,lf
+	              696E666F
+	              3A20436F
+	              70797269
+	              67687420
+	              32303039
+	              204A6F68
+	              6E20456C
+	              6C696F74
+	              740D0A
+  42:     -	0036' 44617465	                defb 'Date: 27 Oct 2009',cr,lf,eof
+	              3A203237
+	              204F6374
+	              20323030
+	              390D0A1A
+  43:				;
+  44:     -	004A'         	begin:
+  45:				;
+  46:				; Detect CPU
+  47:				;
+  48:   14+10	004A' 119F01  	                ld de, cpumsg
+  49:   24+17	004D' CD8B01  	                call print
+  50:   41+10	0050' 112B02  	                ld de, cpu80
+  51:   51+4	0053' 97      	                sub a
+  52:   55+10+7	0054' EC8B01  	                call pe, print
+  53:   65+10	0057' 113202  	                ld de, cpuz80
+  54:   75+10+7	005A' E48B01  	                call po, print
+  55:				;
+  56:				; Detect CP/M version
+  57:				;
+  58:   85+10	005D' 11AD01  	                ld de, vermsg
+  59:   95+17	0060' CD8B01  	                call print
+  60:  112+7	0063' 0E0C    	                ld c,0Ch
+  61:  119+17	0065' CD0500  	                call fdos
+  62:  136+16	0068' 225B02  	                ld (version), hl
+  63:  152+4	006B' 7C      	                ld a, h
+  64:  156+7	006C' E604    	                and 4
+  65:  163+10	006E' 111C02  	                ld de, verconc
+  66:  173+10+7	0071' C48B01  	                call nz, print
+  67:  183+4	0074' 7C      	                ld a, h
+  68:  187+7	0075' E601    	                and 1
+  69:  194+10	0077' 110102  	                ld de, vermpm
+  70:  204+10+7	007A' C48B01  	                call nz, print
+  71:  214+10	007D' 110702  	                ld de, vercpm
+  72:  224+10+7	0080' CC8B01  	                call z, print
+  73:  234+4	0083' 7C      	                ld a, h
+  74:  238+7	0084' E602    	                and 2
+  75:  245+10	0086' 110D02  	                ld de, vernet
+  76:  255+10+7	0089' C48B01  	                call nz, print
+  77:  265+4	008C' 7D      	                ld a, l
+  78:  269+4	008D' B7      	                or a
+  79:  273+10	008E' 112702  	                ld de, ver1x
+  80:  283+10+7	0091' CC8B01  	                call z, print
+  81:  293+10+7	0094' C47001  	                call nz, showver
+  82:				;
+  83:				; Print memory statistics
+  84:				;
+  85:  303+17	0097' CD9701  	                call crlf
+  86:				
+  87:  320+10	009A' 11BB01  	                ld de, ttpmsg
+  88:  330+17	009D' CD8B01  	                call print
+  89:  347+16	00A0' 2A0600  	                ld hl, (6)
+  90:  363+7	00A3' 2E00    	                ld l, 0
+  91:  370+17	00A5' CD5601  	                call hexhl
+  92:  387+17	00A8' CD9701  	                call crlf
+  93:				
+  94:  404+10	00AB' 11C901  	                ld de, bismsg
+  95:  414+17	00AE' CD8B01  	                call print
+  96:  431+16	00B1' 2A0100  	                ld hl, (1)
+  97:  447+7	00B4' 2E00    	                ld l, 0
+  98:  454+17	00B6' CD5601  	                call hexhl
+  99:  471+17	00B9' CD9701  	                call crlf
+ 100:				
+ 101:  488+13	00BC' 3A5B02  	                ld a, (version)
+ 102:  501+7	00BF' FE30    	                cp 30h
+ 103:  508+10	00C1' DA4001  	                jp c, notcpm3
+ 104:				;
+ 105:				; Under CP/M Plus we can get the real address of the BDOS
+ 106:				;
+ 107:  518+7	00C4' 0E31    	                ld c, 31h               ; Get SCB
+ 108:  525+10	00C6' 115F02  	                ld de, scbpb
+ 109:  535+17	00C9' CD0500  	                call fdos
+ 110:  552+16	00CC' 225D02  	                ld (scb), hl
+ 111:  568+7	00CF' 2E99    	                ld l, 99h
+ 112:  575+7	00D1' 66      	                ld h, (hl)
+ 113:  582+7	00D2' 2E00    	                ld l, 0
+ 114:  589+10	00D4' 11D701  	                ld de, bdsmsg
+ 115:  599+17	00D7' CD8B01  	                call print
+ 116:  616+17	00DA' CD5601  	                call hexhl
+ 117:  633+17	00DD' CD9701  	                call crlf
+ 118:				;
+ 119:				; And the base of common memory
+ 120:				;
+ 121:  650+16	00E0' 2A5D02  	                ld hl, (scb)
+ 122:  666+7	00E3' 2EF9    	                ld l, 0F9h
+ 123:  673+7	00E5' 5E      	                ld e, (hl)
+ 124:  680+6	00E6' 23      	                inc hl
+ 125:  686+7	00E7' 56      	                ld d, (hl)
+ 126:  693+4	00E8' EB      	                ex de, hl
+ 127:  697+10	00E9' 11E501  	                ld de, cbsmsg
+ 128:  707+17	00EC' CD8B01  	                call print
+ 129:  724+17	00EF' CD5601  	                call hexhl
+ 130:  741+17	00F2' CD9701  	                call crlf
+ 131:				
+ 132:				;
+ 133:				; And get the list of valid drives from the DRVTBL
+ 134:				;
+ 135:  758+16	00F5' 2A0100  	                ld hl, (1)
+ 136:  774+10	00F8' 113F00  	                ld de, 3Fh
+ 137:  784+11	00FB' 19      	                add hl, de
+ 138:  795+17	00FC' CD5501  	                call pchl
+ 139:  812+16	00FF' 226102  	                ld (drvtbl), hl
+ 140:				;
+ 141:				; Copy the DRVTBL into the program.
+ 142:				;
+ 143:  828+10	0102' 010001  	                ld bc, 0100h
+ 144:  838+17	0105' CD4101  	                call XMOVE
+ 145:  855+16	0108' 2A6102  	                ld hl, (drvtbl)
+ 146:  871+10	010B' 116302  	                ld de, drvbuf
+ 147:  881+10	010E' 012000  	                ld bc, 32
+ 148:  891+4	0111' EB      	                ex de, hl
+ 149:  895+17	0112' CD4901  	                call MOVE
+ 150:				;
+ 151:				; Now dump its contents.
+ 152:				;
+ 153:  912+10	0115' 11F301  	                ld de, drvmsg
+ 154:  922+17	0118' CD8B01  	                call print
+ 155:  939+10	011B' 014110  	                ld bc, 1041h
+ 156:  949+10	011E' 216302  	                ld hl, drvbuf
+ 157:  959+7	0121' 7E      	ckdrv:          ld a, (hl)
+ 158:  966+6	0122' 23      	                inc hl
+ 159:  972+7	0123' B6      	                or (hl)                 ; 0 => drive does not exist
+ 160:  979+6	0124' 23      	                inc hl
+ 161:  985+10	0125' CA3801  	                jp z, ckdrv1
+ 162:  995+11	0128' C5      	                push bc
+ 163: 1006+4	0129' 79      	                ld a, c                 ; Drive letter
+ 164: 1010+17	012A' CD8201  	                call verch
+ 165: 1027+7	012D' 3E3A    	                ld a, ':'               ; and colon
+ 166: 1034+17	012F' CD8201  	                call verch
+ 167: 1051+7	0132' 3E20    	                ld a, ' '               ; and space
+ 168: 1058+17	0134' CD8201  	                call verch
+ 169: 1075+10	0137' C1      	                pop bc
+ 170: 1085+4	0138' 0C      	ckdrv1:         inc c
+ 171: 1089+4	0139' 05      	                dec b
+ 172: 1093+10	013A' C22101  	                jp nz, ckdrv
+ 173: 1103+17	013D' CD9701  	                call crlf
+ 174:     -	0140'         	notcpm3:
+ 175:				
+ 176: 1120+11	0140' C7      	                rst 0
+ 177:				;
+ 178: 1131+16	0141' 2A0100  	XMOVE:          ld hl, (1)              ; Set up for an inter-bank block move.
+ 179: 1147+10	0144' 115400  	                ld de, 54h
+ 180: 1157+11	0147' 19      	                add hl, de
+ 181: 1168+4	0148' E9      	                jp (hl)
+ 182:				;
+ 183: 1172+11	0149' E5      	MOVE:           push hl                 ; Do a block move (maybe inter-bank).
+ 184: 1183+11	014A' D5      	                push de
+ 185: 1194+16	014B' 2A0100  	                ld hl, (1)
+ 186: 1210+10	014E' 114800  	                ld de, 48h
+ 187: 1220+11	0151' 19      	                add hl, de
+ 188: 1231+10	0152' D1      	                pop de
+ 189: 1241+19	0153' E3      	                ex (sp), hl
+ 190: 1260+10	0154' C9      	                ret
+ 191:				;
+ 192: 1270+4	0155' E9      	pchl:           jp (hl)
+ 193:				;
+ 194: 1274+4	0156' 7C      	hexhl:          ld a, h                 ; Output a 4-digit hex number in HL
+ 195: 1278+17	0157' CD5B01  	                call hexa
+ 196: 1295+4	015A' 7D      	                ld a, l
+ 197: 1299+11	015B' F5      	hexa:           push af                 ; Output a 2-digit hex number in A
+ 198: 1310+4	015C' 0F      	                rrca
+ 199: 1314+4	015D' 0F      	                rrca
+ 200: 1318+4	015E' 0F      	                rrca
+ 201: 1322+4	015F' 0F      	                rrca
+ 202: 1326+17	0160' CD6401  	                call hexdgt
+ 203: 1343+10	0163' F1      	                pop af
+ 204: 1353+7	0164' E60F    	hexdgt:         and 0Fh
+ 205: 1360+7	0166' FE0A    	                cp 10
+ 206: 1367+10	0168' DA6D01  	                jp c, hexdgt1
+ 207: 1377+7	016B' C607    	                add a, 7
+ 208:     -	016D'         	hexdgt1:
+ 209: 1384+10	016D' C38001  	                jp verdgt1
+ 210:				;
+ 211:     -	0170'         	showver:        ; Output a BCD version number in L
+ 212: 1394+4	0170' 7D      	                ld a, l
+ 213: 1398+4	0171' 0F      	                rrca
+ 214: 1402+4	0172' 0F      	                rrca
+ 215: 1406+4	0173' 0F      	                rrca
+ 216: 1410+4	0174' 0F      	                rrca
+ 217: 1414+17	0175' CD7E01  	                call verdgt
+ 218: 1431+7	0178' 3E2E    	                ld a, '.'
+ 219: 1438+17	017A' CD8201  	                call verch
+ 220: 1455+4	017D' 7D      	                ld a, l
+ 221:     -	017E'         	verdgt:
+ 222: 1459+7	017E' E60F    	                and 0Fh
+ 223:     -	0180'         	verdgt1:
+ 224: 1466+7	0180' C630    	                add a, '0'
+ 225: 1473+4	0182' 5F      	verch:          ld e, a                 ; Output a character in A. Preserves HL.
+ 226: 1477+7	0183' 0E02    	                ld c, 2
+ 227: 1484+11	0185' E5      	                push hl
+ 228: 1495+17	0186' CD0500  	                call fdos
+ 229: 1512+10	0189' E1      	                pop hl
+ 230: 1522+10	018A' C9      	                ret
+ 231:				;
+ 232: 1532+11	018B' F5      	print:          push af                 ; Output a string in DE. Preserves AF BC HL
+ 233: 1543+11	018C' C5      	                push bc
+ 234: 1554+11	018D' E5      	                push hl
+ 235: 1565+7	018E' 0E09    	                ld c,9
+ 236: 1572+17	0190' CD0500  	                call fdos
+ 237: 1589+10	0193' E1      	                pop hl
+ 238: 1599+10	0194' C1      	                pop bc
+ 239: 1609+10	0195' F1      	                pop af
+ 240: 1619+10	0196' C9      	                ret
+ 241:				;
+ 242: 1629+10	0197' 115802  	crlf:           ld de, crmsg            ; Print a CR/LF. Preserves nothing.
+ 243: 1639+7	019A' 0E09    	                ld c, 9
+ 244: 1646+10	019C' C30500  	                jp fdos
+ 245:				
+ 246:     -	019F' 50726F63	cpumsg:         defb 'Processor:   $'
+	              6573736F
+	              723A2020
+	              2024
+ 247:     -	01AD' 53797374	vermsg:         defb 'System:      $'
+	              656D3A20
+	              20202020
+	              2024
+ 248:     -	01BB' 546F7020	ttpmsg:         defb 'Top of TPA:  $'
+	              6F662054
+	              50413A20
+	              2024
+ 249:     -	01C9' 42494F53	bismsg:         defb 'BIOS start:  $'
+	              20737461
+	              72743A20
+	              2024
+ 250:     -	01D7' 42444F53	bdsmsg:         defb 'BDOS start:  $'
+	              20737461
+	              72743A20
+	              2024
+ 251:     -	01E5' 436F6D6D	cbsmsg:         defb 'Common base: $'
+	              6F6E2062
+	              6173653A
+	              2024
+ 252:     -	01F3' 44726976	drvmsg:         defb 'Drives:      $'
+	              65733A20
+	              20202020
+	              2024
+ 253:     -	0201' 4D502F4D	vermpm:         defb 'MP/M $'
+	              2024
+ 254:     -	0207' 43502F4D	vercpm:         defb 'CP/M $'
+	              2024
+ 255:     -	020D' 28776974	vernet:         defb '(with CP/Net) $'
+	              68204350
+	              2F4E6574
+	              292024
+ 256:     -	021C' 4D756C74	verconc:        defb 'Multiuser $'
+	              69757365
+	              722024
+ 257:     -	0227' 312E7824	ver1x:          defb '1.x$'
+ 258:     -	022B' 38303830	cpu80:          defb '8080',cr,lf,'$' 
+	              0D0A24
+ 259:     -	0232' 5A38300D	cpuz80:         defb 'Z80',cr,lf,'$' 
+	              0A24
+ 260:     -	0238' 50726F63	dosmsg:         defb 'Processor: 80x86',cr,lf
+	              6573736F
+	              723A2038
+	              30783836
+	              0D0A
+ 261:     -	024A' 53797374	                defb 'System:    DOS'
+	              656D3A20
+	              20202044
+	              4F53
+ 262:     -	0258' 0D0A24  	crmsg:          defb cr,lf,'$'
+ 263:     -	025B'         	version:
+ 264:     -	025B' 0000    	                defw 0
+ 265:     -	025D' 0000    	scb:            defw 0
+ 266:     -	025F' 3A00    	scbpb:          defw 3Ah
+ 267:     -	0261' 0000    	drvtbl:         defw 0
+ 268:     -	0263'         	drvbuf:         defs 32
+ 269:				
+
+
+
+Statistics:
+
+     4	passes
+     0	jr promotions
+    42	symbols
+   611	bytes
+
+
+
+Symbol Table:
+
+MOVE             149'     329
+XMOVE            141'     321
+bdsmsg           1D7'     471
+begin           4A'       74
+bismsg           1C9'     457
+cbsmsg           1E5'     485
+ckdrv            121'     289
+ckdrv1           138'     312
+cpu80            22B'     555
+cpumsg           19F'     415
+cpuz80           232'     562
+cr             =0D        13
+crlf             197'     407
+crmsg            258'     600
+dosmsg           238'     568
+drvbuf           263'     611
+drvmsg           1F3'     499
+drvtbl           261'     609
+eof            =1A        26
+fdos           =05        5
+hexa             15B'     347
+hexdgt           164'     356
+hexdgt1          16D'     365
+hexhl            156'     342
+lf             =0A        10
+notcpm3          140'     320
+pchl             155'     341
+print            18B'     395
+scb              25D'     605
+scbpb            25F'     607
+showver          170'     368
+ttpmsg           1BB'     443
+ver1x            227'     551
+verch            182'     386
+verconc          21C'     540
+vercpm           207'     519
+verdgt           17E'     382
+verdgt1          180'     384
+vermpm           201'     513
+vermsg           1AD'     429
+vernet           20D'     525
+version          25B'     603
