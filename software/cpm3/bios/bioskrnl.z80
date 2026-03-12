@@ -1,0 +1,874 @@
+; *******************************************************
+; * CP/M 3 BIOS for ZARC Z80 Computer                   *
+; * "Invariant" module modified for Z80 and zmac        *
+; * assembler plus ZARC extensions                      *
+; * Version: V1.0                                       *
+; * Merlin Skinner, 8/12/2023                           *
+; *******************************************************
+;
+; Modified from DRI's BIOSKRNL.ASM version 1.0 15 Sept 82 version 1.0 15 Sept 82
+;
+                title "Root module of relocatable BIOS for CP/M 3.0"
+;
+; All predefined external names in the modular BIOS prefixed with a @ character
+; refer to data items. All external names prefixed with a ? character refer to
+; a code label.
+;
+; The BIOS code somewhat abuses the code segment mechanism to differentiate
+; between the common area (upper 16 KB for ZARC) and the bank switched area
+; (lower 48 KB for ZARC). cseg is common, dseg is banked. I think it is
+; reasonable to assume that all code in the “banked” section of the BIOS will be
+; loaded to bank 0. CPMLDR has no bank selection mechanism so everything it
+; loads has to be either in bank 0 or the common area. Though possible that CP/M
+; might copy code from one bank to another, I think this is very unlikely.
+;
+;
+; ************
+; * Includes *
+; ************
+;
+                include "macros.i"
+                include "z80.i"
+                include "zarc.i"        ; Hardware definitions
+                include "monitor.i"
+                include "io_map.i"      ; I/O addresses mapping
+                include "terminal.i"    ; Terminal constants
+;                include "io.i"          ; I/O routines
+;                include "utility.i"     ; Utility functions
+;                include "maths.i"       ; Mathematical functions
+;                include "interrupts.i"  ; Interrupts
+;                include "time.i"        ; Routines associated with time
+;                include "diags.i"       ; Diagnostics
+;                include "heap.i"
+                include "cpm.i"
+                include "cpm3.i"
+                include "disks.i"
+                include "mmc.i"
+                include "memory.i"      ; Memory page allocation
+                include "bios.i"
+;
+;
+true equ -1
+false equ not true
+
+banked equ true
+
+
+;          Copyright (C), 1982
+;         Digital Research, Inc
+;             P.O. Box 579
+;        Pacific Grove, CA  93950
+
+
+;   This is the invariant portion of the modular BIOS and is
+;    distributed as source for informational purposes only.
+;    All desired modifications should be performed by
+;    adding or changing externally defined modules.
+;    This allows producing "standard" I/O modules that
+;    can be combined to support a particular system 
+;    configuration.
+
+cr      equ 13
+lf      equ 10
+bell    equ 7
+ctlQ    equ 'Q'-'@'
+ctlS    equ 'S'-'@'
+
+ccp     equ 0100h    ; Console Command Processor gets loaded into the TPA
+
+    cseg        ; GENCPM puts CSEG stuff in common memory
+
+
+    ; variables in system data page
+
+    extern @covec,@civec,@aovec,@aivec,@lovec ; I/O redirection vectors
+    extern @mxtpa               ; addr of system entry point
+    extern @bnkbf               ; 128 byte scratch buffer
+
+    ; initialization
+
+    extern ?init                ; general initialization and signon
+    extern ?ldccp,?rlccp        ; load & reload CCP for BOOT & WBOOT
+
+    ; user defined character I/O routines
+
+    extern ?ci,?co,?cist,?cost  ; each take device in <B>
+    extern ?cinit               ; (re)initialize device in <C>
+    extern @ctbl                ; physical character device table
+
+    ; disk communication data items
+
+    extern @dtbl                ; table of pointers to XDPHs
+    public @adrv,@rdrv,@trk,@sect   ; parameters for disk I/O
+    public @dma,@dbnk,@cnt      ;    ''       ''   ''  ''
+
+    ; memory control
+
+    public @cbnk                ; current bank
+    extern ?xmove,?move         ; select move bank, and block move
+    extern ?bank                ; select CPU bank
+
+    ; clock support
+
+    extern ?time                ; signal time operation
+    extern tiini                ; Initialise time
+
+    ; general utility routines
+
+    public ?pmsg,?pdec          ; print message, print number from 0 to 65535
+    public ?pderr               ; print BIOS disk error message header
+
+    ; ZARC extensions
+
+    extern strtup, mcall, super, intdis, inten
+    extern tird, tiels, tielg
+
+    ; External names for BIOS entry points
+
+    public ?boot,?wboot,?const,?conin,?cono,?list,?auxo,?auxi
+    public ?home,?sldsk,?sttrk,?stsec,?stdma,?read,?write
+    public ?lists,?sctrn
+    public ?conos,?auxis,?auxos,?dvtbl,?devin,?drtbl
+    public ?mltio,?flush,?mov,?tim,?bnksl,?stbnk,?xmov
+
+    ; For contran, which needs consistent names with CP/M 2.2
+    public const
+
+    ; BIOS Jump vector.
+
+        ; All BIOS routines are invoked by calling these
+        ;    entry points.
+
+?boot:      jp    boot          ; initial entry on cold start
+?wboot:     jp    wboot         ; reentry on program exit, warm start
+
+?const:     jp    const         ; return console input status
+?conin:     jp    conin         ; return console input character
+?cono:      jp    conout        ; send console output character
+?list:      jp    list          ; send list output character
+?auxo:      jp    auxout        ; send auxiliary output character
+?auxi:      jp    auxin         ; return auxiliary input character
+
+?home:      jp    home          ; set disks to logical home
+?sldsk:     jp    seldsk        ; select disk drive, return disk parameter info
+?sttrk:     jp    settrk        ; set disk track
+?stsec:     jp    setsec        ; set disk sector
+?stdma:     jp    setdma        ; set disk I/O memory address
+?read:      jp    read          ; read physical block(s)
+?write:     jp    write         ; write physical block(s)
+
+?lists:     jp    listst        ; return list device status
+?sctrn:     jp    sectrn        ; translate logical to physical sector
+
+?conos:     jp    conost        ; return console output status
+?auxis:     jp    auxist        ; return aux input status
+?auxos:     jp    auxost        ; return aux output status
+?dvtbl:     jp    devtbl        ; return address of device def table
+?devin:     jp    ?cinit        ; change baud rate of device
+
+?drtbl:     jp    getdrv        ; return address of disk drive table
+?mltio:     jp    multio        ; set multiple record count for disk I/O
+?flush:     jp    flush         ; flush BIOS maintained disk caching
+
+?mov:       jp    ?move         ; block move memory to memory
+?tim:       jp    ?time         ; Signal Time and Date operation
+?bnksl:     jp    bnksel        ; select bank for code execution and default DMA
+?stbnk:     jp    setbnk        ; select different bank for disk I/O DMA operations.
+?xmov:      jp    ?xmove        ; set source and destination banks for one operation
+
+            jp 0                ; reserved for future expansion
+            jp 0                ; reserved for future expansion
+            jp 0                ; reserved for future expansion
+
+; ZARC-specific items follow.
+                byte "ZRC"              ; ZARC BIOS ID *1
+                byte 0, BIOS_MAJ_VER, BIOS_MIN_VER  ; BIOS_VER (version)
+                jp strtup               ; ZARC CP/M startup (not used)
+                jp mcall                ; Call monitor function
+                jp super                ; Set supervisor state
+                jp intdis               ; Disable interrupt and keep count
+                jp inten                ; Enable interrupts if safe.
+                jp tird                 ; Read time and date (ZARC format)
+                jp tiels                ; Set elapsed time
+                jp tielg                ; Get elapsed time
+;
+; *1 - this is "ZARC" truncated to three bytes to maintain alignment with other
+; jumps. This may be useful if the BIOS is ever called from C.
+
+
+    ; BOOT
+    ;    Initial entry point for system startup.
+
+    dseg    ; this part can be banked
+
+boot:
+    ld    sp,boot$stack
+    ld    c,15        ; initialise all 16 character devices
+c$init$loop:
+    push    bc
+    call    ?cinit
+    pop    bc
+    dec    c
+    jp    p,c$init$loop
+
+    call ?init    ; perform any additional system initialization
+            ; and print sign on message
+
+    ld    bc,16*256+0
+    ld    hl,@dtbl    ; init all 16 logical disk drives
+d$init$loop:
+    push    bc        ; save remaining count and abs drive
+    ld    e,(hl)
+    inc    hl
+    ld    d,(hl)
+    inc    hl        ; grab @drv entry
+    ld    a,e
+    or    d
+    jp    z,d$init$next    ; if null, no drive
+    push    hl        ; save @drv pointer 
+    ex    de,hl        ; XDPH address in <HL>
+    dec    hl
+    dec    hl
+    ld    a,(hl)
+    ld    (@rdrv),a    ; get relative drive code
+    ld    a,c
+    ld    (@adrv),a    ; get absolute drive code
+    dec    hl        ; point to init pointer
+    ld    d,(hl)
+    dec    hl
+    ld    e,(hl)        ; get init pointer
+    ex    de,hl
+    call    ipchl        ; call init routine
+    pop    hl        ; recover @drv pointer
+d$init$next:
+    pop    bc        ; recover counter and drive #
+    inc    c
+    dec    b
+    jp    nz,d$init$loop    ; and loop for each drive
+    jp    boot$1
+
+    cseg    ; following in resident memory
+
+boot$1:
+    call set$jumps
+    call ?ldccp                ; fetch CCP for first time
+    jp    ccp
+
+
+    ; WBOOT
+    ;    Entry for system restarts.
+
+wboot:
+    ld    sp,boot$stack
+    call set$jumps        ; initialise page zero
+    call ?rlccp        ; reload CCP
+; Added by Merlin, 9/8/2024.
+                call tiini          ; Initialise time
+; Reset the terminal.
+                ld hl, term_rst_msg
+                call ?pmsg
+;
+    jp    ccp        ; then reset jmp vectors and exit to ccp
+
+
+set$jumps:
+
+  if banked
+    ld    a,1
+    call    ?bnksl
+  endif
+
+    ld    a,jmp
+    ld    (0),a
+    ld    (5),a        ; set up jumps in page zero
+    ld    hl,?wboot
+    ld    (1),hl        ; BIOS warm start entry
+    ld    hl,(@mxtpa)
+    ld    (6),hl        ; BDOS system call entry
+    ret
+
+
+    defs    64
+boot$stack    equ $
+
+
+    ; DEVTBL
+    ;    Return address of character device table
+
+devtbl:
+    ld    hl,@ctbl
+    ret
+
+
+    ; GETDRV
+    ;    Return address of drive table
+
+getdrv:
+    ld    hl,@dtbl
+    ret
+
+
+
+    ; CONOUT
+    ;    Console Output.  Send character in <C>
+    ;            to all selected devices
+
+conout:    
+
+    ld    hl,(@covec)    ; fetch console output bit vector
+    jp    out$scan
+
+
+    ; AUXOUT
+    ;    Auxiliary Output. Send character in <C>
+    ;            to all selected devices
+
+auxout:
+    ld    hl,(@aovec)    ; fetch aux output bit vector
+    jp    out$scan
+
+
+    ; LIST
+    ;    List Output.  Send character in <C>
+    ;            to all selected devices.
+
+list:
+    ld    hl,(@lovec)    ; fetch list output bit vector
+
+out$scan:
+    ld    b,0        ; start with device 0
+co$next:
+    add    hl,hl        ; shift out next bit
+    jp    nc,not$out$device
+    push    hl        ; save the vector
+    push    bc        ; save the count and character
+not$out$ready:
+    call    coster
+    or    a
+    jp    z,not$out$ready
+    pop    bc
+    push    bc        ; restore and re-save the character and device
+    call ?co    ; if device selected, print it
+    pop    bc        ; recover count and character
+    pop    hl        ; recover the rest of the vector
+not$out$device:
+    inc    b        ; next device number
+    ld    a,h
+    or    l        ; see if any devices left
+    jp    nz,co$next    ; and go find them...
+    ret
+
+
+    ; CONOST
+    ;    Console Output Status.  Return true if
+    ;        all selected console output devices
+    ;        are ready.
+
+conost:
+    ld    hl,(@covec)    ; get console output bit vector
+    jp    ost$scan
+
+
+    ; AUXOST
+    ;    Auxiliary Output Status.  Return true if
+    ;        all selected auxiliary output devices
+    ;        are ready.
+
+auxost:
+    ld    hl,(@aovec)    ; get aux output bit vector
+    jp    ost$scan
+
+
+    ; LISTST
+    ;    List Output Status.  Return true if
+    ;        all selected list output devices
+    ;        are ready.
+
+listst:
+    ld    hl,(@lovec)    ; get list output bit vector
+
+ost$scan:
+    ld    b,0        ; start with device 0
+cos$next:
+    add    hl,hl        ; check next bit
+    push    hl        ; save the vector
+    push    bc        ; save the count
+    ld    a,0ffh        ; assume device ready
+    call    c,coster    ; check status for this device
+    pop    bc        ; recover count
+    pop    hl        ; recover bit vector
+    or    a        ; see if device ready
+    ret    z        ; if any not ready, return false
+    inc    b        ; drop device number
+    ld    a,h
+    or    l        ; see if any more selected devices
+    jp    nz,cos$next
+    or    0ffh        ; all selected were ready, return true
+    ret
+
+coster:        ; check for output device ready, including optional
+        ;    xon/xoff support
+    ld    l,b
+    ld    h,0        ; make device code 16 bits
+    push    hl        ; save it in stack
+    add    hl,hl
+    add    hl,hl
+    add    hl,hl        ; create offset into device characteristics tbl
+    ld    de,@ctbl+6
+    add    hl,de        ; make address of mode byte
+    ld    a,(hl)
+    and    mb$xon$xoff
+    pop    hl        ; recover console number in <HL>
+    jp    z,?cost        ; not a xon device, go get output status direct
+    ld    de,xofflist
+    add    hl,de        ; make pointer to proper xon/xoff flag
+    call cist1        ; see if this keyboard has character
+    ld    a,(hl)
+    call    nz,ci1        ; get flag or read key if any
+    cp    ctlq
+    jp    nz,not$q    ; if its a ctl-Q,
+    ld    a,0ffh        ;     set the flag ready
+not$q:
+    cp    ctls
+    jp    nz,not$s    ; if its a ctl-S,
+    ld    a,00h        ;     clear the flag
+not$s:
+    ld    (hl),a        ; save the flag
+    call cost1        ; get the actual output status,
+    and    (hl)        ; and mask with ctl-Q/ctl-S flag
+    ret            ; return this as the status
+
+cist1:            ; get input status with <BC> and <HL> saved
+    push    bc
+    push    hl
+    call ?cist
+    pop    hl
+    pop    bc
+    or    a
+    ret
+
+cost1:            ; get output status, saving <BC> & <HL>
+    push    bc
+    push    hl
+    call ?cost
+    pop    hl
+    pop    bc
+    or    a
+    ret
+
+ci1:            ; get input, saving <BC> & <HL>
+    push    bc
+    push    hl
+    call ?ci
+    pop    hl
+    pop    bc
+    ret
+
+
+    ; CONST
+    ;    Console Input Status.  Return true if
+    ;        any selected console input device
+    ;        has an available character.
+
+const:
+    ld    hl,(@civec)    ; get console input bit vector
+    jp    ist$scan
+
+
+    ; AUXIST
+    ;    Auxiliary Input Status.  Return true if
+    ;        any selected auxiliary input device
+    ;        has an available character.
+
+auxist:
+    ld    hl,(@aivec)    ; get aux input bit vector
+
+ist$scan:
+    ld    b,0        ; start with device 0
+cis$next:
+    add    hl,hl        ; check next bit
+    ld    a,0        ; assume device not ready
+    call    c,cist1        ; check status for this device
+    or    a
+    ret    nz        ; if any ready, return true
+    inc    b        ; drop device number
+    ld    a,h
+    or    l        ; see if any more selected devices
+    jp    nz,cis$next
+    xor    a        ; all selected were not ready, return false
+    ret
+
+
+    ; CONIN
+    ;    Console Input.  Return character from first
+    ;        ready console input device.
+
+conin:
+    ld    hl,(@civec)
+    jp    in$scan
+
+
+    ; AUXIN
+    ;    Auxiliary Input.  Return character from first
+    ;        ready auxiliary input device.
+; Modified by Merlin so the system is halted while waiting for a key. Interrupts
+; must be enabled for this to work.
+auxin:
+    ld    hl,(@aivec)
+
+in$scan:
+    push    hl        ; save bit vector
+    ld    b,0
+; We can enable and disable interrupts directly here because we know the DI nest
+; count is zero. The idea is to make the scan atomic as far as interrupts are
+; concerned. The timekeeping interrupt will wake the system from time to time
+; anyway.
+    di
+ci$next:
+    add    hl,hl        ; shift out next bit
+    ld    a,0        ; insure zero a  (non-existent device not ready).
+    call    c,cist1        ; see if the device has a character
+    or    a
+    jp    nz,ci$rdy    ; this device has a character
+    inc    b        ; else, next device
+    ld    a,h
+    or    l        ; see if any more devices
+    jp    nz,ci$next    ; go look at them
+    pop    hl        ; recover bit vector
+; No character is available on any port. Wait for any interrupt and try again.
+; Interrupts are only enabled for the halt, so the rest is atomic.
+    ei
+    halt            ; Halt until the next interrupt
+    di
+    jp    in$scan        ; loop til we find a character
+
+ci$rdy:
+    ei                  ; Let interrupts run again
+    pop    hl        ; discard extra stack
+    jp    ?ci
+
+
+;    Utility Subroutines
+
+
+ipchl:        ; vectored CALL point
+    jp    (hl)
+
+
+?pmsg:        ; print message @<HL> up to a null
+        ; saves <BC> & <DE>
+    push    bc
+    push    de
+pmsg$loop:
+    ld    a,(hl)
+    or    a
+    jp    z,pmsg$exit
+    ld    c,a
+    push    hl
+    call    ?cono
+    pop    hl
+    inc    hl
+    jp    pmsg$loop
+pmsg$exit:
+    pop    de
+    pop    bc
+    ret
+
+?pdec:        ; print binary number 0-65535 from <HL>
+    ld    bc,table10
+    ld    de,-10000
+next:
+    ld    a,'0'-1
+pdecl:
+    push    hl
+    inc    a
+    add    hl,de
+    jp    nc,stoploop
+    inc    sp
+    inc    sp
+    jp    pdecl
+stoploop:
+    push    de
+    push    bc
+    ld    c,a
+    call    ?cono
+    pop    bc
+    pop    de
+nextdigit:
+    pop    hl
+    ld    a,(bc)
+    ld    e,a
+    inc    bc
+    ld    a,(bc)
+    ld    d,a
+    inc    bc
+    ld    a,e
+    or    d
+    jp    nz,next
+    ret
+
+table10:
+    defw    -1000,-100,-10,-1,0
+
+?pderr:
+    ld    hl,drive$msg
+    call    ?pmsg        ; error header
+    ld    a,(@adrv)
+    add    a,'A'
+    ld    c,a
+    call    ?cono        ; drive code
+    ld    hl,track$msg
+    call    ?pmsg        ; track header
+    ld    hl,(@trk)
+    call    ?pdec        ; track number
+    ld    hl,sector$msg
+    call    ?pmsg        ; sector header
+    ld    hl,(@sect)
+    call    ?pdec        ; sector number
+    ret
+
+
+    ; BNKSEL
+    ;    Bank Select.  Select CPU bank for further execution.
+
+bnksel:
+    ld    (@cbnk),a    ; remember current bank
+    jp    ?bank        ; and go exit through users
+                    ; physical bank select routine
+
+
+xofflist:
+    byte    -1,-1,-1,-1,-1,-1,-1,-1 ; ctl-s clears to zero
+    byte    -1,-1,-1,-1,-1,-1,-1,-1
+
+
+
+    dseg    ; following resides in banked memory
+
+
+
+;    Disk I/O interface routines
+
+
+    ; SELDSK
+    ;    Select Disk Drive.  Drive code in <C>.
+    ;        Invoke login procedure for drive
+    ;        if this is first select.  Return
+    ;        address of disk parameter header
+    ;        in <HL>
+
+seldsk:
+    ld    a,c
+    ld    (@adrv),a    ; save drive select code
+    ld    l,c
+    ld    h,0
+    add    hl,hl        ; create index from drive code
+    ld    bc,@dtbl
+    add    hl,bc        ; get pointer to dispatch table
+    ld    a,(hl)
+    inc    hl
+    ld    h,(hl)
+    ld    l,a        ; point at disk descriptor
+    or    h
+    ret    z        ; if no entry in table, no disk
+    ld    a,e
+    and    1
+    jp    nz,not$first$select ; examine login bit
+    push    hl
+    ex    de,hl        ; put pointer in stack & <DE>
+    ld    hl,-2
+    add    hl,de
+    ld    a,(hl)
+    ld    (@rdrv),a    ; get relative drive
+    ld    hl,-6
+    add    hl,de        ; find LOGIN addr
+    ld    a,(hl)
+    inc    hl
+    ld    h,(hl)
+    ld    l,a        ; get address of LOGIN routine
+    call ipchl                ; call LOGIN
+    pop    hl        ; recover DPH pointer
+not$first$select:
+    ret
+
+
+    ; HOME
+    ;    Home selected drive.  Treated as SETTRK(0).
+
+home:
+    ld    bc,0        ; same as set track zero
+
+
+    ; SETTRK
+    ;    Set Track. Saves track address from <BC> 
+    ;        in @TRK for further operations.
+
+settrk:
+    ld    l,c
+    ld    h,b
+    ld    (@trk),hl
+    ret
+
+
+    ; SETSEC
+    ;    Set Sector.  Saves sector number from <BC>
+    ;        in @sect for further operations.
+
+setsec:
+    ld    l,c
+    ld    h,b
+    ld    (@sect),hl
+    ret
+
+
+    ; SETDMA
+    ;    Set Disk Memory Address.  Saves DMA address
+    ;        from <BC> in @DMA and sets @DBNK to @CBNK
+    ;        so that further disk operations take place
+    ;        in current bank.
+
+setdma:
+    ld    l,c
+    ld    h,b
+    ld    (@dma),hl
+
+    ld    a,(@cbnk)    ; default DMA bank is current bank
+            ; fall through to set DMA bank
+
+    ; SETBNK
+    ;    Set Disk Memory Bank.  Saves bank number
+    ;        in @DBNK for future disk data
+    ;        transfers.
+
+setbnk:
+    ld    (@dbnk),a
+    ret
+
+
+    ; SECTRN
+    ;    Sector Translate.  Indexes skew table in <DE>
+    ;        with sector in <BC>.  Returns physical sector
+    ;        in <HL>.  If no skew table (<DE>=0) then
+    ;        returns physical=logical.
+
+sectrn:
+    ld    l,c
+    ld    h,b
+    ld    a,d
+    or    e
+    ret    z
+    ex    de,hl
+    add    hl,bc
+    ld    l,(hl)
+    ld    h,0
+    ret
+
+
+    ; READ
+    ;    Read physical record from currently selected drive.
+    ;        Finds address of proper read routine from
+    ;        extended disk parameter header (XDPH).
+
+read:
+    ld    hl,(@adrv)
+    ld    h,0
+    add    hl,hl        ; get drive code and double it
+    ld    de,@dtbl
+    add    hl,de        ; make address of table entry
+    ld    a,(hl)
+    inc    hl
+    ld    h,(hl)
+    ld    l,a        ; fetch table entry
+    push    hl        ; save address of table
+    ld    de,-8
+    add    hl,de        ; point to read routine address
+    jp    rw$common    ; use common code
+
+
+    ; WRITE
+    ;    Write physical sector from currently selected drive.
+    ;        Finds address of proper write routine from
+    ;        extended disk parameter header (XDPH).
+
+write:
+    ld    hl,(@adrv)
+    ld    h,0
+    add    hl,hl        ; get drive code and double it
+    ld    de,@dtbl
+    add    hl,de        ; make address of table entry
+    ld    a,(hl)
+    inc    hl
+    ld    h,(hl)
+    ld    l,a        ; fetch table entry
+    push    hl        ; save address of table
+    ld    de,-10
+    add    hl,de        ; point to write routine address
+
+rw$common:
+    ld    a,(hl)
+    inc    hl
+    ld    h,(hl)
+    ld    l,a        ; get address of routine
+    pop    de        ; recover address of table
+    dec    de
+    dec    de        ; point to relative drive
+    ld    a,(de)
+    ld    (@rdrv),a    ; get relative drive code and post it
+    inc    de
+    inc    de        ; point to DPH again
+    jp    (hl)        ; leap to driver
+
+
+    ; MULTIO
+    ;    Set multiple sector count. Saves passed count in
+    ;        @CNT
+
+multio:
+    ld    (@cnt),a
+    ret
+
+
+    ; FLUSH
+    ;    BIOS de-blocking buffer flush.  Not implemented.
+
+flush:
+    xor    a
+    ret            ; return with no error
+
+
+
+    ; error message components
+drive$msg:
+    byte    cr,lf,bell,'BIOS Error on ',0
+track$msg:
+    byte    ': T-',0
+sector$msg:
+    byte    ', S-',0
+; The following message is sent on cold or warm boot. The codes are VT100 /
+; ASCII rather that native ZARC for commonality with the CP/M 2.2 BIOS.
+term_rst_msg    
+;               byte ASCII_ESC, "[!p"   ; DECSTR (soft terminal reset)
+; DECSTR should make the following redundant, but does not appear to be
+; universally recognised. Minicom doesn't, for example.
+                byte ASCII_ESC, "[?25h" ; DECTCEM (enable cursor)
+;                byte ASCII_ESC, "[r"    ; DECSTBM (reset top and bottom margins)
+; DECSTBM also homes the cursor on Minicom at least. This is undesirable.
+                byte ASCII_ESC, "[0m"   ; Set normal video (SGR)
+;                byte ASCII_ESC, "[1;1H", ASCII_ESC, "[2J"  ; Clear screen
+                byte 0
+
+
+    cseg    ; common memory
+
+    ; disk communication data items
+
+@adrv:      defs    1       ; currently selected disk drive
+@rdrv:      defs    1       ; controller relative disk drive
+@trk:       defs    2       ; current track number
+@sect:      defs    2       ; current sector number
+@dma:       defs    2       ; current DMA address
+@cnt:       byte    0       ; record count for multi-sector transfer
+@dbnk:      byte    0       ; bank for DMA operations
+@cbnk:      byte    0       ; bank for processor operations
+
+    end

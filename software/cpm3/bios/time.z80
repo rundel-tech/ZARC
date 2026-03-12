@@ -1,0 +1,489 @@
+; *******************************************************
+; * CP/M 3 BIOS for ZARC Z80 Computer                   *
+; * Time handling                                       *
+; * Version: V1.0                                       *
+; * Merlin Skinner, 2/2/2023                            *
+; *******************************************************
+;
+; From the CP/M 3 System Guide:
+; The time of day is kept as four fields. @DATE is a binary word containing the
+; number of days since 31 December 1977. The bytes @HOUR, @MIN, and @SEC in the
+; System Control Block contain the hour, minute, and second in Binary Coded
+; Decimal (BCD) format.
+;
+; One option to shrink the common area usage of this code would be to move
+; some of it into the banked area. This would appear to mean bank 0 due to
+; CPMLDR not having a bank switching mechanism. One target might be the epoch
+; conversion code. 
+;
+;
+; ************
+; * Includes *
+; ************
+;
+                include "macros.i"
+                include "z80.i"
+                include "zarc.i"        ; Hardware definitions
+                include "monitor.i"
+                include "io_map.i"      ; I/O addresses mapping
+                include "terminal.i"    ; Terminal constants
+;                include "io.i"          ; I/O routines
+;                include "utility.i"     ; Utility functions
+;                include "maths.i"       ; Mathematical functions
+;                include "interrupts.i"  ; Interrupts
+                include "time.i"        ; Routines associated with time
+;                include "diags.i"       ; Diagnostics
+;                include "heap.i"
+                include "cpm.i"
+                include "cpm3.i"
+;                include "disks.i"
+                include "mmc.i"
+                include "memory.i"      ; Memory page allocation
+                include "bios.i"
+;
+;
+;
+; *************
+; * Externals *
+; *************
+;
+;
+                extern @cbnk,?bnksl     ; Current bank and bank select
+;
+                public ?time            ; Set or get time
+                public ticini           ; Cold start time
+                public tiini            ; Initialise time
+                public tird             ; Read time and date (ZARC format)
+                public tiels            ; Set elapsed time
+                public tielg            ; Get elapsed time
+;
+                extern bpanic           ; BIOS panic
+                extern bpar             ; BIOS parameter block (from monitor)
+                extern mmmon            ; Select monitor memory map
+                extern intsv            ; Set interrupt vector
+                extern intdis           ; Disable interrupt and keep count
+                extern inten            ; Enable interrupts if safe
+;
+;
+; System Control Block (SCB) fields
+                extern @HOUR, @MIN, @SEC, @DATE
+;
+                extern intbsp           ; Background stack pointer (ints)
+                extern cittmr           ; Console input translation timer
+                public el_time          ; Elapsed time (centiseconds)
+;
+;
+;
+; *************
+; * Constants *
+; *************
+;
+;
+; None
+;
+;
+;
+; *************
+; * Main Code *
+; *************
+;
+;
+                cseg                    ; Use common segment
+
+; Initialise time. Called by cold boot code. This is run just one at boot time.
+ticini          ld a, INT_TICK_VEC      ; Vector number
+                ld de, tick_serv        ; Address of service routine
+                call intsv              ; Set interrupt vector
+;
+; Set tick counter.
+                ld hl, tikdiv
+                ld (hl), TICK_FREQ  	; Tick rate in Hz
+;
+; Reset elapsed time.
+                ld hl, el_time
+                ld b, 4
+bol_time_lp     ld (hl), 0
+                inc hl
+                djnz bol_time_lp
+;
+; Enable the tick interrupt in the FPGA interrupt controller. Interrupts won't
+; start until they are enabled in the cold boot (?init) code.
+                ld a, INT_TICK_MASK
+                out (IOA_INT_PEND), a   ; Clear any pending tick interrupt.
+                in (IOA_INT_EN)
+                or INT_TICK_MASK
+                out (IOA_INT_EN)
+;
+                ret
+;
+;
+; Initialise time and date. This reads the time from the RTC, so if applications
+; have disabled interrupts for a long time this will fix it. The stack must be
+; in the common area so we don't lose it when paging in the monitor.
+tiini           call mmmon              ; Swap to monitor memory map
+;
+; Read the hardware RTC and set the tick interrupt maintained copy to the
+; current time. Note that reading the hardware RTC takes a significant amount
+; of time.
+                call MCALL_TIRD         ; Read current time and date
+; A - zero (OK) or I2C error code (I2C_ERR_xxx)
+; DEHL - 32-bit time (if no error).
+                and a
+                jr z, strt_rtc_ok
+; RTC read error
+                ld c, a
+                ld hl, rtc_err_msg      ; "RTC error "
+                call MCALL_CONWMS       ; Print "RTC error " message
+                ld a, c
+                call MCALL_CWPHBY       ; Print error code in hex
+                call MCALL_CWNWLN       ; New line
+; Set default (zero) time
+                ld de, 0
+                ld hl, 0
+;
+; Save binary time and date.
+strt_rtc_ok     ld iy, zarc_time
+                ld (zarc_time), hl      ; Save time & date in ZARC format
+                ld (zarc_time + 2), de
+;
+; Convert to hours, minutes, seconds etc. allowing for BST automatically. Note
+; that the BST hour offset is calculated only on a cold or warm start to avoid
+; overcomplicating and slowing the code. It does mean that BST or GMT will
+; persist after a transition (twice a year) until a cold or warm start is
+; performed.
+                ld ix, time_tm
+                call MCALL_TIITOS       ; Convert integer time to TM structure
+;
+                call intdis             ; Ensure interrupts are disabled
+;
+                ld a, (ix + TM_HOURS)
+                call bin_to_pbcd        ; Convert binary value to packed BCD
+                ld (int_hour), a
+;
+                ld a, (ix + TM_MINS)
+                call bin_to_pbcd        ; Convert binary value to packed BCD
+                ld (int_min), a
+;
+                ld a, (ix + TM_SECS)
+                call bin_to_pbcd        ; Convert binary value to packed BCD
+                ld (int_sec), a
+;
+; @DATE is a little trickier, as ZARC and CP/M 3 use different epochs.
+; 01/01/1978 - CP/M epoch
+; 01/01/1970 - ZARC (Unix) epoch
+; The difference is 2922 days, though 2921 is required to get the correct date.
+; This could be due to a leap year issue over the new century. Note that the
+; 16-bit @DATE value can represent over 179 years, so we should be OK until
+; June 2157.
+; Calculate now many days have passed since the ZARC epoch.
+                ld hl, (zarc_time)      ; Fetch time & date in ZARC format
+                ld de, (zarc_time + 2)
+;
+                ld c, 60                ; Divisor
+                call MCALL_MADLBU       ; 32-bit / 8-bit unsigned divide
+; A - seconds [0,59]
+; DEHL - total minutes
+                ld c, 60                ; Divisor
+                call MCALL_MADLBU       ; 32-bit / 8-bit unsigned divide
+; A - minutes [0,59]
+; DEHL - total hours
+                ld c, 24                ; Divisor
+                call MCALL_MADLBU       ; 32-bit / 8-bit unsigned divide
+; A - hours [0,23]
+; DEHL - total days (0 to 49710, so D should be zero).
+                ld a, d
+                and a
+                call nz, bpanic         ; System panic if out of range
+; 
+; Allow for difference in epoch.
+                ld bc, 2921
+; Find EHL - BC
+                and a
+                sbc hl, bc
+                ld a, e
+                sbc 0                   ; Propagate carry
+; CP/M @DATE is 16 bits long, so MS byte should be zero.
+                and a
+                call nz, bpanic         ; System panic if out of range
+;
+; EHL - days since CP/M epoch
+;
+                ld (int_date), hl
+;
+                call inten              ; Enable interrupts if safe
+;
+; Reset elapsed time.
+                ld bc, 0
+                ld de, 0
+; BCDE - 32-bit time in centiseconds (0 to approximately 497 days).
+                call tiels              ; Set elapsed time
+;
+; Switch back to the CP/M context.
+                ld a, (@cbnk)
+                call ?bnksl
+;
+; Call ?time to set initial time and date in the SCB.
+                ld c, 0                 ; Get operation
+                call ?time              ; Set or get time
+;
+                ret
+;
+;
+; Set or get time. This is called CP/M 3 and potentially applications before
+; reading or writing the time and date. Note that this was moved from the boot
+; module as it seems more logical to have it here. Call with:
+; C=00H if get
+; C=0FFH if set (not supported).
+; For ZARC, time setting must be performed in the monitor, at least for now.
+?time:          push hl
+;
+                ld a, c
+                and a
+                jr z, tgs_get
+;
+; Set operation not supported.
+                ld hl, tgs_set_msg      ; "RTC set not supported"
+                call MCALL_CONWMS       ; Print message to console
+                jr tgs_exit
+; 
+; Get operation.
+tgs_get         call intdis             ; Ensure interrupts are disabled
+;
+; The time can't change during the copy, so we will have a consistent time
+; and date without occasional odd effects due to carries.
+                ld hl, (int_date)       ; Date in Days Since 1 Jan 78
+                ld (@DATE), hl
+                ld a, (int_hour)        ; BCD hours
+                ld (@HOUR), a
+                ld a, (int_min)         ; BCD minutes
+                ld (@MIN), a
+                ld a, (int_sec)         ; BCD seconds
+                ld (@SEC), a
+;
+                call inten              ; Enable interrupts if safe
+;
+tgs_exit        pop hl
+                ret
+;
+;
+; Read time and date. This is similar to the monitor's routine of the same name,
+; but this version reads the interrupt maintained time instead. Register mapping
+; is identical except that the tick divider is returned too.
+; Returns with:
+; A - Tick divider (0 to TICK_FREQ -1)
+; DEHL - 32-bit time
+tird            push iy
+                call intdis             ; Ensure interrupts are disabled
+                ld iy, zarc_time
+                ld l, (iy + 0)          ; LS byte
+                ld h, (iy + 1)
+                ld e, (iy + 2)
+                ld d, (iy + 3)          ; MS byte
+                pop iy
+                ld a, (tikdiv)          ; Tick divider
+                push af
+                call inten              ; Enable interrupts if safe
+                pop af
+                dec a
+                ret
+;
+;
+; Set timer. This is incremented on each tick interrupt to maintain elapsed time
+; in centiseconds.
+; BCDE - 32-bit time in centiseconds (0 to approximately 497 days).
+tiels           push iy
+                call intdis             ; Ensure interrupts are disabled
+                ld iy, el_time
+                ld (iy + 0), e          ; LS byte
+                ld (iy + 1), d
+                ld (iy + 2), c
+                ld (iy + 3), b          ; MS byte
+                pop iy
+                call inten              ; Enable interrupts if safe
+                ret
+;
+;
+; Get timer. This is incremented on each tick interrupt to maintain elapsed time
+; in centiseconds.
+; BCDE - 32-bit time in centiseconds (0 to approximately 497 days).
+tielg           push iy
+                call intdis             ; Ensure interrupts are disabled
+                ld iy, el_time
+                ld e, (iy + 0)          ; LS byte
+                ld d, (iy + 1)
+                ld c, (iy + 2)
+                ld b, (iy + 3)          ; MS byte
+                pop iy
+                call inten              ; Enable interrupts if safe
+                ret
+;
+;
+;
+; **************
+; * Interrupts *
+; **************
+;
+;
+; Tick interrupt service routine
+tick_serv       ld (intbsp), sp         ; Swap to interrupt stack
+                ld sp, INT_STK_TOP_P1
+;
+                push af
+                push hl
+;
+; Update console input translation timer.
+                ld a, (cittmr)
+                dec a
+                jp m, ts_cit_done       ; Skip store if negative
+                ld (cittmr), a
+;
+; Update elapsed time.
+ts_cit_done     ld hl, el_time
+                ld a, MS_PER_TICK / 10  ; Add centiseconds per tick
+                add (hl)
+                ld (hl), a
+                jr nc, ts_eti_done
+                inc hl
+                inc (hl)
+                jr nz, ts_eti_done
+                inc hl
+                inc (hl)
+                jr nz, ts_eti_done
+                inc hl
+                inc (hl)
+;
+; Update tick divider
+ts_eti_done     ld hl, tikdiv
+                dec (hl)
+                jr nz, ts_exit        	; Skip unless timed out
+; Goes here once per second.
+                ld (hl), TICK_FREQ     	; Reset divider
+;
+; Increment ZARC format time. This is used by ZARC BIOS extensions.
+                ld hl, zarc_time
+                inc (hl)
+                jr nz, ts_zarc_done
+                inc hl
+                inc (hl)
+                jr nz, ts_zarc_done
+                inc hl
+                inc (hl)
+                jr nz, ts_zarc_done
+                inc hl
+                inc (hl)
+;
+; Increment CP/M 3 format time. This is copied to the SCB when ?time is called.
+; These 2-digit Binary Coded Decimal (BCD) fields indicate the current hour,
+; minute, and second.
+; Increment seconds
+ts_zarc_done    ld hl, int_sec
+                ld a, (hl)
+                add 1                   ; Can't be INC due to flags
+                daa
+                cp 0x60
+                jr c, ts_sec_dn
+                xor a
+ts_sec_dn       ld (hl), a
+                jr nz, ts_exit
+;
+; Increment minutes
+                ld hl, int_min
+                ld a, (hl)
+                add 1
+                daa
+                cp 0x60
+                jr c, ts_min_dn
+                xor a
+ts_min_dn       ld (hl), a
+                jr nz, ts_exit
+;
+; Increment hour
+                ld hl, int_hour
+                ld a, (hl)
+                add 1
+                daa
+                cp 0x24
+                jr c, ts_hour_dn
+                xor a
+ts_hour_dn      ld (hl), a
+                jr nz, ts_exit
+;
+; Increment CP/M 3 format date.
+; The number of days since 31 December 1977, expressed as a 16-bit unsigned
+; integer, low byte first.
+                ld hl, int_date
+                inc (hl)
+                jr nz, ts_exit
+                inc hl
+                inc (hl)
+; Overflow is unlikely, and in any case not something we should stop the system
+; (panic) for.
+;
+ts_exit         pop hl
+                pop af
+;
+                ld sp, (intbsp)         ; Restore SP
+                ei
+                reti
+;
+;
+;
+; ***************
+; * Subroutines *
+; ***************
+;
+;
+; Convert binary value to packed BCD. Call with:
+; A - binary value (0 to 99)
+; Returns with:
+; A - packed BCD equivalent.
+; Uses "double_dabble" algorithm to speed up conversion.
+bin_to_pbcd     push bc
+;
+                cp 99 + 1
+                call nc, bpanic         ; Panic if out of range
+;
+                ld b, 8                 ; Loop counter
+                ld c, a
+                xor a                   ; Result
+ptb_loop        rl c
+                adc a, a
+                daa
+                djnz ptb_loop
+;
+                pop bc
+                ret
+;
+;
+;
+; *************
+; * Constants *
+; *************
+;
+;
+rtc_err_msg     byte ASCII_CR, ASCII_LF
+                byte "*** RTC error ", 0
+tgs_set_msg     byte ASCII_CR, ASCII_LF
+                byte "*** RTC set not supported ***"
+                byte ASCII_CR, ASCII_LF, 0
+;
+;
+;
+; *************
+; * Variables *
+; *************
+;
+;
+tikdiv          defs 1              ; Tick divider
+zarc_time       defs 4              ; Current time and date (ZARC format)
+el_time         defs 4              ; Elapsed time (centiseconds)
+time_tm         defs TM_SIZE        ; Date / time structure
+; Local time and date is updated by interrupt. This is copied to @HOUR, @MIN
+; @SEC and @DATE by ?time. 
+int_date        defs 2              ; Date in Days Since 1 Jan 78
+int_hour        defs 1              ; BCD hours
+int_min         defs 1              ; BCD minutes
+int_sec         defs 1              ; BCD seconds
+;
+                end
+

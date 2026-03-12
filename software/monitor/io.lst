@@ -21,7 +21,7 @@
   21:				; ************
   22:				;
   23:				                include "macros.i"
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//macros.i ****
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/macros.i ****
    1:				; ***********************************
    2:				; * ZARC Macro Definitions          *
    3:				; * Written by: Merlin Skinner      *
@@ -100,46 +100,128 @@
   76:				                endm
   77:				;
   78:				;
-  79:				; Calculate offsets into jump tables.
-  80:				; The absolute segment is used so the offsets are not marked as relocatable. This
-  81:				; avoids "Not relocatable" errors.
-  82:				JPTBL_START     macro x
+  79:				; Allocate space. This is used to generate variable addresses, affectively
+  80:				; providing a new variables segment. Allocated size is kept track of separately
+  81:				; to the address as the latter may overflow in certain error cases.
+  82:				ALLOC           macro x
   83:				                .aseg
-  84:				jptbl_addr      set x               ; Set start address
-  85:				                endm
-  86:				;
-  87:				; Invoke for each item.
-  88:				JPTBL_ENTRY     macro x
-  89:				x               equ jptbl_addr
-  90:				jptbl_addr      set jptbl_addr + 3
-  91:				                endm
-  92:				;
-  93:				; Invoke for a data block in the jump table
-  94:				JPTBL_BLOCK     macro x, size   ; <name>, <size>
-  95:				x               equ jptbl_addr
-  96:				jptbl_addr      set jptbl_addr + size
-  97:				                endm
-  98:				;
-  99:				JPTBL_END       macro x
- 100:				x               set jptbl_addr      ; Set label to next address
- 101:				                .cseg
- 102:				                endm
- 103:				;
- 104:				;
- 105:				; Define bits and masks. This is inspired by the Commodore Amiga BITDEF mechanism.
- 106:				; Given:
- 107:				; BITDEF I2C_CSR_STOP, 2
- 108:				; Yields:
- 109:				; I2C_CSR_STOP_BIT  EQU 2       ; Bit number
- 110:				; I2C_CSR_STOP_MASK EQU 1<<2    ; Bit mask
- 111:				BITDEF          macro n, b      ; <Name>, <bit>
- 112:				n`_BIT          equ b
- 113:				n`_MASK         equ 1 << b
+  84:				all_addr        set x
+  85:				all_size        set 0
+  86:				                endm
+  87:				;
+  88:				; Add a byte entry.
+  89:				ALL_BYTE        macro x
+  90:				x               equ all_addr
+  91:				all_addr        set all_addr + 1
+  92:				all_size        set all_size + 1
+  93:				                endm
+  94:				;
+  95:				; Add a word (16-bit) entry.
+  96:				ALL_WORD        macro x
+  97:				x               equ all_addr
+  98:				all_addr        set all_addr + 2
+  99:				all_size        set all_size + 2
+ 100:				                endm
+ 101:				;
+ 102:				; Add a 3 byte (24-bit) entry.
+ 103:				ALL_24BIT       macro x
+ 104:				x               equ all_addr
+ 105:				all_addr        set all_addr + 3
+ 106:				all_size        set all_size + 3
+ 107:				                endm
+ 108:				;
+ 109:				; Add a long (32-bit) entry.
+ 110:				ALL_LONG        macro x
+ 111:				x               equ all_addr
+ 112:				all_addr        set all_addr + 4
+ 113:				all_size        set all_size + 4
  114:				                endm
- 115:				
+ 115:				;
+ 116:				; Add an arbitrary length entry.
+ 117:				ALL_BLOCK       macro x, size   ; <name>, <size>
+ 118:				x               equ all_addr
+ 119:				all_addr        set all_addr + size
+ 120:				all_size        set all_size + size
+ 121:				                endm
+ 122:				;
+ 123:				; End of allocated space. Returns size of block.
+ 124:				ALL_END         macro x
+ 125:				x               equ all_size
+ 126:				                .cseg
+ 127:				                endm
+ 128:				;
+ 129:				;
+ 130:				; Calculate offsets into jump tables.
+ 131:				; The absolute segment is used so the offsets are not marked as relocatable. This
+ 132:				; avoids "Not relocatable" errors.
+ 133:				JPTBL_START     macro x
+ 134:				                .aseg
+ 135:				jptbl_addr      set x               ; Set start address
+ 136:				                endm
+ 137:				;
+ 138:				; Invoke for each item.
+ 139:				JPTBL_ENTRY     macro x
+ 140:				x               equ jptbl_addr
+ 141:				jptbl_addr      set jptbl_addr + 3
+ 142:				                endm
+ 143:				;
+ 144:				; Invoke for a data block in the jump table
+ 145:				JPTBL_BLOCK     macro x, size   ; <name>, <size>
+ 146:				x               equ jptbl_addr
+ 147:				jptbl_addr      set jptbl_addr + size
+ 148:				                endm
+ 149:				;
+ 150:				JPTBL_END       macro x
+ 151:				x               set jptbl_addr      ; Set label to next address
+ 152:				                .cseg
+ 153:				                endm
+ 154:				;
+ 155:				;
+ 156:				; Define bits and masks. This is inspired by the Commodore Amiga BITDEF mechanism.
+ 157:				; Given:
+ 158:				; BITDEF I2C_CSR_STOP, 2
+ 159:				; Yields:
+ 160:				; I2C_CSR_STOP_BIT  EQU 2       ; Bit number
+ 161:				; I2C_CSR_STOP_MASK EQU 1<<2    ; Bit mask
+ 162:				BITDEF          macro n, b      ; <Name>, <bit>
+ 163:				n`_BIT          equ b
+ 164:				n`_MASK         equ 1 << b
+ 165:				                endm
+ 166:				;
+ 167:				;
+ 168:				; Force alignment. This asserts an appropriate number of zero bytes to achieve
+ 169:				; the required alignment. Note that these macros cannot work for relocatable
+ 170:				; files.
+ 171:				; 16-bit
+ 172:				ALIGN_WORD      macro
+ 173:				                if $ and 1
+ 174:				                    byte 0
+ 175:				                endif
+ 176:				                endm
+ 177:				;
+ 178:				; 32-bit
+ 179:				ALIGN_LONG      macro
+ 180:				                ALIGN_WORD
+ 181:				                if $ and 2
+ 182:				                    byte 0, 0
+ 183:				                endif
+ 184:				                endm
+ 185:				;
+ 186:				;
+ 187:				; Write message to console (short for "call conwms").
+ 188:				CON_WR_MSG      macro
+ 189:				                rst 08
+ 190:				                endm
+ 191:				;
+ 192:				;
+ 193:				; Write character to console (short for "call conwch").
+ 194:				CON_WR_CHAR     macro
+ 195:				                rst 16
+ 196:				                endm
+ 197:				
 **** io.z80 ****
   24:				                include "z80.i"
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//z80.i ****
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/z80.i ****
    1:				; ***********************************
    2:				; * ZARC Z80 Definitions            *
    3:				; * Written by: Merlin Skinner      *
@@ -161,7 +243,7 @@
   19:				
 **** io.z80 ****
   25:				                include "monitor.i"
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//monitor.i ****
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/monitor.i ****
    1:				; *******************************************************
    2:				; * ZARC Monitor Definitions                            *
    3:				; * Written by: Merlin Skinner                          *
@@ -175,147 +257,153 @@
   11:				;
   12:				; The following conditionals are intended to allow the same include file to be
   13:				; used in the defining module and elsewhere as required. Some includes are used
-  14:				; for other applications than the monitor, such as the CP/M BIOS. In these cases,
-  15:				; the extern and public statements are not desirable.
+  14:				; for other applications than the monitor, such as the CP/M BIOS. In these
+  15:				; cases, the extern and public statements are not desirable.
   16:				;
   17:     -	0001'         	            ifdef monitor           ; Meaningful for monitor build only
   18:     -	0001'         	                ifndef main         ; Inhibit for this module
   19:				; Constants
   20:				;
-  21:				; Variables 
-  22:				                extern tikcnt       ; Tick counter
-  23:				;
-  24:				; Functions
-  25:				                extern panic        ; System error exception
-  26:				                extern rusby        ; Read byte from user space
-  27:				                extern ruswd        ; Read 16-bit word from user space
-  28:				                extern wusby        ; Write byte to user space
-  29:				                extern wuswd        ; Write 16-bit word to user space
-  30:				;
-  31:				                endif
-  32:				            endif
-  33:				;
+  21:				; Variables
+  22:				                extern mscnt            ; Monitor start count
+  23:				                extern mcspd            ; Approximate CPU speed in KHz
+  24:				                extern mstate           ; Machine state structure
+  25:				;
+  26:				; Functions
+  27:				                extern panic            ; System error exception
+  28:				                extern rusby            ; Read byte from user space
+  29:				                extern ruswd            ; Read 16-bit word from user space
+  30:				                extern wusby            ; Write byte to user space
+  31:				                extern wuswd            ; Write 16-bit word to user space
+  32:				                extern mcrun            ; Switch context to user code
+  33:				                extern mdisrg           ; Display registers
   34:				;
-  35:				;
-  36:				; *****************
-  37:				; * Monitor Calls *
-  38:				; *****************
+  35:				                endif
+  36:				            endif
+  37:				;
+  38:				;
   39:				;
-  40:				;
-  41:				; Calculate offsets into jump tables. Entries here must match the jump table in
-  42:				; monitor.z80.
-  43:     -	        	    JPTBL_START %(Z80_NMI_VEC + 3)   ; Start after NMI vector
+  40:				; *****************
+  41:				; * Monitor Calls *
+  42:				; *****************
+  43:				;
   44:				;
-  45:				; From monitor.z80
-  46:     -	        	    JPTBL_ENTRY MCALL_MON_ENTRY     ; Normal monitor entry
-  47:     -	        	    JPTBL_ENTRY MCALL_PANIC         ; System error monitor entry
-  48:				; From io.z80
-  49:     -	        	    JPTBL_ENTRY MCALL_CONWCH        ; Write character to the console port
-  50:     -	        	    JPTBL_ENTRY MCALL_CONRCH        ; Read character from the console port
-  51:     -	        	    JPTBL_ENTRY MCALL_CONSTA        ; Fetch console port status
-  52:     -	        	    JPTBL_ENTRY MCALL_S1WCH         ; Write character to serial port 1
-  53:     -	        	    JPTBL_ENTRY MCALL_S1RCH         ; Read character from serial port 1
-  54:     -	        	    JPTBL_ENTRY MCALL_S1STA         ; Fetch serial port 1 status
-  55:     -	        	    JPTBL_ENTRY MCALL_S2WCH         ; Write character to serial port 2
-  56:     -	        	    JPTBL_ENTRY MCALL_S2RCH         ; Read character from serial port 2
-  57:     -	        	    JPTBL_ENTRY MCALL_S2STA         ; Fetch serial port 2 status
-  58:				; From utility.z80
-  59:     -	        	    JPTBL_ENTRY MCALL_CWNWLN        ; Write new line characters to console
-  60:     -	        	    JPTBL_ENTRY MCALL_CONWMS        ; Print null-terminated string to the console
-  61:     -	        	    JPTBL_ENTRY MCALL_CONWMN        ; Print message <n> in a list
-  62:     -	        	    JPTBL_ENTRY MCALL_SKPSPC        ; Step hl past spaces
-  63:     -	        	    JPTBL_ENTRY MCALL_TOUPCA        ; Convert character in A to upper case
-  64:     -	        	    JPTBL_ENTRY MCALL_TOLOCA        ; Convert character in A to lower case
-  65:     -	        	    JPTBL_ENTRY MCALL_CWVICH        ; Print only visible 7-bit characters
-  66:     -	        	    JPTBL_ENTRY MCALL_CWPSPC        ; Print a space
-  67:     -	        	    JPTBL_ENTRY MCALL_MTWDLI        ; Match word in a string against list of options
-  68:     -	        	    JPTBL_ENTRY MCALL_CWPHNB        ; Print least-significant nibble in A in hexadecimal
-  69:     -	        	    JPTBL_ENTRY MCALL_CWPHBY        ; Print A in hexadecimal
-  70:     -	        	    JPTBL_ENTRY MCALL_CWPHWD        ; Print HL in hexadecimal
-  71:     -	        	    JPTBL_ENTRY MCALL_CWPDBY        ; Print A in decimal. Leading zeros are suppressed.
-  72:     -	        	    JPTBL_ENTRY MCALL_CWPDWD        ; Print HL in decimal. Leading zeros are suppressed.
-  73:     -	        	    JPTBL_ENTRY MCALL_CWPDLO        ; Print DEHL in decimal. Leading zeros are suppressed
-  74:     -	        	    JPTBL_ENTRY MCALL_RDHXWD        ; Read a 16-bit hexadecimal number from a string
-  75:     -	        	    JPTBL_ENTRY MCALL_RDDUWD        ; Read a 16-bit unsigned decimal number from a string
-  76:     -	        	    JPTBL_ENTRY MCALL_RDDULO        ; Read a 32-bit unsigned decimal number from a string
-  77:				; From maths.z80
-  78:     -	        	    JPTBL_ENTRY MCALL_MADLBU        ; 32-bit / 8-bit unsigned divide
-  79:     -	        	    JPTBL_ENTRY MCALL_MADWBU        ; 16-bit / 8-bit unsigned divide
-  80:     -	        	    JPTBL_ENTRY MCALL_MADBBU        ; 8-bit / 8-bit unsigned divide
-  81:     -	        	    JPTBL_ENTRY MCALL_MAMWWU        ; 16-bit * 16-bit unsigned multiply
-  82:     -	        	    JPTBL_ENTRY MCALL_MAMLBU        ; 32-bit * 8-bit unsigned multiply
-  83:     -	        	    JPTBL_ENTRY MCALL_CRC16X        ; CRC-16 (XMODEM)
-  84:				; From time.z80
-  85:     -	        	    JPTBL_ENTRY MCALL_TIRD          ; Read current time and date
-  86:     -	        	    JPTBL_ENTRY MCALL_TIWR          ; Set time and date
-  87:     -	        	    JPTBL_ENTRY MCALL_TIITOS        ; Convert integer time to structure
-  88:     -	        	    JPTBL_ENTRY MCALL_TISTOI        ; Convert structure time to integer
-  89:     -	        	    JPTBL_ENTRY MCALL_CWPTM         ; Print time structure to console
-  90:				; From mmc.z80
-  91:     -	        	    JPTBL_ENTRY MCALL_MCPRER        ; Print memory card error text
-  92:				; From cache.z80
-  93:     -	        	    JPTBL_ENTRY MCALL_CACRS         ; CP/M read sector
-  94:     -	        	    JPTBL_ENTRY MCALL_CACWS         ; CP/M write sector
-  95:     -	        	    JPTBL_ENTRY MCALL_CAFLUS        ; Flush cache (write dirty buffers)
-  96:				; From memory.z80
-  97:     -	        	    JPTBL_ENTRY MCALL_MPALL         ; Allocate new page
-  98:     -	        	    JPTBL_ENTRY MCALL_MPFREE        ; Free allocated page
-  99:     -	        	    JPTBL_ENTRY MCALL_MPSTAT        ; Allocation status
- 100:				;
- 101:     -	        	    JPTBL_END MCALL_JPTBL_NEXT
- 102:				;
- 103:				;
- 104:				;
- 105:				; **************
- 106:				; * Structures *
- 107:				; **************
+  45:				; Calculate offsets into jump tables. Entries here must match the jump table in
+  46:				; monitor.z80.
+  47:     -	        	    JPTBL_START %(Z80_NMI_VEC + 3)   ; Start after NMI vector
+  48:				;
+  49:				; From monitor.z80
+  50:     -	        	    JPTBL_ENTRY MCALL_MON_ENTRY     ; Normal monitor entry
+  51:     -	        	    JPTBL_ENTRY MCALL_PANIC         ; System error monitor entry
+  52:				; From io.z80
+  53:     -	        	    JPTBL_ENTRY MCALL_CONWCH        ; Write character to the console port
+  54:     -	        	    JPTBL_ENTRY MCALL_CONRCH        ; Read character from the console port
+  55:     -	        	    JPTBL_ENTRY MCALL_CONSTA        ; Fetch console port status
+  56:     -	        	    JPTBL_ENTRY MCALL_S1WCH         ; Write character to serial port 1
+  57:     -	        	    JPTBL_ENTRY MCALL_S1RCH         ; Read character from serial port 1
+  58:     -	        	    JPTBL_ENTRY MCALL_S1STA         ; Fetch serial port 1 status
+  59:     -	        	    JPTBL_ENTRY MCALL_S2WCH         ; Write character to serial port 2
+  60:     -	        	    JPTBL_ENTRY MCALL_S2RCH         ; Read character from serial port 2
+  61:     -	        	    JPTBL_ENTRY MCALL_S2STA         ; Fetch serial port 2 status
+  62:				; From utility.z80
+  63:     -	        	    JPTBL_ENTRY MCALL_CWNWLN        ; Write new line characters to console
+  64:     -	        	    JPTBL_ENTRY MCALL_CONWMS        ; Print null-terminated string to the console
+  65:     -	        	    JPTBL_ENTRY MCALL_CONWMN        ; Print message <n> in a list
+  66:     -	        	    JPTBL_ENTRY MCALL_SKPSPC        ; Step hl past spaces
+  67:     -	        	    JPTBL_ENTRY MCALL_TOUPCA        ; Convert character in A to upper case
+  68:     -	        	    JPTBL_ENTRY MCALL_TOLOCA        ; Convert character in A to lower case
+  69:     -	        	    JPTBL_ENTRY MCALL_CWVICH        ; Print only visible 7-bit characters
+  70:     -	        	    JPTBL_ENTRY MCALL_CWPSPC        ; Print a space
+  71:     -	        	    JPTBL_ENTRY MCALL_MTWDLI        ; Match word in a string against list of options
+  72:     -	        	    JPTBL_ENTRY MCALL_CWPHNB        ; Print least-significant nibble in A in hexadecimal
+  73:     -	        	    JPTBL_ENTRY MCALL_CWPHBY        ; Print A in hexadecimal
+  74:     -	        	    JPTBL_ENTRY MCALL_CWPHWD        ; Print HL in hexadecimal
+  75:     -	        	    JPTBL_ENTRY MCALL_CWPDBY        ; Print A in decimal. Leading zeros are suppressed.
+  76:     -	        	    JPTBL_ENTRY MCALL_CWPDWD        ; Print HL in decimal. Leading zeros are suppressed.
+  77:     -	        	    JPTBL_ENTRY MCALL_CWPDLO        ; Print DEHL in decimal. Leading zeros are suppressed
+  78:     -	        	    JPTBL_ENTRY MCALL_RDHXWD        ; Read a 16-bit hexadecimal number from a string
+  79:     -	        	    JPTBL_ENTRY MCALL_RDDUWD        ; Read a 16-bit unsigned decimal number from a string
+  80:     -	        	    JPTBL_ENTRY MCALL_RDDULO        ; Read a 32-bit unsigned decimal number from a string
+  81:				; From maths.z80
+  82:     -	        	    JPTBL_ENTRY MCALL_MADLBU        ; 32-bit / 8-bit unsigned divide
+  83:     -	        	    JPTBL_ENTRY MCALL_MADWBU        ; 16-bit / 8-bit unsigned divide
+  84:     -	        	    JPTBL_ENTRY MCALL_MADBBU        ; 8-bit / 8-bit unsigned divide
+  85:     -	        	    JPTBL_ENTRY MCALL_MAMWWU        ; 16-bit * 16-bit unsigned multiply
+  86:     -	        	    JPTBL_ENTRY MCALL_MAMLBU        ; 32-bit * 8-bit unsigned multiply
+  87:     -	        	    JPTBL_ENTRY MCALL_CRC16X        ; CRC-16 (XMODEM)
+  88:				; From time.z80
+  89:     -	        	    JPTBL_ENTRY MCALL_TIRD          ; Read current time and date
+  90:     -	        	    JPTBL_ENTRY MCALL_TIWR          ; Set time and date
+  91:     -	        	    JPTBL_ENTRY MCALL_TIITOS        ; Convert integer time to structure
+  92:     -	        	    JPTBL_ENTRY MCALL_TISTOI        ; Convert structure time to integer
+  93:     -	        	    JPTBL_ENTRY MCALL_CWPTM         ; Print time structure to console
+  94:				; From mmc.z80
+  95:     -	        	    JPTBL_ENTRY MCALL_MCPRER        ; Print memory card error text
+  96:				; From cache.z80
+  97:     -	        	    JPTBL_ENTRY MCALL_CACRS         ; CP/M read sector
+  98:     -	        	    JPTBL_ENTRY MCALL_CACWS         ; CP/M write sector
+  99:     -	        	    JPTBL_ENTRY MCALL_CARS          ; MMC read sector
+ 100:     -	        	    JPTBL_ENTRY MCALL_CAWS          ; MMC write sector
+ 101:     -	        	    JPTBL_ENTRY MCALL_CAFLUS        ; Flush cache (write dirty buffers)
+ 102:				; From memory.z80
+ 103:     -	        	    JPTBL_ENTRY MCALL_MPALL         ; Allocate new page
+ 104:     -	        	    JPTBL_ENTRY MCALL_MPFREE        ; Free allocated page
+ 105:     -	        	    JPTBL_ENTRY MCALL_MPSTAT        ; Allocation status
+ 106:				;
+ 107:     -	        	    JPTBL_END MCALL_JPTBL_NEXT
  108:				;
  109:				;
- 110:				; Machine state structure.
- 111:     -	        	                STRUCT
- 112:     -	        	                STR_BYTE MST_IEN        ; Non-zero if interrupts enabled
- 113:     -	        	                STR_BYTE MST_MMAP_EN    ; Non-zero if memory mapping enabled
- 114:     -	        	                STR_BYTE MST_MMAP0      ; Memory mapping registers
- 115:     -	        	                STR_BYTE MST_MMAP1
- 116:     -	        	                STR_BYTE MST_MMAP2
- 117:     -	        	                STR_BYTE MST_MMAP3
- 118:     -	        	                STR_WORD MST_SP
- 119:     -	        	                STR_WORD MST_PC
- 120:				; The sequence of the following entries must match those in the state save and
- 121:				; load routines.
- 122:     -	        	                STR_WORD MST_IY
- 123:     -	        	                STR_WORD MST_IX
- 124:     -	        	                STR_WORD MST_HL_P
- 125:     -	        	                STR_WORD MST_DE_P
- 126:     -	        	                STR_WORD MST_BC_P
- 127:     -	        	                STR_WORD MST_AF_P       ; Alternate ("prime") registers
- 128:     -	        	                STR_WORD MST_HL
- 129:     -	        	                STR_WORD MST_DE
- 130:     -	        	                STR_WORD MST_BC
- 131:     -	        	                STR_WORD MST_AF
- 132:				; End of sequence critical entries.
- 133:     -	        	                STR_BYTE MST_I
- 134:     -	        	                STR_BYTE MST_R
- 135:     -	        	                STR_END MST_SIZE
- 136:				;
- 137:				;
- 138:				;
- 139:				; *************
- 140:				; * Constants *
- 141:				; *************
+ 110:				;
+ 111:				; **************
+ 112:				; * Structures *
+ 113:				; **************
+ 114:				;
+ 115:				;
+ 116:				; Machine state structure.
+ 117:     -	        	                STRUCT
+ 118:     -	        	                STR_BYTE MST_IEN        ; Non-zero if interrupts enabled
+ 119:     -	        	                STR_BYTE MST_MMAP_EN    ; Non-zero if memory mapping enabled
+ 120:     -	        	                STR_BYTE MST_MMAP0      ; Memory mapping registers
+ 121:     -	        	                STR_BYTE MST_MMAP1
+ 122:     -	        	                STR_BYTE MST_MMAP2
+ 123:     -	        	                STR_BYTE MST_MMAP3
+ 124:     -	        	                STR_WORD MST_SP
+ 125:     -	        	                STR_WORD MST_PC
+ 126:				; The sequence of the following entries must match those in the state save and
+ 127:				; load routines.
+ 128:     -	        	                STR_WORD MST_IY
+ 129:     -	        	                STR_WORD MST_IX
+ 130:     -	        	                STR_WORD MST_HL_P
+ 131:     -	        	                STR_WORD MST_DE_P
+ 132:     -	        	                STR_WORD MST_BC_P
+ 133:     -	        	                STR_WORD MST_AF_P       ; Alternate ("prime") registers
+ 134:     -	        	                STR_WORD MST_HL
+ 135:     -	        	                STR_WORD MST_DE
+ 136:     -	        	                STR_WORD MST_BC
+ 137:     -	        	                STR_WORD MST_AF
+ 138:				; End of sequence critical entries.
+ 139:     -	        	                STR_BYTE MST_I
+ 140:     -	        	                STR_BYTE MST_R
+ 141:     -	        	                STR_END MST_SIZE
  142:				;
  143:				;
- 144:				; Trace mode states for trace_mode.
- 145:     -	        	                ENUM_START
- 146:     -	        	                ENUM TRM_NONE
- 147:     -	        	                ENUM TRM_SINGLE
- 148:     -	        	                ENUM TRM_TO_ADDR        ; Trace to address
- 149:     -	        	                ENUM TRM_XPT            ; Exception - start running normally
- 150:     -	        	                ENUM_END TRM_STATES     ; Number of states
- 151:				
+ 144:				;
+ 145:				; *************
+ 146:				; * Constants *
+ 147:				; *************
+ 148:				;
+ 149:				;
+ 150:				; Trace mode states for trace_mode.
+ 151:     -	        	                ENUM_START
+ 152:     -	        	                ENUM TRM_NONE
+ 153:     -	        	                ENUM TRM_SINGLE
+ 154:     -	        	                ENUM TRM_TO_ADDR        ; Trace to address
+ 155:     -	        	                ENUM TRM_XPT            ; Exception - start running normally
+ 156:     -	        	                ENUM_END TRM_STATES     ; Number of states
+ 157:				
 **** io.z80 ****
   26:				                include "zarc.i"        ; Hardware definitions
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//zarc.i ****
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/zarc.i ****
    1:				; ***********************************
    2:				; * ZARC Definitions                *
    3:				; * Written by: Merlin Skinner      *
@@ -343,7 +431,7 @@
   25:				
 **** io.z80 ****
   27:				                include "io_map.i"      ; I/O addresses mapping
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//io_map.i ****
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/io_map.i ****
    1:				; ***********************************
    2:				; * ZARC I/O Definitions            *
    3:				; * Written by: Merlin Skinner      *
@@ -508,7 +596,7 @@
  162:				
 **** io.z80 ****
   28:				                include "terminal.i"
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//terminal.i ****
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/terminal.i ****
    1:				; ***********************************
    2:				; * ZARC Terminal Definitions       *
    3:				; * Written by: Merlin Skinner      *
@@ -545,7 +633,7 @@
   34:				
 **** io.z80 ****
   29:				                include "interrupts.i"  ; Interrupts
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//interrupts.i ****
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/interrupts.i ****
    1:				; ***********************************
    2:				; * ZARC Interrupts Routines        *
    3:				; * Written by: Merlin Skinner      *
@@ -576,7 +664,7 @@
   28:				
 **** io.z80 ****
   30:				                include "i2c.i"         ; I2C master interface
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//i2c.i ****
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/i2c.i ****
    1:				; ***********************************
    2:				; * ZARC I2C Definitions            *
    3:				; * Written by: Merlin Skinner      *
@@ -607,7 +695,7 @@
   28:				
 **** io.z80 ****
   31:				                include "spi.i"         ; SPI master interface
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//spi.i ****
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/spi.i ****
    1:				; ***********************************
    2:				; * ZARC SPI Definitions            *
    3:				; * Written by: Merlin Skinner      *
@@ -628,27 +716,30 @@
   18:     -	        	                STR_BYTE MMC_CRC    ; CRC and stop bit
   19:     -	        	                STR_END MMC_SIZE
   20:				
-  21:				; SPI error codes. This should be maintained in sync with err_msgs in mmc_card.z80.
-  22:     -	        	                ENUM_START
-  23:     -	        	                ENUM SPI_ERR_OK         ; No error
-  24:     -	        	                ENUM SPI_ERR_BUSY       ; Master interface stuck busy
-  25:				; Memory card error codes.
-  26:     -	        	                ENUM SPI_ERR_NORESP     ; No response received from card
-  27:     -	        	                ENUM SPI_ERR_BADINIT    ; Initialisation failed
-  28:     -	        	                ENUM SPI_ERR_BADCRC     ; CRC error
-  29:     -	        	                ENUM SPI_ERR_BADSEC     ; Bad sector size
-  30:     -	        	                ENUM SPI_ERR_RANGE      ; Parameter out of range
-  31:     -	        	                ENUM SPI_ERR_DATAERR    ; Data error token received
-  32:     -	        	                ENUM SPI_ERR_BAD_R1     ; Card reported error in R1 response
-  33:     -	        	                ENUM SPI_ERR_BAD_R2     ; Card reported error in R2 response
-  34:     -	        	                ENUM SPI_ERR_HEAP       ; Out of heap space
-  35:     -	        	                ENUM SPI_ERR_TIMEOUT    ; Busy timeout
-  36:     -	        	                ENUM SPI_ERR_WRITE      ; Write error
-  37:     -	        	                ENUM SPI_ERR_UNKN       ; Unknown error
-  38:     -	        	                ENUM_END SPI_ERR_NUM    ; Number of errors
+  21:				; SPI-related error codes. This should be maintained in sync with err_msgs in
+  22:				; mmc_card.z80.
+  23:     -	        	                ENUM_START
+  24:     -	        	                ENUM SPI_ERR_OK         ; No error
+  25:     -	        	                ENUM SPI_ERR_BUSY       ; Master interface stuck busy
+  26:				; Memory card error codes.
+  27:     -	        	                ENUM SPI_ERR_NORESP     ; No response received from card
+  28:     -	        	                ENUM SPI_ERR_BADINIT    ; Initialisation failed
+  29:     -	        	                ENUM SPI_ERR_BADCRC     ; CRC error
+  30:     -	        	                ENUM SPI_ERR_BADSEC     ; Bad sector size
+  31:     -	        	                ENUM SPI_ERR_RANGE      ; Parameter out of range
+  32:     -	        	                ENUM SPI_ERR_DATAERR    ; Data error token received
+  33:     -	        	                ENUM SPI_ERR_BAD_R1     ; Card reported error in R1 response
+  34:     -	        	                ENUM SPI_ERR_BAD_R2     ; Card reported error in R2 response
+  35:     -	        	                ENUM SPI_ERR_HEAP       ; Out of heap space
+  36:     -	        	                ENUM SPI_ERR_TIMEOUT    ; Busy timeout
+  37:     -	        	                ENUM SPI_ERR_WRITE      ; Write error
+  38:     -	        	                ENUM SPI_ERR_UNKN       ; Unknown error
+  39:     -	        	                ENUM SPI_ERR_PART       ; Sector is outside the partition
+  40:     -	        	                ENUM_END SPI_ERR_NUM    ; Number of errors
+  41:				
 **** io.z80 ****
   32:				                include "io.i"          ; I/O routines
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//io.i ****
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/io.i ****
    1:				; ***********************************
    2:				; * ZARC Basic I/O Extern Symbols   *
    3:				; * Written by: Merlin Skinner      *
@@ -1099,11 +1190,11 @@ Statistics:
 
      4	passes
      0	jr promotions
-   295	symbols
+   302	symbols
    306	bytes
 
-   146	macro calls
-  1320	macro bytes
+   149	macro calls
+  2391	macro bytes
      0	invented symbols
 
 
@@ -1175,7 +1266,9 @@ IOA_SPI_CSR    =20        32
 IOA_SPI_DATA   =21        33
 MCALL_CACRS    =E4        228
 MCALL_CACWS    =E7        231
-MCALL_CAFLUS   =EA        234
+MCALL_CAFLUS   =F0        240
+MCALL_CARS     =EA        234
+MCALL_CAWS     =ED        237
 MCALL_CONRCH   =72        114
 MCALL_CONSTA   =75        117
 MCALL_CONWCH   =6F        111
@@ -1192,7 +1285,7 @@ MCALL_CWPHWD   =AB        171
 MCALL_CWPSPC   =9F        159
 MCALL_CWPTM    =DE        222
 MCALL_CWVICH   =9C        156
-MCALL_JPTBL_NEXT=F6        246
+MCALL_JPTBL_NEXT=FC        252
 MCALL_MADBBU   =C6        198
 MCALL_MADLBU   =C0        192
 MCALL_MADWBU   =C3        195
@@ -1200,9 +1293,9 @@ MCALL_MAMLBU   =CC        204
 MCALL_MAMWWU   =C9        201
 MCALL_MCPRER   =E1        225
 MCALL_MON_ENTRY=69        105
-MCALL_MPALL    =ED        237
-MCALL_MPFREE   =F0        240
-MCALL_MPSTAT   =F3        243
+MCALL_MPALL    =F3        243
+MCALL_MPFREE   =F6        246
+MCALL_MPSTAT   =F9        249
 MCALL_MTWDLI   =A2        162
 MCALL_PANIC    =6C        108
 MCALL_RDDULO   =BD        189
@@ -1305,8 +1398,9 @@ SPI_ERR_BUSY   =01        1
 SPI_ERR_DATAERR=07        7
 SPI_ERR_HEAP   =0A        10
 SPI_ERR_NORESP =02        2
-SPI_ERR_NUM    =0E        14
+SPI_ERR_NUM    =0F        15
 SPI_ERR_OK     =00        0
+SPI_ERR_PART   =0E        14
 SPI_ERR_RANGE  =06        6
 SPI_ERR_TIMEOUT=0B        11
 SPI_ERR_UNKN   =0D        13
@@ -1379,8 +1473,13 @@ itenfl          00        0 (extern)
 itinit          00        0 (extern)
 itstrt          00        0 (extern)
 itsvec          00        0 (extern)
-jptbl_addr     =F6        246
+jptbl_addr     =FC        252
+mcrun           00        0 (extern)
+mcspd           00        0 (extern)
+mdisrg          00        0 (extern)
 monitor        =01        1
+mscnt           00        0 (extern)
+mstate          00        0 (extern)
 panic           00        0 (extern)
 rch_redirect    1D'       29
 rusby           00        0 (extern)
@@ -1398,7 +1497,6 @@ spitr            11B'     283 (public)
 spitr_busywait   120'     288
 spitr_done       12C'     300
 str_offset     =06        6
-tikcnt          00        0 (extern)
 trarch          3C'       60 (public)
 trawch          36'       54 (public)
 trport          02"       2 (public)

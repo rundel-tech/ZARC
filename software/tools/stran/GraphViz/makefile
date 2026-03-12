@@ -2,6 +2,8 @@
 # make          # Update all graphical outputs
 # make clean    # Remove all intermediate files
 
+# Required Graphviz. "sudo apt install graphviz" if required.
+
 # Note - make requires that indentation be tabs, not spaces. Beware!
 # Indented comments are displayed when make is invoked.
 

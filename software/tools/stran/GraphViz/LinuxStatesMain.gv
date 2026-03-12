@@ -8,56 +8,57 @@ digraph CPU_Block {
 #    course -- "C-I" [label="n"];
 #   "AM-AC-2WT1" -- "AM-AF-3330" [label="F1303\n61611937AA00",len=1\n00];
 
-    graph [rankdir=LR]
+#    graph [rankdir=LR]
+    graph [rankdir=TB]
     edge [color=black];
 
-    node [shape=ellipse color=aquamarine style=filled];
+    node [shape=box color=aquamarine style=filled];
 
     {
-        node [shape=box color=lightskyblue]
+        node [shape=ellipse color=lightskyblue]
         rank=source;
         "Start";
-        node [color=firebrick1]
-        "Error";
     }
 
     {
         node [color=lightskyblue]
         rank=sink;
+        "End" [shape=ellipse];
+    }
+
+    {
+        node [shape=diamond]
+        "Determine\nFunction";
+    }
+
+    {
+        node [shape=doublecircle;color=lightyellow]
         "Transmit\nStates";
         "Receive\nStates";
         "Directory\nStates";
-        "End" [shape=box];
     }
 
+    "Start" -> "Send\nReset";
+    "Send\nReset" -> "Await ACK";
+    "Await ACK" -> "Send\nReset" [label = "Timeout,\nretry"];
+    "Await ACK" -> "End" [label = "Timeout\nOut of retries"];
+    "Await ACK" -> "Determine\nFunction" [label = "ACK"]
 
-    "Start" -> "Sync\nSequence";
-    "Sync\nSequence" -> "Idle";
-
-    "Idle" -> "Send Exit" [label="Normal exit"];
+    "Determine\nFunction"-> "Send Exit" [label="Normal exit"];
     "Send Exit" -> "Exit Await\nResponse"
     "Exit Await\nResponse" -> "Send Exit" [label = "Timeout,\nretry"];
     "Exit Await\nResponse" -> "Send Exit" [label = "NAK"];
     "Exit Await\nResponse" -> "End" [label = "Timeout\nOut of retries"];
     "Exit Await\nResponse" -> "End" [label = "ACK"]
 
-    "Idle" -> "Idle" [label = "Idle\ncharacter"];
-    "Idle" -> "Transmit\nStates" [label = "Send file"];
-    "Transmit\nStates" -> "Idle"
+    "Determine\nFunction" -> "Transmit\nStates" [label = "Send file"];
+    "Transmit\nStates" -> "End"
 
-    "Idle" -> "Receive\nStates" [label = "Receive file"];
-    "Receive\nStates" -> "Idle"
+    "Determine\nFunction" -> "Receive\nStates" [label = "Receive file"];
+    "Receive\nStates" -> "End"
 
-    "Idle" -> "Directory\nStates" [label = "Read\ndirectory"];
-    "Directory\nStates" -> "Idle"
-
-    "Error" -> "Sync\nSequence "
-    "Sync\nSequence " -> "Send Abort"
-    "Send Abort" -> "Abort Await\nResponse"
-    "Abort Await\nResponse" -> "Send Abort" [label = "Timeout,\nretry"];
-    "Abort Await\nResponse" -> "Send Abort" [label = "NAK"];
-    "Abort Await\nResponse" -> "Idle" [label = "Timeout\nOut of retries"];
-    "Abort Await\nResponse" -> "Idle" [label = "ACK"]
+    "Determine\nFunction" -> "Directory\nStates" [label = "Read\ndirectory"];
+    "Directory\nStates" -> "End"
 
     label = "Linux Side Master State Diagram";
     fontsize=20;

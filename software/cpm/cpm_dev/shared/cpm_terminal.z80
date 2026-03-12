@@ -109,16 +109,41 @@ cc_zdet_done    call cat_get_resp       ; Read response
                 jr c, cc_exit           ; Exit if buffer overflowed
 ;
 ; Compare the response against the expected options.
+; The Minicom terminal emulator is a special case as the version number is
+; included in the response, for example Minicom2.8.
                 ld hl, cat_resp
-                ld de, enq_resp_list
-                xor a                   ; Disable options (MTWDLI_xxx)
-                call mtwdli             ; Match against list of options
-                ld (cc_enq_match), a    ; Save option number or zero if no match
+                ld de, enq_minicom
+; We don't need to worry about how many characters were received as a terminator
+; will cause a mismatch.
+cc_enq_min_lp   ld a, (de)
+                and a
+                jr z, cc_enq_min        ; Jump if end of match string
+                cp (hl)
+                jr nz, cc_enq_notmin
+                inc hl
+                inc de
+                jr cc_enq_min_lp
+;
+; Minicom terminal detected. That means we can use Unicode.
+cc_enq_min      ld hl, concap
+                set CONCAP_UNICODE_BIT, (hl)
+                ld hl, cc_unicode_msg   ; " Unicode "
+                call conwms             ; Print $-terminated string to console
+                jr cc_enq_done
+;
+; Not a Minicom terminal. Try matching other strings.
+; As yet, we don't have any!
+cc_enq_notmin
+;                ld hl, cat_resp
+;                ld de, enq_resp_list
+;                xor a                   ; Disable options (MTWDLI_xxx)
+;                call mtwdli             ; Match against list of options
+;                ld (cc_enq_match), a    ; Save option number or zero if no match
 ;
 ; Report any unrecognised responses to aid debugging, especially for new
 ; terminal types.
-                and a
-                jr nz, cc_enq_done
+;                and a
+;                jr nz, cc_enq_done
                 ld hl, cc_unr_enq_msg   ; "Unrecognised ENQ response: "
                 call conwms             ; Print $-terminated string to console
                 call cat_disp_resp      ; Display buffer
@@ -169,18 +194,8 @@ cc_da_not_ansi  ld hl, cc_unr_da_msg    ; "Unrecognised DA response: "
                 call conwms             ; Print $-terminated string to console
                 call cat_disp_resp      ; Display buffer
 ;
-; Examine the ENQ response.
-cc_da_done      ld a, (cc_enq_match)
-                cp 1
-                jr nz, cc_not_minicom
-; Minicom terminal emulator found. This supports Unicode.
-                ld hl, concap
-                set CONCAP_UNICODE_BIT, (hl)
-                ld hl, cc_unicode_msg   ; " Unicode "
-                call conwms             ; Print $-terminated string to console
-;
-; Insert code for other attributes here.
-cc_not_minicom
+; Nothing more to do.
+cc_da_done      
 ;
 cc_exit         call cwnwln             ; Write new line characters to console
                 pop hl
@@ -549,8 +564,9 @@ cc_unr_enq_msg  byte 0x0d, 0x0a, "Unrecognised ENQ response: $"
 cc_unr_da_msg   byte 0x0d, 0x0a, "Unrecognised DA response: $"
 cc_da_req_msg   byte 0x1b, "[c$"        ; Request device attributes
 ; List of responses to ENQ.
-enq_resp_list   byte "Minicom2.8"       ; List of responses to ENQ
+enq_resp_list   byte "example"          ; List of responses to ENQ
                 byte 0
+enq_minicom     byte "Minicom", 0       ; Minicom response prefix
 ;
 ;
 ;
@@ -562,7 +578,7 @@ enq_resp_list   byte "Minicom2.8"       ; List of responses to ENQ
                 dseg                ; Data segment
 ;
 cat_resp        defs CAT_RESP_BUF_LEN               ; Terminal response
-cc_enq_match    defs 1              ; ENQ response match number
+;cc_enq_match    defs 1              ; ENQ response match number
 concap          defs 1              ; Terminal capabilities
 ;
                 end

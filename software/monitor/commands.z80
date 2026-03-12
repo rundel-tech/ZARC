@@ -34,6 +34,7 @@ commands        equ 1                   ; Flag module for includes
                 include "mmc.i"         ; Memory card
                 include "disass.i"      ; Z80 disassembler
                 include "cpm.i"         ; CP/M support
+                include "cpm3.i"        ; CP/M 3 support
                 include "heap.i"
                 include "cache.i"       ; MMC sector cache
                 include "memory.i"      ; Memory page allocation
@@ -55,7 +56,10 @@ commands        equ 1                   ; Flag module for includes
 ; From monitor.z80
                 extern mcrun            ; Switch context to user code
                 extern mdisrg           ; Display registers
-                extern warm1            ; Warm start marker 1 
+                extern warm1            ; Warm start marker 1
+;
+; Build time
+                extern btime            ; Build time string
 ;
 ; Variables
 ; From monitor.z80
@@ -132,19 +136,19 @@ cmd_done        ld sp, (cmd_sp)
 ;
 ; Can't match command against any of the valid ones.
 cmd_bad         ld hl, cmd_bad_msg
-                call conwms             ; Print message
+                CON_WR_MSG             ; Print message
                 ret
 ;
 ; Operand error
 cmd_op_error    ld hl, op_err_msg
-                call conwms             ; Print message
+                CON_WR_MSG             ; Print message
                 jp cmd_done
 ;
 ; Write protection error.
 ; HL - fault address in user space
 mcprot          push hl
                 ld hl, wr_prot_msg      ; "Write protection violation, address: "
-                call conwms             ; Print message
+                CON_WR_MSG             ; Print message
                 pop hl
                 call cwphwd             ; Print address in hexadecimal
                 call cwnwln             ; Write new line characters to console
@@ -152,7 +156,7 @@ mcprot          push hl
 ;
 ; Print terse help text.
 cmd_help        ld hl, help_msg
-                call conwms             ; Print message
+                CON_WR_MSG             ; Print message
                 ret
 ;
 ;
@@ -248,7 +252,7 @@ cd_ellspc_loop  call cwpspc             ; Print a space
 ; Print ellipsis.
                 ld b, 3
 cd_ellips_loop  ld a, '.'
-                call conwch
+                CON_WR_CHAR
                 djnz cd_ellips_loop
                 call cwnwln             ; New line
                 pop bc                  ; Restore counters
@@ -285,7 +289,7 @@ cd_hex_bydn     call cwpspc             ; Print a space
 ; Hex-ASCII separator
                 call cwpspc             ; Print a space
                 ld a, '|'
-                call conwch
+                CON_WR_CHAR
 ; Write data in ASCII.
                 pop bc                  ; Restore counters
                 push bc
@@ -310,7 +314,7 @@ cd_asc_bydn     inc hl
                 pop bc                  ; Restore counters
 ; Separator
                 ld a, '|'
-                call conwch
+                CON_WR_CHAR
                 call cwnwln             ; End of line
 ; Flag identical data for next line. This will be overwritten if differences are
 ; detected.
@@ -426,7 +430,7 @@ cwr_done        call skpspc      ; Skip spaces
                 pop hl                  ; Restore byte count
                 call cwphwd             ; Print number of bytes written
                 ld hl, cwr_bytes_msg
-                call conwms             ; Print message
+                CON_WR_MSG             ; Print message
                 ret
 ;
 ;
@@ -547,16 +551,16 @@ cout_done       call skpspc             ; Skip spaces
                 pop hl                  ; Restore byte count
                 call cwphwd             ; Print number of bytes written
                 ld hl, cwr_bytes_msg
-                call conwms             ; Print message
+                CON_WR_MSG             ; Print message
                 ret
 ;
 ;
 ; Display or change the user context memory mapping. With no operands, the
 ; command displays the current state, for example:
-; 0 (0000 - 3fff): 3f [MONP] writeable supervisor
+; 0 (0000 - 3fff): 3f [MONP] writable supervisor
 ; 1 (4000 - 7fff): 00 [MOND] read only
 ; 2 (8000 - bfff): 01 [unallocated] read only
-; 3 (c000 - ffff): 02 [unallocated] writeable
+; 3 (c000 - ffff): 02 [unallocated] writable
 ; To change the mapping, use:
 ; map <register> <page> [<prot>] [<super>]
 cmd_map         xor a
@@ -620,16 +624,16 @@ cm_ops_done     ld hl, mstate + MST_MMAP0
                 ret
 ;
 ; Display the current mapping.
-; 0 (0000 - 3fff): 3f [MONP] writeable supervisor
+; 0 (0000 - 3fff): 3f [MONP] writable supervisor
 ; 1 (4000 - 7fff): 00 [MOND] read only
 ; 2 (8000 - bfff): 01 [unallocated] read only
-; 3 (c000 - ffff): 02 [unallocated] writeable
+; 3 (c000 - ffff): 02 [unallocated] writable
 cm_display      ld b, 0                 ; Bank count
 cm_regloop      ld a, b
                 call cwphnb             ; Print bank as a nibble
                 call cwpspc             ; Print a space
                 ld a, '('
-                call conwch
+                CON_WR_CHAR
                 ld a, b                 ; Calculate start address
                 rrca                    ; Rotate to MS bits
                 rrca
@@ -639,16 +643,16 @@ cm_regloop      ld a, b
                 push hl                 ; Save it
                 call cwphwd             ; Print address in hexadecimal
                 ld hl, cm_range_msg     ; " - "
-                call conwms             ; Print message
+                CON_WR_MSG             ; Print message
                 pop hl                  ; Fetch base address
                 ld de, MMAP_PAGE_SIZE - 1
                 add hl, de
                 call cwphwd             ; Print address in hexadecimal
 ; Separator
                 ld a, ')'
-                call conwch
+                CON_WR_CHAR
                 ld a, ':'
-                call conwch
+                CON_WR_CHAR
                 call cwpspc             ; Print a space
 ; Find the appropriate bank in the machine state.
                 push hl
@@ -671,17 +675,17 @@ cm_regloop      ld a, b
                 call prpnam             ; Print page name
                 call cwpspc             ; Print a space
 ;
-; Write "writeable" or "read only" as appropriate.
-                ld hl, cm_write_msg     ; " writeable"
+; Write "writable" or "read only" as appropriate.
+                ld hl, cm_write_msg     ; " writable"
                 bit MMAP_PROT_BIT, c
                 jr z, cm_prot_pmsg
                 ld hl, cm_ro_msg        ; " read only"
-cm_prot_pmsg    call conwms             ; Print message
+cm_prot_pmsg    CON_WR_MSG             ; Print message
 ; Write "supervisor" if appropriate.
                 bit MMAP_SUPER_BIT, c
                 jr z, cm_regdn
                 ld hl, cm_super_msg     ; ", supervisor"
-                call conwms             ; Print message
+                CON_WR_MSG             ; Print message
 cm_regdn        call cwnwln             ; New line
                 inc b
                 ld a, b
@@ -695,15 +699,15 @@ cm_regdn        call cwnwln             ; New line
 prpnam          push hl
                 push af
                 ld a, '['
-                call conwch
+                CON_WR_CHAR
                 pop af
                 call mppnam             ; Print entry name
                 jr nc, prpn_name_dn
 ; Page is not allocated.
                 ld hl, cm_unalloc_msg   ; "unallocated"
-                call conwms             ; Print message
+                CON_WR_MSG             ; Print message
 prpn_name_dn    ld a, ']'
-                call conwch
+                CON_WR_CHAR
                 call cwpspc             ; Print a space
                 pop hl
                 ret
@@ -729,43 +733,49 @@ cmd_cold        xor a
 cmd_info        xor a
                 cp (hl)
                 jp nz, cmd_op_error
+; Monitor build time.
+                ld hl, ci_btime_msg     ; "Monitor "
+                CON_WR_MSG             ; Print message
+                ld hl, btime            ; Build time string
+                CON_WR_MSG             ; Print message
 ; FPGA firmware version
                 ld hl, ci_fpga_rev_msg  ; "FPGA revision: "
-                call conwms             ; Print message
+                CON_WR_MSG             ; Print message
                 in a, (IOA_FPGA_MAJREV) 
                 call cwphby             ; Print byte in hexadecimal
                 ld a, '.'
-                call conwch 
+                CON_WR_CHAR 
                 in a, (IOA_FPGA_MINREV) 
                 call cwphby             ; Print byte in hexadecimal
 ; Total RAM in system
                 ld hl, ci_ram_msg       ; "Total RAM: "
-                call conwms             ; Print message
+                CON_WR_MSG             ; Print message
 ; Note - "+" is required to prevent this being misinterpreted as an indirect load.
                 ld hl, +((MMAP_PAGE_SIZE /1024) * MMAP_PAGES)
                 call cwpdwd             ; Print size in decimal
 ; CPU speed
                 ld hl, ci_cpuspd_msg    ; "CPU clock: "
-                call conwms             ; Print message
+                CON_WR_MSG             ; Print message
                 ld hl, (mcspd)          ; Approximate CPU speed in KHz
                 call cwpdwd             ; Print in decimal
                 ld hl, ci_khz_msg       ; " KHz"
-                call conwms             ; Print message
+                CON_WR_MSG             ; Print message
 ; Monitor start count
                 ld hl, ci_mon_cnt_msg   ; "Monitor starts: "
-                call conwms             ; Print message
-                ld hl, (mscnt)          ; Monitor start count
-                call cwpdwd             ; Print reset counter in decimal
+                CON_WR_MSG              ; Print message
+                ld hl, mscnt            ; Monitor start count
+                call malld	        ; Load 32-bit number from memory
+                call cwpdlo             ; Print DEHL in decimal
 ; Current console port
                 ld hl, ci_con_port      ; "Console port: "
-                call conwms             ; Print message
+                CON_WR_MSG             ; Print message
                 ld hl, prt_name_list    ; Port name list
                 ld c, ' '               ; Separator
                 ld a, (coport)
                 call conwmn             ; Print message <n> in a list
 ; Current data transfer port
                 ld hl, ci_tran_port     ; "Data transfer port: "
-                call conwms             ; Print message
+                CON_WR_MSG             ; Print message
                 ld hl, prt_name_list    ; Port name list
                 ld c, ' '               ; Separator
                 ld a, (trport)
@@ -793,10 +803,10 @@ cmd_memtest     xor a
 ;
 ; Ask for confirmation as the test is very destructive.
                 ld hl, cmd_conf_msg
-                call conwms             ; Print "Continue" message
+                CON_WR_MSG             ; Print "Continue" message
                 call conrch             ; Fetch next character from user
                 push af
-                call conwch             ; Echo the response
+                CON_WR_CHAR             ; Echo the response
                 call cwnwln             ; Write new line characters to console
                 pop af
                 cp 'y'
@@ -817,7 +827,7 @@ cmd_time        call skpspc             ; Skip spaces
 ; RTC read error
 ct_rtc_err      ld c, a
                 ld hl, ti_rtc_err_msg
-                call conwms             ; Print "RTC error " message
+                CON_WR_MSG             ; Print "RTC error " message
                 ld a, c
                 call cwphby             ; Print error code in hex
                 call cwnwln             ; New line
@@ -1039,14 +1049,14 @@ cmd_mon_dl      xor a
 ; If not valid, complain.
                 pop hl                  ; Discard address
                 ld hl, bad_port_msg     ; "Invalid port"
-                call conwms             ; Print message
+                CON_WR_MSG             ; Print message
                 ret
 ;
 ; Interrupts are disabled as the handler will be overwritten.
 ; C - I/O port address of the transfer data port.
 ; (SP) - start address of relocated download code.
 mdl_have_addr   di
-; Set bank 0 (0x0000 to 0x3fff) writeable.
+; Set bank 0 (0x0000 to 0x3fff) writable.
                 ld a, MMAP_MON_B0_PAGE + MMAP_SUPER_MASK
                 out (IOA_MMAP_0), a
 ; We need to allow I/O access from bank 1 (0x4000 to 0x7fff) as we will be running
@@ -1066,7 +1076,7 @@ mdl_code_end
 ; Binary download from a serial port. This is useful for downloading raw binary
 ; files to the address specified. This is similar to the monitor download, but
 ; it allows an arbitrary address as destination in user address space. It is up
-; to the user to make sure that the destination is writeable.
+; to the user to make sure that the destination is writable.
 ; Command format: bindownload <addr>
 cmd_bin_dl      call rdhxwd             ; Fetch address
                 jp c, cmd_op_error      ; Address is required              
@@ -1088,7 +1098,7 @@ cbd_loop        call trarch             ; Fetch next character from user
                 jr cbd_loop             ; Load data until reset or NMI
 ;
 ;
-; Much as the bindownload command above, but downloads to the CP/M Transient
+; Much as the bindownload command above, but downloads to the CP/M 2.2 Transient
 ; Programme Area (TPA). Pages are allocated if CP/M memory is not initialised.
 ; There are no operands, so the next thing in the command buffer should be the
 ; terminator.
@@ -1178,7 +1188,7 @@ crs_loop        push hl                 ; Save destination address
                 push bc                 ; Save sector number and counter
                 push de
                 ld hl, crs_sec_msg      ; "Reading sector: "
-                call conwms             ; Print message
+                CON_WR_MSG             ; Print message
 ; Move CDE to DEHL
                 ex de, hl
                 ld d, 0
@@ -1193,7 +1203,10 @@ crs_loop        push hl                 ; Save destination address
                 push de
 ; Load data into the buffer.
                 ld hl, sector_buff
+                push ix
+                ld ix, 0                ; No partition specified
                 call cars               ; Read the sector (use cache)
+                pop ix
                 pop de
                 pop bc
                 and a
@@ -1263,7 +1276,7 @@ cmd_writesec    call rddulo             ; Read a 32-bit decimal number
 ; C - start sector (MS byte)
 ; HL - address in command buffer
                 call skpspc             ; Skip spaces
-                call rdhxwd             ; Fetch length
+                call rdhxwd             ; Fetch address
                 jp c, cmd_op_error      ; Address is required
 ; DE - destination address
                 call skpspc             ; Skip spaces
@@ -1282,14 +1295,13 @@ cws_loop        push bc                 ; Save sector number and counter
 ;
                 push hl                 ; Save source address
                 ld hl, cws_sec_msg      ; "Writing sector: "
-                call conwms       ; Print message
+                CON_WR_MSG             ; Print message
 ; Move CDE to DEHL
                 ex de, hl
                 ld d, 0
                 ld e, c
                 call cwpdlo             ; Print DEHL in decimal
                 call cwnwln             ; Write new line characters to console
-; Restore sector number.
                 pop hl                  ; Restore source address
 ;
 ; Copy the sector data from user space.
@@ -1304,7 +1316,7 @@ cws_copy_loop   call rusby              ; Read byte from user space
                 or c
                 jr nz, cws_copy_loop
 ;
-                pop de
+                pop de                  ; Restore sector number and counter
                 pop bc
 ;
 ; No registers are on the stack at this point.
@@ -1312,7 +1324,10 @@ cws_copy_loop   call rusby              ; Read byte from user space
                 push bc
                 push de
                 ld hl, sector_buff
+                push ix
+                ld ix, 0                ; No partition specified
                 call caws               ; Write sector buffer to memory card
+                pop ix
                 pop de
                 pop bc
                 pop hl
@@ -1338,11 +1353,12 @@ cws_error       call mcprer
                 ret
 ;
 ;
-; Load and start CP/M. Command syntax: cpm [""debug""] [""noints""]
+; Load and start CP/M 2.2. Command syntax:
+; cpm2 [""debug""] [""noints""] [""rawcon""]
 ; debug - enables BIOS debugging messages.
 ; noints - disables interrupts (use basic I/O mode).
 ; rawcon - disables console escape code translation.
-cmd_cpm         ld e, 0                 ; Set initial options
+cmd_cpm2        ld e, 0                 ; Set initial options
 ; Loop, reading operands and collating the options. Repeating options
 ; are permitted (though not useful).
 ccpm_op_loop    call skpspc             ; Skip spaces
@@ -1371,6 +1387,41 @@ ccpm_find_mask  rlca
 ; E - options. See BIOS_OPT_xxx definitions.
 ccpm_ops_done   ld a, e
                 jp cpinit               ; Load with options in A.
+;
+;
+; Load and start CP/M 3. Command syntax: cpm3 [""debug""] [""rawcon""]
+; debug - enables BIOS debugging messages.
+; noints - disables interrupts (use basic I/O mode).
+; rawcon - disables console escape code translation.
+cmd_cpm3        ld e, 0                 ; Set initial options
+; Loop, reading operands and collating the options. Repeating options
+; are permitted (though not useful).
+ccp3_op_loop    call skpspc             ; Skip spaces
+                xor a
+                cp (hl)
+                jr z, ccp3_ops_done     ; Jump if no more operands
+; Match next operand against list of options.
+                push de                 ; Save options
+                ld de, ccpm_op_list
+                ld a, MTWDLI_ABBREV_MASK | MTWDLI_ICASE_MASK
+                call mtwdli             ; Match against list of options
+                pop de
+                and a
+                jp z, cmd_op_error
+; 1 = debug, 2 = noints, 3 = rawcon. Message order must match BIOS_OPT_xxx
+; definitions in cpm.i.
+; Convert message number to bit.
+                ld b, a
+                ld a, 0x80
+ccp3_find_mask  rlca
+                djnz ccp3_find_mask
+                or e                    ; Combine with previous options
+                ld e, a
+                jr ccp3_op_loop
+; All options have been read.
+; E - options. See BIOS_OPT_xxx definitions.
+ccp3_ops_done   ld a, e
+                jp cp3ini               ; Load with options in A.
 ;
 ;
 ; Set console port. Command format:
@@ -1435,14 +1486,14 @@ cg_no_new_addr  ld a, (ix + MST_IEN)    ; Non-zero if interrupts enabled
 ;
 ; Warn "Interrupt configuration warning. "
                 ld hl, int_cfg_msg
-                call conwms       ; Print message
+                CON_WR_MSG       ; Print message
 ;
 ; Ask for confirmation before continuing.
                 ld hl, cmd_conf_msg
-                call conwms             ; Print "Continue" message
+                CON_WR_MSG             ; Print "Continue" message
                 call conrch             ; Fetch next character from user
                 push af
-                call conwch             ; Echo the response
+                CON_WR_CHAR             ; Echo the response
                 call cwnwln             ; Write new line characters to console
                 pop af
                 cp 'y'
@@ -1592,7 +1643,7 @@ cmd_registers   xor a
 disp_bin_dl_msg push hl
 ;
                 ld hl, bin_dl_pre_msg   ; "Send binary data on port "
-                call conwms             ; Print message
+                CON_WR_MSG             ; Print message
 ; Display current data transfer port
                 ld hl, prt_name_list    ; Port name list
                 ld c, ' '               ; Separator
@@ -1600,7 +1651,7 @@ disp_bin_dl_msg push hl
                 call conwmn             ; Print message <n> in a list
 ;
                 ld hl, bin_dl_post_msg  ; ". Press RESET to terminate."
-                call conwms             ; Print message
+                CON_WR_MSG             ; Print message
 ;
                 pop hl
                 ret
@@ -1617,7 +1668,7 @@ zarc_msg        byte "____  __  ___   ___", 0x0d, 0x0a
                 byte "  /  |__| |__/ |", 0x0d, 0x0a
                 byte " /   |  | |  \ |", 0x0d, 0x0a
                 byte "/___ |  | |  | \___", 0x0d, 0x0a, 0x0d, 0x0a, 0
-signon_msg      byte "ZARC Monitor V1.0", 0x0d, 0x0a, 0
+signon_msg      byte "ZARC Monitor V1.1", 0x0d, 0x0a, 0
 cold_start_msg  byte 0x0d, 0x0a, "*** Cold start ***", 0
 cmd_prompt      byte "> ", 0
 ; The ordered list of commands in cmd_list corresponds to the list of vectors
@@ -1627,17 +1678,17 @@ cmd_list        byte "help dump read write "
                 byte "memtest mondownload bindownload tpadownload "
                 byte "time go trace t "
                 byte "traceover o set registers "
-                byte "disassemble readsec writesec cpm "
-                byte "fill cport tport cache "
-                byte "pages cold", 0
+                byte "disassemble readsec writesec cpm2 "
+                byte "cpm3 fill cport tport "
+                byte "cache pages cold", 0
 cmd_vectors     word cmd_help, cmd_dump, cmd_read, cmd_write
                 word cmd_in, cmd_out, cmd_map, cmd_info
                 word cmd_memtest, cmd_mon_dl, cmd_bin_dl, cmd_tpa_dl
                 word cmd_time, cmd_go, cmd_trace, cmd_trace
                 word cmd_traceover, cmd_traceover, cmd_set, cmd_registers
-                word cmd_disassemble, cmd_readsec, cmd_writesec, cmd_cpm
-                word cmd_fill, cmd_cport, cmd_tport, cmd_cache
-                word cmd_pages, cmd_cold
+                word cmd_disassemble, cmd_readsec, cmd_writesec, cmd_cpm2
+                word cmd_cpm3, cmd_fill, cmd_cport, cmd_tport
+                word cmd_cache, cmd_pages, cmd_cold
 cmd_bad_msg     byte "Bad command", 0x0d, 0x0a, 0
 op_err_msg      byte "Operand error", 0x0d, 0x0a, 0
 wr_prot_msg     byte 0x0d, 0x0a, "Write protection violation, address: ", 0
@@ -1670,10 +1721,11 @@ help_msg        byte "help", 0x0d, 0x0a
                 byte "readsec <start sec> <no. of 512-byte sectors> <address>", 0x0d, 0x0a
                 byte "writesec <start sec> <no. of 512-byte sectors> <address>", 0x0d, 0x0a
                 byte "cache", 0x0d, 0x0a
-                byte "cpm [""debug""] [""noints""] [""rawcon""]", 0x0d, 0x0a
+                byte "cpm2 [""debug""] [""noints""] [""rawcon""]", 0x0d, 0x0a
+                byte "cpm3 [""debug""] [""rawcon""]", 0x0d, 0x0a
                 byte "cport <port>", 0x0d, 0x0a
                 byte "tport <port>", 0x0d, 0x0a
-                byte 'cold (perform a cold start)"', 0x0d, 0x0a
+                byte "cold (perform a cold start)", 0x0d, 0x0a
                 byte "Abbreviate commands with '.'.", 0x0d, 0x0a
                 byte "^P / ^N - recall previous / next command.", 0x0d, 0x0a
                 byte '<port> ::= "ser1" | "ser2"', 0x0d, 0x0a
@@ -1681,13 +1733,14 @@ help_msg        byte "help", 0x0d, 0x0a
 ;
 cwr_bytes_msg   byte " bytes written", 0x0d, 0x0a, 0
 cm_range_msg    byte " - ", 0
-cm_write_msg    byte " writeable", 0
+cm_write_msg    byte " writable", 0
 cm_ro_msg       byte " read only", 0
 cm_super_msg    byte ", supervisor", 0
 cm_op_list      byte "super prot", 0
 cm_unalloc_msg  byte "unallocated", 0
 ccpm_op_list    byte "debug noints rawcon", 0
-ci_fpga_rev_msg byte "FPGA revision: ", 0
+ci_btime_msg    byte "Monitor ", 0
+ci_fpga_rev_msg byte 0x0d, 0x0a, "FPGA revision: ", 0
 ci_ram_msg      byte 0x0d, 0x0a, "Total RAM: ", 0
 ci_cpuspd_msg   byte " KB", 0x0d, 0x0a, "CPU clock: ", 0
 ci_khz_msg      byte " KHz", 0

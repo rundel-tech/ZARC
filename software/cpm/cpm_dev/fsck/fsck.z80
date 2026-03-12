@@ -1,7 +1,12 @@
 ; *******************************************************
 ; * CP/M File System Checker                            *
+<<<<<<< HEAD
+; * Version: V1.3                                       *
+; * Merlin Skinner-Oakes, 18/7/2023                     *
+=======
 ; * Version: V1.2                                       *
 ; * Merlin Skinner-Oakes, 16/2/2022                     *
+>>>>>>> refs/remotes/origin/main
 ; *******************************************************
 ;
 ; V1.0 - 16/2/2022, initial version.
@@ -10,9 +15,15 @@
 ; V1.2 - 18/6/2023, added support for interleaved discs by Chris Radek (cradek)
 ;        plus bugfixes for small disks. These resulted from Chris' tests on real
 ;        hardware with 8" disks.
+<<<<<<< HEAD
+; V1.3 - 18/7/2023, added CP/M 3 support. Improved illegal character detection
+;        in filenames. Use BDOS for console I/O.
+=======
+;
+>>>>>>> refs/remotes/origin/main
 ;
 ;
-; CP/M 2.2 file system checker. It is intended for ZARC but avoids using
+; CP/M 2.2 and 3 file system checker. It is intended for ZARC but avoids using
 ; any special facilities so should run elsewhere. It reads the DPB to discover
 ; the organisation of the disk, so it should work for any sensible disk size or
 ; organisation.
@@ -46,6 +57,8 @@
 ; So the above equation gives the physical extent number of a given directory
 ; entry. This is what we want to construct a bitmap of physical extents.
 ;
+; CP/M 3 format information came from https://www.seasip.info/Cpm/format31.html
+;
 ;
                 title CP/M File System Checker
 ;
@@ -58,6 +71,8 @@
 ;
                 include "macros.i"
                 include "cpm.i"
+                include "cpm3.i"
+                include "memory.i"
                 include "terminal.i"    ; Terminal constants
                 include "fsck.i"        ; Project include file
                 include "cpm_utility.i" ; CP/M utilities
@@ -72,7 +87,7 @@
 ;
 ;
 ; Variables
-;                public brkflg   ; Non-zero if break character detected
+                extern btime    ; Build time string
 ;
 ;
 ;
@@ -81,113 +96,136 @@
 ; *************
 ;
 ;
-; The CP/M transient area start address is set in the linker invokation (see makefile).
+; The CP/M transient area start address is set in the linker invocation (see
+; makefile).
                 cseg                    ; Code segment
 ;
 ; The default stack space is very small (8 deep), which would almost certainly
 ; cause issues, particularly with interrupts running. The initial code should
-; not assume a Z80 so we can exit cleanly if this is run on something else.
+; not assume a Z80 so we can exit cleanly if this is run on an 8080, for
+; example.
                 ld (bdos_sp), sp
                 ld sp, app_stack_top    ; Switch to our stack space
 ;
-; Determine CPU type.
-                call z80det             ; Detect Z80 (instead of 8080 / 8085)
-                jp nc, on_z80           ; Jump if we have a Z80
+                call init               ; Common initialisation code
 ;
-; 8080 / 8085 detected. Print message and exit. We can't use conwms as this
-; assumes a Z80.
-                ld de, no_z80_msg       ; "Z80 CPU required"
-                ld c, BDOS_PRINT_STRING ; Print String
-                call BDOS
-                jp 0                    ; Warm boot
+; We won't print the sign-on message yet so it can be suppressed by the q
+; ("quiet") option.
 ;
-; Sign on.
-on_z80          ld hl, signon_msg
-                call conwms             ; Print $-terminated string to console
+; Clear variables area
+                ld hl, clr_start        ; Start address
+                ld b, clr_end - clr_start
+                xor a
+clr_loop        ld (hl), a
+                inc hl
+                djnz clr_loop
 ;
 ; Examine the command tail, looking for operands. This is stored in the default
-; buffer. "The first byte at 0080H contains the length of the command tall, while
-; the command tail itself begins at 0081H. The command tail is terminated by a
-; byte containing a binary zero value." (http://www.cpm.z80.de/manuals/cpm22-m.pdf
-; appendix H).
+; buffer. "The first byte at 0080H contains the length of the command tail,
+; while the command tail itself begins at 0081H. The command tail is terminated
+; by a byte containing a binary zero value."
+; (http://www.cpm.z80.de/manuals/cpm22-m.pdf appendix H).
                 ld hl, DEF_BUFFER + 1
                 call skpspc             ; Skip spaces
-                ld a, (hl)              ; This should be a drive letter
-                inc hl
-                ifdef DEBUG
-                    ld a, "C"   ; ***TEMP*** - useful when debugging
-                endif
+; We might have a drive letter, some options, both or neither.
+                ld a, (hl)
+                and a
+                jr z, op_error          ; Error if no operands.
                 sub "A"                 ; Convert to a number
-; If this carries, the byte is not a letter. It may be the zero terminator, if no
-; operand were supplied.
-                jr c, op_error
+; If this carries, the byte is not a letter. It may be options.
+                jr c, op_options
                 cp NUM_DISKS_MAX
-                jr nc, op_error
+                jr nc, op_options
 ; We have a valid drive number.
                 ld (drive), a           ; Save it
+                ld a, (flags)
+                or FLG_DRIVE_MASK       ; Set flag
+                ld (flags), a
 ;
 ; A following colon is optional.
+                inc hl
                 ld a, (hl)
                 cp ":"
                 jr nz, op_options
                 inc hl                  ; Step past colon
 ;
-; Set default options. These may be modified as the command tail is processed.
-op_options      xor a
-                ld (scan_enable), a     ; Disable surface scan
-;
 ; Check for options. These may begin with "[", "/" or "$", to match all
 ; conventions I have found used with CP/M.
-                call skpspc             ; Skip spaces
-; Options 
-                ld a, (hl)
-                inc hl
-                ld c, a                 ; Save for later
-                and a
-                jr z, operands_ok       ; Jump if no options
-                cp "["
-                jr z, op_found
-                cp "/"
-                jr z, op_found
-                cp "$"
-                jr nz, op_error         ; Jump if not an option
-; Option introducer found.
-; C - option character
-; HL - pointer to command tail
-op_found        ld a, (hl)
-                inc hl
-                and a
-                jr z, op_error          ; Error if option missing
-; At present, there is just one option.
-                cp "S"
-                jr nz, op_error         ; C
-; "S" option enables surface scan.
-                ld a, 0xff
-                ld (scan_enable), a     ; Enable surface scan
-; Options processed. Check for "]" if appropriate.
-                ld a, c
-                cp "["
-                jr nz, op_check_term    ; Jump if we didn't start with "["
-                ld a, (hl)
-                inc hl
-                cp "]"
-                jr nz, op_error         ; Jump if terminator or anything else
+op_options      ld de, clopt_list       ; Null-terminated list of options
+                call clopts             ; Read command line options
+                jr c, op_error          ; Error on bad options
+                ld (clopt_flags), a
 ;
+; HL - points to first character after options and any trailing spaces.
 ; The terminator should follow.
-op_check_term   call skpspc             ; Skip spaces
                 ld a, (hl)
-                ifdef DEBUG
-                    ld a, 0   ; ***TEMP*** - useful when debugging
-                endif
                 and a
-                jr z, operands_ok
+                jr z, clopt_term
 ;
 ; Go here if we don't like the operands supplied.
-op_error        ld hl, op_err_msg
+op_error        ld hl, signon_msg       ; Sign on.
+                call conwms             ; Print $-terminated string to console
+; As above, but with no sign-on.
+op_err_no_sign  ld hl, op_err_msg
                 jp msg_exit
 ;
-; Operand processing complete.
-operands_ok     ld c, BDOS_RESET_DISK_SYS   ; Reset Disk System
+; Command line terminator found. Sign on unless "quiet" is selected.
+clopt_term      ld a, (clopt_flags)     ; Fetch command line options
+                and CLOPT_QUIET_MASK
+                ld hl, signon_msg       ; Sign on.
+                call z, conwms          ; Print $-terminated string to console
+;
+; Show build information if requested, then exit.
+; Note that the build time string will be overwritten once the programme starts
+; storing data at fstfre, but this is OK as long as we exit after displaying
+; the string.
+                ld a, (clopt_flags)     ; Fetch command line options
+                and CLOPT_BUILD_MASK
+                jr z, no_build
+;
+                ld hl, btime            ; Build time string
+                call conwms             ; Print $-terminated string to console
+                call cwnwln             ; Write new line characters to console
+                jp exit
+;
+no_build        ld hl, flags
+                bit FLG_DRIVE_BIT, (hl)
+                jr z, op_err_no_sign    ; We need a drive for anything else
+;
+; Determine whether we should use CP/M 2.2 or 3 rules.
+                ld a, (cpmver)          ; CP/M version (packed BCD)
+                cp 0x30
+                jr nc, cver_cpm3        ; Jump if running on 3.x or later
+;
+; We are running on CP/M 2.x. Enable CP/M 3 features only if "/3" option is
+; specified.
+                ld a, (clopt_flags)     ; Fetch command line options
+                and CLOPT_CPM3_MASK
+                jr nz, cver_enable3     ; Enable on /3
+                jr cver_done
+;
+; We are running on CP/M 3 or 3.1. Enable CP/M 3 features unless "/2" option is
+; specified.
+cver_cpm3       ld a, (clopt_flags)     ; Fetch command line options
+                and CLOPT_CPM2_2_MASK
+                jr nz, cver_done        ; Don't set on /2
+; Enable CP/M 3 features.
+cver_enable3    ld hl, flags
+                set FLG_CPM3_BIT, (hl)
+; Skip the message if "quiet" is selected.
+                ld hl, clopt_flags      ; Command line option flags
+                bit CLOPT_QUIET_BIT, (hl)
+                ld hl, cpm3_feat_msg    ; "CP/M 3 features enabled"
+                call z, conwms          ; Print $-terminated string to console
+cver_done
+;
+; /2 and /3 options are mutually exclusive.
+                ld a, (clopt_flags)
+                and CLOPT_CPM2_2_BIT | CLOPT_CPM3_BIT
+                cp CLOPT_CPM2_2_BIT | CLOPT_CPM3_BIT
+                jp z, op_err_no_sign    ; Operand error if both specified
+;
+                ld c, BDOS_RESET_DISK_SYS   ; Reset Disk System
                 call cbdos              ; Call BDOS with some registers saved
 ; Both the above reset and the reboot at the end of this application should
 ; make it safe to test any drive regardless of its logged in status.
@@ -198,7 +236,12 @@ operands_ok     ld c, BDOS_RESET_DISK_SYS   ; Reset Disk System
                 ld de, 0                ; Treat disk as new to the system
                 ld hl, BIOS_SELDSK      ; Select disc drive
                 call cbios              ; Call BIOS with some registers saved
-;HL - pointer to Disc Parameter Header (DPH) or zero on error.
+; HL - pointer to Disc Parameter Header (DPH) or zero on error. Note from
+; https://www.seasip.info/Cpm/bdos.html#50
+;   A successful call to function 9 (SELDSK) will return HL pointing to a copy
+;   of the Disk Parameter Header in common memory, rather than the original.
+;   This copy may be overwritten by subsequent BDOS calls, so grab it while you
+;   can.
                 ld a, h
                 or l
                 jr nz, drive_sel_ok
@@ -206,13 +249,40 @@ operands_ok     ld c, BDOS_RESET_DISK_SYS   ; Reset Disk System
                 ld hl, sel_err_msg
                 call conwms             ; Print $-terminated string to console
                 jp exit
-drive_sel_ok
 ;
+<<<<<<< HEAD
+; Copy DPH.
+                assert CP3_DPH_SIZE > DPH_SIZE
+drive_sel_ok    ld de, dph
+; Use the appropriate length according to the operating system in use.
+                ld bc, CP3_DPH_SIZE     ; Assume CP/M 3
+                ld a, (cpmver)          ; CP/M version (packed BCD)
+                cp 0x30
+                jr nc, copy_dph         ; Jump if running on 3.x
+; CP/M 2 so use the appropriate size.
+                ld bc, DPH_SIZE
+copy_dph        ldir
+;
+; Find address of DPB. This can be found from the DPH, but the location is
+; different between CP/M 2 and CP/M 3. Calling the BDOS seems simpler and more
+; portable, but this overrides the BIOS_SELDSK call earlier. I daresay that this
+; could be fixed by calling BDOS_SEL_DISK instead, but it would probably be
+; better to keep the BDOS away from the disk we are checking.
+;                ld c, BDOS_GET_DPB      ; Get Addr (Disk Parms)
+;                call cbdos              ; Call BDOS with some registers saved
+                ld hl, dph + CP3_DPH_DPB    ; Assume CP/M 3
+                cp 0x30
+                jr nc, dpb_ptr_fetch    ; Jump if running on 3.x
+                ld hl, dph + DPH_DPB    ; CP/M 2 pointer
+; Fetch pointer to DPB.
+dpb_ptr_fetch   ld e, (hl)
+=======
 ; Find address of DPB.
                 ld (dph), hl            ; Save for later
                 ld de, DPH_DPB          ; Offset to pointer to DPB
                 add hl, de
                 ld e, (hl)              ; Fetch pointer
+>>>>>>> refs/remotes/origin/main
                 inc hl
                 ld d, (hl)
                 ld (dpb), de            ; Save for later
@@ -220,23 +290,64 @@ drive_sel_ok
                 pop ix
 ; IX - pointer to DPB (DPB_xxx)
 ;
-; Initialise variables.
-                ld hl, 0                ; Directory entry number
-                ld (file_count), hl     ; Reset counts
-                ld (unused_count), hl
-                ld (blocks_used), hl
-                ld (error_count), hl
 ;
-; Initialise buffers.
-; Set start of flags to first location after this programme and its variables.
-                ld hl, fstfre           ; First location after end of data
+; *** Initialise buffers ***
+;
+; Reserve space for sector buffer. Under CP/M 2, this is fixed at 0x80 bytes.
+; CP/M can support larger sizes. The buffer will start at the first location
+; after this programme and its variables. Note that this will overwrite the
+; build time string, but this should be OK.
+
+; Find sector size, physical sectors per track and number of directory entries
+; per sector.
+                ld hl, 0x0080           ; CP/M 2 sector size
+                ld c, CPM_SECTOR_SIZE / DIRE_SIZE
+                ld e, (ix + DPB_SPT)    ; 128-byte records per track
+                ld d, (ix + DPB_SPT + 1)
+                ld a, (cpmver)          ; CP/M version (packed BCD)
+                cp 0x30
+                jr c, asb_have_size     ; Jump if running on < 3.0
+; We are on CP/M 3 so we need to find the size.
+                ld a, (ix + CP3_DPB_PSH)    ; Physical record shift factor
+; Physical sector shift, 0 => 128-byte sectors, 1 => 256-byte sectors,
+; 2 => 512-byte sectors ...
+                and a
+asb_size_loop   jr z, asb_have_size
+                add hl, hl              ; Double size
+                sla c
+; A carry here indicates more than 128 directory entries per sector. For 4 KB
+; sectors (maximum specified in the system programmer's manual, we have
+; 4096 / 32 = 128 entries.
+                call c, panic           ; Panic at > 4 KB sectors
+                srl d                   ; Halve sectors per track
+                rr e
+; There should always be a whole number of physical sectors per track so a carry
+; here indicates an issue.
+                call c, panic           ; Panic at > 4 KB sectors
+                dec a
+                jr asb_size_loop
+; DE - physical sectors per track
+; C - directory entries per sector
+; HL - sector size
+asb_have_size   ld a, c
+                ld (ents_per_sec), a    ; Save directory entries per sector
+                ld (phys_spt), de       ; Save physical sectors per track 
+                ld de, fstfre           ; First location after end of data
+                ld (sec_buffer), de
+; Find first location after buffer.
+                add hl, de
+                call chk_mem_lim        ; Check HL is not too high
+                jp c, out_of_memory
+; HL - first location after buffer
+;
+; Set start of block flags. These follow the sector buffer.
                 ld (blk_flags), hl
 ;
 ; Calculate the number of blocks on disk. This will determine blk_flags_size,
 ; which requires one bit per block.
                 ld l, (ix + DPB_DSM)    ; Maximum block number
                 ld h, (ix + DPB_DSM + 1)
-; Number of bytes required is (DSM/8) + 1
+; Number of bytes required is (DSM / 8) + 1
                 ld b, 3
 init_blk_div    srl h
                 rr l
@@ -313,18 +424,192 @@ scan_loop       ld (dir_entry_num), hl  ; Loop counter
                 push hl                 ; Move address to IY
                 pop iy
                 ld (dire), iy           ; Save pointer to directory entry structure
+                
+;
 ;
 ; *** Examine the directory entry ***
 ; IX - pointer to DPB (DPB_xxx)
 ; IY - pointer to directory entry structure (DIRE_xxx)
                 ld a, (iy + DIRE_USER)
                 cp 0xe5
-                jr nz, sl_not_unused
+                jp z, sl_unused
+;
+                ifdef DEBUG
+; Display entry if not unused.
+                    push af
+                    call disp_dir_entry     ; Display directory entry
+                    pop af
+                endif
+;
+                cp 0x20
+                jp z, sl_label          ; CP/M 3 only
+                cp 0x21
+                jp z, sl_date_stamp     ; CP/M 3 only
+                cp MAX_USER + 1
+                jp c, sl_phys_extent    ; Physical extent
+                cp 0x10 + MAX_USER + 1  ; 16 + user number (ie 16-31)
+                jp c, sl_password       ; CP/M 3 only
+                ld de, dire_type_msg    ; "unrecognised directory entry ..."
+                call sl_err_cont        ; Report any error and continue
+                jp sl_entry_done        ; Entry done
+;
+;
+; Disk label (CP/M 3 only).
+sl_label        ld hl, flags
+                bit FLG_CPM3_BIT, (hl)
+                jr nz, sl_label_cpm3    ; Jump if CP/M 3 features enabled
+; CP/M 2 mode. Write "not supported" message if this is the first label we
+; found.
+                ld hl, (label_count)
+                ld a, h
+                or l
+                ld de, label_msg        ; "labels not supported on CP/M 2.x"
+                call z, rpt_error       ; Report any error and continue
+                jr sl_label_dn          ; Count and exit
+;
+; Label found and CP/M 3 features are enabled.
+sl_label_cpm3   ld hl, clopt_flags      ; Command line option flags
+                bit CLOPT_VERBOSE_BIT, (hl)
+                jr z, sl_label_chk      ; Skip display if not verbose
+;
+; Verbose mode enabled, so display the label.
+                ld hl, dis_lbl_msg      ; "Label: 
+                call conwms             ; Print $-terminated string to console
+                call disp_file          ; Display file or label name
+                call cwnwln             ; Write new line characters to console
+;
+; Check label for illegal characters.
+sl_label_chk    call chk_name           ; Check label for illegal characters
+; A - attributes corresponding to each character
+;   (MSB) F4 F5 F6 F7 F8 T1 T2 T3 (LSB)
+;   See https://www.seasip.info/Cpm/fcb.html for descriptions/
+; Carry flag - set if one or more illegal characters are encountered
+; Report error if one or more issues were found.
+                ld de, bad_label_msg    ; "bad disk label"
+                call c, sl_err_cont     ; Report any error and continue
+;
+; Increment label counter.
+sl_label_dn     ld hl, (label_count)
+                inc hl
+                ld (label_count), hl
+                jp sl_entry_done        ; Entry done
+;
+;
+; Date stamp (CP/M 3 only). If there are any date stamps, they need to be
+; in the correct locations in the directory. No other validation is performed
+; as the date stamps are not critical.
+sl_date_stamp   ld hl, flags
+                bit FLG_CPM3_BIT, (hl)
+                jr nz, sl_date_cpm3     ; Jump if CP/M 3 features enabled
+; CP/M 2 mode. Write "not supported" message if this is the first date stamp we
+; found.
+                ld hl, (date_count)
+                ld a, h
+                or l
+                ld de, date_msg         ; "date stamps not supported ..."
+                call z, rpt_error       ; Report any error and continue
+                jr sl_date_dn           ; Count and exit
+;
+; Check position in directory. Every fourth directory entry will be a date stamp
+; entry, containing stamps for the preceding three entries. Hence the LS two
+; bits of the current directory entry should both be 1.
+sl_date_cpm3    ld a, (dir_entry_num)   ; LS byte of entry number
+                and 3
+                cp 3
+                jr z, sl_date_dn        ; Jump if as expected
+; Increment date stamp entry misplaced counter.
+                ld hl, (date_mp_count)
+                inc hl
+                ld (date_mp_count), hl
+;
+; Increment date stamp directory entry counter.
+sl_date_dn      ld hl, (date_count)
+                inc hl
+                ld (date_count), hl
+                jp sl_entry_done        ; Entry done
+;
+;
+; Password control entry. To set a password for testing, use commands like:
+; set f:dump.com [password=wibble]
+; set f:[protect=on]
+sl_password     ld hl, flags
+                bit FLG_CPM3_BIT, (hl)
+                jr nz, sl_pwd_cpm3      ; Jump if CP/M 3 features enabled
+                ld de, passwd_msg       ; "passwords not supported ..."
+                call sl_err_cont        ; Report any error and continue
+                jp sl_entry_done        ; Entry done
+;
+; Display password if verbose flag is selected. This system is extremely simple.
+; To decode the password, XOR PB with the 8 bytes of the password and read it
+; off backwards.
+sl_pwd_cpm3     ld hl, clopt_flags      ; Command line option flags
+                bit CLOPT_VERBOSE_BIT, (hl)
+                jr z, sl_pwd_dis_done   ; Skip display if not verbose
+;
+; The password is redundant if none of the valid mode bits are set.
+                ld a, (iy + DPWDE_PM)   ; Mode byte
+                and DPWDE_PM_DEL_MASK | DPWDE_PM_WRITE_MASK | DPWDE_PM_READ_MASK
+                jr z, sl_pwd_dis_done
+;
+; Display the password.
+                call disp_user_file     ; Display user and filename
+                ld hl, pwd_msg1         ; " requires password """
+                call conwms             ; Print $-terminated string to console
+;
+; Display the password string itself.
+                ld c, (iy + DPWDE_PB)   ; Decode byte
+                ld b, DIR_PWD_SIZE      ; Password length
+; Find address of last byte.
+                push iy
+                pop hl
+                ld de, DPWDE_PWD + DIR_PWD_SIZE - 1
+                add hl, de
+sl_pwd_dis_lp   ld a, (hl)
+                xor c
+                call disp_char_hex      ; Display byte as char or hex
+                dec hl
+                djnz sl_pwd_dis_lp
+                ld hl, pwd_msg2         ; """ to  "
+                call conwms             ; Print $-terminated string to console
+;
+                ld hl, pwd_del_msg      ; "(delete) "
+                bit DPWDE_PM_DEL_BIT, (iy + DPWDE_PB)
+                call nz, conwms         ; Print $-terminated string to console
+;
+                ld hl, pwd_write_msg      ; "(write to) "
+                bit DPWDE_PM_WRITE_BIT, (iy + DPWDE_PB)
+                call nz, conwms         ; Print $-terminated string to console
+;
+                ld hl, pwd_read_msg      ; "(read from) "
+                bit DPWDE_PM_READ_BIT, (iy + DPWDE_PB)
+                call nz, conwms         ; Print $-terminated string to console
+;
+                ld hl, pwd_msg3         ; "the file"
+                call conwms             ; Print $-terminated string to console
+;
+; Password display complete (or skipped). Report error if multiple passwords
+; found for the first time for this file. Find file information structure or
+; create a new one if it doesn't exist.
+sl_pwd_dis_done call find_fi
+; IX - pointer to file information structure.
+; IY - pointer to directory entry structure (DIRE_xxx)
+; A - number of mismatched flags found during file match.
+                bit FIF_FFLG_PWD_BIT, (ix + FI_FLAGS)
+                set FIF_FFLG_PWD_BIT, (ix + FI_FLAGS)
+                jr z, sl_pwd_done       ; Jump if flag was reset
+; If there was a previous password, moan.
+                ld de, mult_pwds_msg    ; "has multiple passwords!"
+                call sl_err_cont        ; Report any error and continue
+;
+sl_pwd_done     jp sl_entry_done        ; Entry done
+;
+;
 ; This is an unused entry.
-                ld hl, (unused_count)
+sl_unused       ld hl, (unused_count)
                 inc hl
                 ld (unused_count), hl
                 jp sl_entry_done        ; Entry done
+;
 ;
 ; Calculate physical extent. Adapted from
 ; https://www.seasip.info/Cpm/format22.html:
@@ -335,7 +620,7 @@ scan_loop       ld (dir_entry_num), hl  ; Loop counter
 ; physical extent (directory entry). This is defined by DPB.EXM. The formula
 ; is: directory number (physical extent) = ((32 * S2) + EX) / (exm + 1) where
 ; EXM is the extent mask value from the Disc Parameter Block.
-sl_not_unused   ld l, (iy + DIRE_S2)        ; Extent counter, high byte
+sl_phys_extent  ld l, (iy + DIRE_S2)        ; Extent counter, high byte
                 ld h, 0
                 add hl, hl
                 add hl, hl
@@ -359,162 +644,66 @@ sl_calc_ext_lp  ld a, c
 ; HL - physical extent
 sl_calc_ext_dn  ld (phys_extent), hl    ; Save calculated extent
 ;
-; Check user number
-                ld de, bad_user_msg     ; " - bad user number"
-                ld a, (iy + DIRE_USER)
-                cp MAX_USER + 1
-                call nc, sl_err_cont    ; Report any error and continue
+                ifdef DEBUG
+                    ld hl, phys_ext_msg     ; "Physical extent: "
+                    call conwms             ; Print $-terminated string to console
+                    ld hl, (phys_extent)
+                    call cwpdwd             ; Print HL in decimal
+                    call cwnwln             ; Write new line characters to console
+                endif
 ;
-; Check name. A flag is used to avoid one error message per bad character.
-sl_user_ok      push iy
-                pop hl
-                ld bc, DIRE_NAME
-                add hl, bc
-; HL - start address of name.
-                ld b, FILENAME_SIZE
-                ld c, 0                 ; Error flag
-sl_name_chk     ld a, (hl)
-                cp ' '
-                call c, set_c_reg       ; < ' ' is a control character
-                cp ascii_del
-                call nc, set_c_reg      ; >= DEL isn't visible either
-                inc hl
-                djnz sl_name_chk
-;
-; Check type.
-                ld a, (iy + DIRE_TYP)
-                and 0x7f                ; Ignore read-only bit
-                cp ' '
-                call c, set_c_reg       ; < ' ' is a control character
-                cp ascii_del
-                call nc, set_c_reg      ; >= DEL isn't visible either
-;
-                ld a, (iy + DIRE_TYP + 1)
-                and 0x7f                ; Ignore system file bit
-                cp ' '
-                call c, set_c_reg       ; < ' ' is a control character
-                cp ascii_del
-                call nc, set_c_reg      ; >= DEL isn't visible either
-;
-                ld a, (iy + DIRE_TYP + 2)
-; Bit 7 has no defined meaning for this character.
-                cp ' '
-                call c, set_c_reg       ; < ' ' is a control character
-                cp ascii_del
-                call nc, set_c_reg      ; >= DEL isn't visible either
-;
+                call chk_name           ; Check filename for illegal characters
+; A - attributes corresponding to each character
+;   (MSB) F4 F5 F6 F7 F8 T1 T2 T3 (LSB)
+;   See https://www.seasip.info/Cpm/fcb.html for descriptions/
+; Carry flag - set if one or more illegal characters are encountered
+                push af                 ; Save attributes
 ; Report error if one or more issues were found.
-                ld de, bad_name_msg     ; " - bad file name"
-                ld a, c
-                and a
-                call nz, sl_err_cont    ; Report any error and continue
+                ld de, bad_name_msg     ; "bad file name"
+                call c, sl_err_cont     ; Report any error and continue
+                pop af
+; F1 to F4 can be anything (application controlled)
+; F5 to F8 should be zero
+; T1 - read-only
+; T2 - system (hidden)
+; T3 - archive. Set if the file has not been changed since it was last copied.
+; To complicate things, ZSDOS defines some more:
+; F2 - public
+; F3 - No access stamp
+; F8 - wheel protect
+; Doubtless other systems and software use these flags differently. On balance,
+; it seems better skip this check rather than generate large number of nuisance
+; messages on such systems.
+;                and 01111000b
+;                ld de, bad_attr_msg     ; "bad file name attributes"
+;                call nz, sl_err_cont    ; Report any error and continue
 ;
 ; Check extent counter.
-                ld de, bad_ex_cnt_msg   ; " - bad extent count"
+                ld de, bad_ex_cnt_msg   ; "bad extent count"
                 ld a, (iy + DIRE_EX)    ; Extent counter, low byte (0-31)
                 cp 32
                 call nc, sl_err_cont    ; Report any error and continue
 ;
 ; Check S1.
-                ld de, bad_s1_msg       ; " - bad S1"
+                ld de, bad_s1_msg       ; "bad S1"
                 ld a, (iy + DIRE_S1)    ; Reserved, set to 0
                 and a
                 call nz, sl_err_cont    ; Report any error and continue
 ;
-; *** Look for the file in the file information structure buffer ***
-                ld ix, (files_info)     ; Start address of FI structures
-; IX - address in files_info structure.
-sl_find_loop    ld de, (free_start)     ; First free location
-                push ix
-                pop hl
-                and a
-                sbc hl, de
-                jp nc, slf_no_match     ; Jump if buffer exhausted
-; There is an entry to examine.
-                push ix
-                pop de
-                push iy
-                pop hl
-; DE - pointer to file information structure.
-; HL - pointer to directory entry structure.
-                call match_files
-; Carry flag set if files don't match.
-                jr nc, slf_found_fi     ; Matching structure found
-;
-; Advance pointer by the length of this structure. We must include the length
-; of the extent flags section (FI_EX_FL_LEN).
-                ld e, (ix + FI_EX_FL_LEN)
-                ld d, 0
-; DE - extent flags length.
-                add ix, de              ; Add length to base
-                ld de, FI_SIZE
-                add ix, de              ; Add structure size
-                jr sl_find_loop
-;
-; File information structure buffer seach complete and no matching entry was
-; found. Create a new entry.
-slf_no_match    ld hl, (free_start)     ; Insert point
-                ld de, FI_SIZE          ; Number of bytes required
-                call fi_make_room       ; Make room in the FI structures store
-                jp c, out_of_memory
-;
-; Copy the relevant fields.
-                push hl
-                pop ix
-                push iy
-                pop de
-; HL & IX - pointer to file information structure (FI_xxx)
-; DE & IY - pointer to directory entry structure (DIRE_xxx)
-; Copy user number.
-                assert FI_USER = 0
-                assert DIRE_USER = 0
-                ld a, (de)
-                ld (hl), a
-                inc de
-                inc hl
-;
-; Copy filename.
-                assert FI_NAME = 1
-                assert DIRE_NAME = 1
-                ld b, FILENAME_SIZE
-slf_name_loop   ld a, (de)
-                ld (hl), a
-                inc de
-                inc hl
-                djnz slf_name_loop
-;
-; Copy type. Ignore read-only and hidden flags.
-                assert FI_TYP = 9
-                assert DIRE_TYP = 9
-                ld b, FILEEXT_SIZE
-slf_typ_loop    ld a, (de)
-                and 0x7f
-                ld (hl), a
-                inc de
-                inc hl
-                djnz slf_typ_loop
-;
-                ld (ix + FI_EX_FL_LEN), 0   ; No flags initially
-                ld (ix + FI_LAST_PEXT), 0   ; Last extent
-                ld (ix + FI_LAST_PEXT + 1), 0   ; Last extent
-;
-; Count new files.
-                ld hl, (file_count)
-                inc hl
-                ld (file_count), hl
-;
-; Go here after either locating an existing structure, or creating a new one.
+; Find file information structure or create a new one if it doesn't exist.
+                call find_fi
 ; IX - pointer to file information structure.
 ; IY - pointer to directory entry structure (DIRE_xxx)
-slf_found_fi    ld (fie), ix            ; Save pointer to file information structure
-; IX - pointer to file information structure (FI_xxx)
-; IY - pointer to directory entry structure (DIRE_xxx)
+; A - number of mismatched flags found during file match.
+                ld (fie), ix            ; Save pointer to file information structure
 ;
+; Flag that file has at least one physical extent.
+                set FIF_FFLG_PEXT_BIT, (ix + FI_FLAGS)
 ; Set the relevant physical extent flag, expanding the length of the extent
 ; flags if required.
                 ld hl, (phys_extent)    ; Fetch extent number
                 call flag_extent        ; Mark block used
-                ld de, ext_dup_msg      ; " - duplicated physical extent"
+                ld de, ext_dup_msg      ; "duplicated physical extent"
                 jp c, sl_err_stop       ; Error and stop if already used
 ;
 ; Mark the blocks used. Entries may be 8 or 16-bit, depending on the number of
@@ -544,7 +733,7 @@ slf_wd_alu_used inc c                   ; Keep count
                 jp c, sl_err_stop       ; Error if already used
                 bit ALLCF_UNUSED_BIT, c
                 jr z, slf_wd_alu_dn     ; Jump if no unused entries encountered
-; This used entry is preceeded by an unused one. This means we have a holed, or
+; This used entry is preceded by an unused one. This means we have a holed, or
 ; "sparse" file.
                 set ALLCF_SPARSE_BIT, c ; Hole detected
 ;
@@ -570,7 +759,11 @@ slf_by_alu_used inc c                   ; Keep count
                 jp c, sl_err_stop       ; Error if already used
                 bit ALLCF_UNUSED_BIT, c
                 jr z, slf_by_alu_dn     ; Jump if no unused entries encountered
+<<<<<<< HEAD
+; This used entry is preceded by an unused one. This means we have a holed, or
+=======
 ; This used entry is preceeded by an unused one. This means we have a holed, or
+>>>>>>> refs/remotes/origin/main
 ; "sparse" file.
                 set ALLCF_SPARSE_BIT, c ; Hole detected
 ;
@@ -583,13 +776,13 @@ slf_alu_dn      ld iy, (dire)           ; Restore pointer to directory entry str
                 bit ALLCF_SPARSE_BIT, c
 ; A sparse file (one with a hole) is not necessarily an error, as discussed in
 ; http://www.gaby.de/cpm/manuals/archive/cpm22htm/ch5.htm function 35 (description).
-                ld de, sparse_msg       ; " - is sparse (holed) [warning]"
+                ld de, sparse_msg       ; "is sparse (holed) [warning]"
                 call nz, sl_err_cont    ; Error if hole detected
 ;
 ; Check for blocks with no allocations at all.
                 ld a, c
                 and ALLCF_COUNT         ; Isolate count
-                ld de, no_alloc_msg     ; " - no allocations in physical extent [warning]"
+                ld de, no_alloc_msg     ; "no allocations in physical extent [warning]"
                 call z, sl_err_cont     ; Error if no allocations
 ;
 ; Checking record count (RC). This should be 0x80 (128 * 128 = 18 KB) for
@@ -609,7 +802,7 @@ slf_alu_dn      ld iy, (dire)           ; Restore pointer to directory entry str
 ; Not the highest extent found so far, so RC should be 0x80.
                 ld a, (iy + DIRE_ALLOC)
                 cp 0x80
-                ld de, bad_rc_msg       ; " - RC not 0x80 in intermediate extent"
+                ld de, bad_rc_msg       ; "RC not 0x80 in intermediate extent"
                 call nz, sl_err_cont
                 jr slfrc_done
 ;
@@ -622,7 +815,7 @@ slfrc_not_last  ld a, (ix + FI_LAST_PEXT)   ; Last extent
 ; This isn’t the first extent, so the previous one should have RC = 0x80.
                 ld a, (ix + FI_LAST_RC)
                 cp 0x80
-                ld de, bad_rc_msg       ; " - RC not 0x80 in intermediate extent"
+                ld de, bad_rc_msg       ; "RC not 0x80 in intermediate extent"
                 call nz, sl_err_cont
 ;
 ; RC checks complete. Update the FI_LAST_PEXT and FI_LAST_RC fields for next
@@ -656,21 +849,23 @@ sl_err_stop     call sl_err_cont
                 jr sl_entry_done
 ;
 ;
-; *** Check for missing extents ***
-; All directory entries scanned. Examine each file in files_info, ensuring
-; there are no missing extents. This is different from the previous sparse
-; check, as this looks for missing allocations within each physical extent.
+; *** All directory entries scanned ***
+;
+; Examine each file in files_info, performing further checks.
 scan_done       ld iy, (files_info)
+;
 spck_loop       ld de, (free_start)     ; First free location
                 push iy
                 pop hl
                 and a
                 sbc hl, de
                 jp nc, spck_done        ; Jump if buffer exhausted
+; There is an entry to examine.
 ;
-; There is an entry to examine. All extries except the last one should be 0xff.
-; The last should consist of zero or more "1" bits extending from the LS end
-; with no gaps.
+; Check for missing extents. This is different from the previous sparse check,
+; as this looks for missing allocations within each physical extent. All entries
+; except the last one should be 0xff. The last should consist of zero or more
+; "1" bits extending from the LS end with no gaps.
                 push iy
                 pop hl
                 ld de, FI_EX_FLAGS
@@ -680,9 +875,9 @@ spck_loop       ld de, (free_start)     ; First free location
                 and a
                 jr nz, spck_not_empty
 ;
-                ld de, empty_msg        ; " - has no data"
+                ld de, empty_msg        ; "has no data"
                 call spck_error         ; Error if no extents at all
-                jp spck_file_done
+                jp spck_mext_done
 ;
 ; File as at least one extent.
 spck_not_empty  ld c, a
@@ -722,12 +917,27 @@ spck_bit_loop   srl c                   ; Shift LS bit to carry
 ; B - sparse flag (zero if OK)
 spck_last_ok    ld a, b
                 and a
-                ld de, sparse_msg       ; " - is sparse (holed) [warning]"
+                ld de, sparse_msg       ; "is sparse (holed) [warning]"
                 call nz, spck_error     ; Error if hole detected
 ;
-; Advance pointer by the length of this structure. We must include the length
-; of the extent flags section (FI_EX_FL_LEN).
-spck_file_done  ld e, (iy + FI_EX_FL_LEN)
+; Missing extent checks complete for this entry. 
+spck_mext_done  bit FIF_FFLG_PWD_BIT, (iy + FI_FLAGS)
+                jr z, spck_opwd_done    ; Jump if no password associated with file
+; Count password protected files.
+                ld hl, (pwd_count)
+                inc hl
+                ld (pwd_count), hl
+;Check for orphan passwords.
+                bit FIF_FFLG_PEXT_BIT, (iy + FI_FLAGS)
+                jr nz, spck_opwd_done   ; Jump if physical extent(s) present
+; A password entry was found, but no associated physical extents.
+                ld de, orp_pwd_msg      ; "orphan password (has no file)"
+                call spck_error         ; Error if no extents at all
+spck_opwd_done
+;
+; File checks complete. Advance pointer by the length of this structure. We must
+; include the length of the extent flags section (FI_EX_FL_LEN).
+                ld e, (iy + FI_EX_FL_LEN)
                 ld d, 0
 ; DE - extent flags length.
                 add iy, de              ; Add length to base
@@ -736,9 +946,78 @@ spck_file_done  ld e, (iy + FI_EX_FL_LEN)
                 jr spck_loop
 ;
 ;
-; All checks complete.
+; *** End of scan checks ***
 spck_done       ld ix, (dpb)
 ; IX - pointer to DPB (DPB_xxx)
+;
+; Check label count is sensible (0 or 1).
+                ld hl, (label_count)
+                ld bc, 1 + 1            ; Maximum count is 1
+                and a
+                sbc hl, bc
+                jr c, lbl_ok            ; Jump if OK
+; Too many labels (more than 1).
+                add hl, bc              ; Restore HL
+                call cwpdwd             ; Print HL in decimal
+                ld de, mult_labels_msg  ; " labels found!"
+                call rpt_error
+lbl_ok
+;
+; Check date stamps count is OK (0 or (DPB.DSM + 1) / 4).
+                ld hl, (date_count)
+                ld a, h
+                or l
+                jr z, dsc_done          ; Jump if no date stamps found
+; At least one date stamp entry was found.
+                ld e, (ix + DPB_DSM)    ; Maximum block number
+                ld d, (ix + DPB_DSM + 1)
+                inc de
+; DE - total number of blocks. This should always be divisible by 4. Now divide
+; it by 4 to find the number of entries expected.
+                srl d
+                rr e
+                call c, panic
+                srl d
+                rr e
+                call c, panic
+; DE - number of date stamp entries expected.
+                and a
+                sbc hl, de
+                jr z, dsc_done          ; Jump if number matches expectation
+                add hl, de              ; Restore HL
+; Report error.
+                push hl
+                push de
+                ld hl, date_num_msg1    ; "Date stamp entry count error ..."
+                call conwms             ; Print $-terminated string to console
+                pop hl
+                call cwpdwd             ; Print HL in decimal
+                ld hl, date_num_msg2    ; " found "
+                call conwms             ; Print $-terminated string to console
+                pop hl
+                call cwpdwd             ; Print HL in decimal
+                call cwnwln             ; Write new line characters to console
+                call inc_error_cnt      ; Increment error count
+dsc_done
+;
+; Report of any date stamp entries were misplaced.
+                ld hl, (date_mp_count)  ; Date stamp entry misplaced counter
+                ld a, h
+                or l
+                jr z, dsm_done          ; Jump if no misplaced entries found
+; Report error.
+                call cwpdwd             ; Print HL in decimal
+                ld hl, date_mp_msg      ; " date stamp entries incorrectly placed"
+                call conwms             ; Print $-terminated string to console
+                call cwnwln             ; Write new line characters to console
+                call inc_error_cnt      ; Increment error count
+dsm_done
+;
+; All checks complete.
+; Skip the summary and block usage map if "quiet" is selected.
+                ld hl, clopt_flags      ; Command line option flags
+                bit CLOPT_QUIET_BIT, (hl)
+                jp nz, surface_scan     ; Skip display if quiet
 ;
                 ld hl, dir_done_msg     ; "Directory checks complete"
                 call conwms             ; Print $-terminated string to console
@@ -753,7 +1032,67 @@ spck_done       ld ix, (dpb)
                 call conwms             ; Print $-terminated string to console
                 ld hl, (file_count)
                 call cwpdwd             ; Print HL in decimal
+                ld hl, files1_msg       ; " including "
+                call conwms             ; Print $-terminated string to console
+                ld hl, (sys_count)
+                call cwpdwd             ; Print HL in decimal
+                ld hl, files2_msg       ; " system files and "
+                call conwms             ; Print $-terminated string to console
+                ld hl, (ro_count)
+                call cwpdwd             ; Print HL in decimal
+                ld hl, files3_msg       ; " read only files"
+                call conwms             ; Print $-terminated string to console
                 call cwnwln             ; Write new line characters to console
+;
+                ld hl, pwd_files_msg    ; "Password protected files: "
+                call conwms             ; Print $-terminated string to console
+                ld hl, (pwd_count)
+                call cwpdwd             ; Print HL in decimal
+                call cwnwln             ; Write new line characters to console
+;
+; Show file counts per user if verbose flag selected.
+                ld hl, clopt_flags      ; Command line option flags
+                bit CLOPT_VERBOSE_BIT, (hl)
+                jr z, duc_done          ; Skip display if not verbose
+;
+; Also skip if no files were found.
+                ld hl, (file_count)
+                ld a, h
+                or l
+                jr z, duc_done          ; Skip display if no files were found
+;
+                ld hl, files_user_msg   ; "Breakdown of files by user"
+                call conwms             ; Print $-terminated string to console
+;
+                ld b, 0                 ; User count
+                ld hl, file_count_user  ; File counts per user
+duc_user_loop   ld e, (hl)
+                inc hl
+                ld d, (hl)
+                inc hl
+; DE - count
+                ld a, d
+                or e
+                jr z, duc_skip          ; Skip if count is zero
+;
+; Display the counts
+                push hl
+                ld hl, user_msg         ; "  User "
+                call conwms             ; Print $-terminated string to console
+                ld a, b
+                call cwpdby             ; Print A in decimal
+                ld hl, user_files_msg   ; " files found: "
+                call conwms             ; Print $-terminated string to console
+                ex de, hl
+                call cwpdwd             ; Print HL in decimal
+                call cwnwln             ; Write new line characters to console
+                pop hl
+;
+duc_skip        inc b
+                ld a, b
+                cp (MAX_USER + 1)
+                jr c, duc_user_loop
+duc_done
 ;
                 ld hl, unused_msg        ; "Unused directory entries: "
                 call conwms             ; Print $-terminated string to console
@@ -765,7 +1104,42 @@ spck_done       ld ix, (dpb)
                 call conwms             ; Print $-terminated string to console
                 ld hl, (blocks_used)
                 call cwpdwd             ; Print HL in decimal
+                ld hl, of_msg           ; " of "
+                call conwms             ; Print $-terminated string to console
+                ld l, (ix + DPB_DSM)    ; Maximum block number
+                ld h, (ix + DPB_DSM + 1)
+                inc hl
+; HL - total number of blocks
+                call cwpdwd             ; Print HL in decimal
                 call cwnwln             ; Write new line characters to console
+;
+; Debugging information.
+                ifdef DEBUG
+; Dynamic address allocations.
+                    ld hl, sec_buffer_msg   ; "Sector buffer: "
+                    call conwms             ; Print $-terminated string to console
+                    ld hl, (sec_buffer)
+                    call cwphwd             ; Print HL in hexadecimal
+                    call cwnwln             ; Write new line characters to console
+;               
+                    ld hl, blk_flags_msg    ; "Block flags: "
+                    call conwms             ; Print $-terminated string to console
+                    ld hl, (blk_flags)
+                    call cwphwd             ; Print HL in hexadecimal
+                    call cwnwln             ; Write new line characters to console
+;               
+                    ld hl, files_info_msg   ; "Files info: "
+                    call conwms             ; Print $-terminated string to console
+                    ld hl, (files_info)
+                    call cwphwd             ; Print HL in hexadecimal
+                    call cwnwln             ; Write new line characters to console
+;               
+                    ld hl, free_start_msg   ; "Free start: "
+                    call conwms             ; Print $-terminated string to console
+                    ld hl, (free_start)
+                    call cwphwd             ; Print HL in hexadecimal
+                    call cwnwln             ; Write new line characters to console
+                endif
 ;
 ;
 ; *** Display block usage map ***
@@ -880,23 +1254,25 @@ bdis_entry_done ld a, c
                 jr c, bdis_loop
                 call cwnwln             ; Write new line characters to console
 ;
-; Should we perform the surface scan?
-                ld a, (scan_enable)     ; Surface scan enable flag
-                and a
-                jr nz, surface_scan
-                ld hl, no_ss_msg        ; "Surface scan skipped ..."
-                jp msg_exit
-;
 ;
 ; *** Surface scan ***
 ; Read every block to ensure that they are readable. The reserved (system) area
 ; is not read, as this may have a different geometry to the files area and this
 ; may cause trouble. Blocks extend from 0 (the beginning of the directory) to
-; DPB.DSM. Each block consists of DPB.BLM + 1 sectors. Alternatively, shifting
-; the number of blocks by DPB.BSH gives the number of sectors.
-surface_scan    ld hl, surf_scan_msg    ; "Checking all blocks are readable (surface scan)"
+; DPB.DSM. Each block consists of DPB.BLM + 1 records. Alternatively, shifting
+; the number of blocks by DPB.BSH gives the number of records.
+surface_scan    ld hl, clopt_flags      ; Command line option flags
+                bit CLOPT_SCAN_BIT, (hl)
+                jr nz, ss_do_it
+; Skip the message if "quiet" is selected.
+                bit CLOPT_QUIET_BIT, (hl)
+                ld hl, no_ss_msg        ; "Surface scan skipped ..."
+                jp z, msg_exit
+                jp exit                 ; Exit straight away
+;
+ss_do_it        ld hl, surf_scan_msg    ; "Checking all blocks ..."
                 call conwms             ; Print $-terminated string to console
-; Find number of sectors in file system.
+; Find number of records in file system.
                 ld e, (ix + DPB_DSM)    ; Maximum block number
                 ld d, (ix + DPB_DSM + 1)
                 inc de
@@ -909,9 +1285,28 @@ ss_find_sec_lp  sla e
                 rl c
                 call c, panic           ; Panic on overflow
                 djnz ss_find_sec_lp
-; CDE - number of sectors in file system area (does not include reserved
+; CDE - number of records in file system area (does not include reserved
 ; (system) area.
-                ld hl, total_sectors    ; Number of sectors in file system
+                ld a, (cpmver)          ; CP/M version (packed BCD)
+                cp 0x30
+                jr c, ss_phys_sec       ; No conversion if on CP/M < 3.0
+; Convert records to physical sectors.
+                ld a, (ix + CP3_DPB_PSH)    ; Physical record shift factor
+; Physical sector shift, 0 => 128-byte sectors, 1 => 256-byte sectors,
+; 2 => 512-byte sectors ...
+                and a
+ss_phys_loop    jr z, ss_phys_sec
+                srl c                   ; Halve sectors
+                rr d
+                rr e
+; There should always be a whole number of physical sectors per track so a carry
+; here indicates an issue.
+                call c, panic           ; Panic at > 4 KB sectors
+                dec a
+                jr ss_phys_loop
+; CDE - number of physical sectors in file system area (does not include
+; reserved (system) area.
+ss_phys_sec     ld hl, total_sectors    ; Number of physical sectors in file system
                 ld (hl), e
                 inc hl
                 ld (hl), d
@@ -926,7 +1321,7 @@ ss_find_sec_lp  sla e
                 ld c, 0
 ss_loop         push de                 ; Save sector
                 push bc
-; CDE - CP/M (128-byte) sector number (offset into data area)
+; CDE - sector number (offset into data area)
                 call set_sector
 ;
 ; Display the track if it has changed. This is to avoid repeatedly writing the
@@ -940,7 +1335,9 @@ ss_loop         push de                 ; Save sector
                 cp d
                 jr z, ss_nodisp         ; Jump match
 ss_disp_track   push hl                 ; Save track
-                ld hl, track_msg        ; "<CR>Track: "
+                ld a, ASCII_CR
+                call conwch             ; Write character to console
+                ld hl, track_msg        ; "Track: "
                 call conwms             ; Print $-terminated string to console
                 pop hl
                 ld (disp_track), hl     ; Save for next time
@@ -1003,9 +1400,7 @@ out_of_memory   ld hl, memory_msg       ; "Insufficient memory"
 msg_exit        call conwms             ; Print $-terminated string to console
 ;
 ; Return to CP/M.
-exit            ld hl, exit_msg         ; "Returning to CP/M."
-                call conwms             ; Print $-terminated string to console
-                ld sp, (bdos_sp)
+exit            ld sp, (bdos_sp)
 ; For this application a warm boot is required as we may have overwritten the
 ; CCP.
 ;                ret                     ; Return to BDOS
@@ -1018,6 +1413,426 @@ exit            ld hl, exit_msg         ; "Returning to CP/M."
 ; ***************
 ;
 ;
+; Look for the file in the file information structure buffer. Call with:
+; IY - pointer to directory entry structure (DIRE_xxx)
+; Returns with:
+; A - number of mismatched flags if an existing entry was found.
+; IX - pointer to file information structure.
+; A, BC, DE, HL and IX registers are not preserved.
+find_fi         ld ix, (files_info)     ; Start address of FI structures
+; IX - address in files_info structure.
+ffi_find_loop   ld de, (free_start)     ; First free location
+                push ix
+                pop hl
+                and a
+                sbc hl, de
+                jp nc, ffi_no_match     ; Jump if buffer exhausted
+; There is an entry to examine.
+                push ix
+                pop de
+                push iy
+                pop hl
+; DE - pointer to file information structure.
+; HL - pointer to directory entry structure.
+                call match_file
+; A - number of mismatched flags if carry is zero (files match)
+; Carry flag set if files don't match.
+                jp nc, ffi_found_fi     ; Jump if matching structure found
+;
+; Advance pointer by the length of this structure. We must include the length
+; of the extent flags section (FI_EX_FL_LEN).
+                ld e, (ix + FI_EX_FL_LEN)
+                ld d, 0
+; DE - extent flags length.
+                add ix, de              ; Add length to base
+                ld de, FI_SIZE
+                add ix, de              ; Add structure size
+                jr ffi_find_loop
+;
+; File information structure buffer search complete and no matching entry was
+; found. Create a new entry.
+ffi_no_match    ld hl, (free_start)     ; Insert point
+                ld de, FI_SIZE          ; Number of bytes required
+                call fi_make_room       ; Make room in the FI structures store
+                jp c, out_of_memory
+;
+; Copy the relevant fields.
+                push hl
+                pop ix
+                push iy
+                pop de
+; HL & IX - pointer to file information structure (FI_xxx)
+; DE & IY - pointer to directory entry structure (DIRE_xxx)
+; Copy user number.
+                assert FI_USER = 0
+                assert DIRE_USER = 0
+                ld a, (de)
+                and 0x0f                ; Isolate user number bits
+                ld (hl), a
+                inc de
+                inc hl
+;
+; Copy filename.
+                assert FI_NAME = 1
+                assert DIRE_NAME = 1
+                ld b, FILENAME_SIZE
+ffi_name_loop   ld a, (de)
+                ld (hl), a
+                inc de
+                inc hl
+                djnz ffi_name_loop
+;
+; Copy type.
+                assert FI_TYP = 9
+                assert DIRE_TYP = 9
+                ld b, FILEEXT_SIZE
+ffi_typ_loop    ld a, (de)
+                ld (hl), a
+                inc de
+                inc hl
+                djnz ffi_typ_loop
+;
+                ld (ix + FI_FLAGS), 0           ; FIF_xxx flags
+                ld (ix + FI_EX_FL_LEN), 0       ; No extent flags initially
+                ld (ix + FI_LAST_PEXT), 0       ; Last extent
+                ld (ix + FI_LAST_PEXT + 1), 0   ; Last extent
+;
+                ifdef DEBUG
+                    call disp_user_file     ; Display user and filename
+                    call cwnwln             ; Write new line characters to console
+                endif
+;
+; Count new files.
+                ld hl, (file_count)     ; Overall file count
+                inc hl
+                ld (file_count), hl
+;
+; Per user count
+                ld a, (iy + DIRE_USER)
+                add a, a
+                ld e, a
+                ld d, 0
+                ld hl, file_count_user  ; File counts per user
+                add hl, de
+; HL - address of counter
+                inc (hl)
+                jr nz, ffi_uinc_done
+                inc hl
+                inc (hl)
+ffi_uinc_done
+;
+                ld a, (iy + DIRE_TYP + 1)       ; Fetch file type with T2 bit
+                and 0x80
+                jr z, ffi_sys_done      ; Jump if not a system file
+;
+                ld hl, (sys_count)
+                inc hl
+                ld (sys_count), hl
+;
+ffi_sys_done    ld a, (iy + DIRE_TYP)   ; Fetch file type with T1 bit
+                and 0x80
+                jr z, ffi_ro_done       ; Jump if not a read-only file
+;
+                ld hl, (ro_count)
+                inc hl
+                ld (ro_count), hl
+ffi_ro_done
+;
+; Debugging information.
+                ifdef DEBUG
+                    call disp_file          ; Display file or label name
+                    call cwnwln             ; Write new line characters to console
+                endif
+;
+                xor a                   ; Set mismatched flags count to zero
+                jr ffi_exit
+;
+; Matching structure found. Set error flag if mismatched file flags (system,
+; read-only ...) were found.
+ffi_found_fi    and a
+                jr z, ffi_exit
+; Report error if mismatched file flags found for the first time for this file.
+                push af
+                bit FIF_FFLG_MMAT_BIT, (ix + FI_FLAGS)
+                ld de, bad_flags_msg    ; "inconsistent file flag(s) in directory"
+                call z, sl_err_cont     ; Report any error and continue
+                set FIF_FFLG_MMAT_BIT, (ix + FI_FLAGS)
+                pop af
+;
+ffi_exit        ret
+;
+;
+; Display a character if it is printable, or the hexadecimal value surrounded
+; by "<" and ">" if it is not. Call with:
+; A - character (byte) to display
+disp_char_hex   cp 0x20
+                jr c, dch_hex
+                cp 0x7f
+                jr nc, dch_hex
+                jp conwch               ; Write character to console and exit
+;
+dch_hex         push af
+                ld a, "<"
+                call conwch             ; Write character to console
+                pop af
+                call cwphby             ; Print A in hexadecimal
+                ld a, ">"
+                jp conwch               ; Write character to console and exit
+;
+;
+; Display directory entry. This is mainly for use when debugging.
+; Output for file extents:
+;   "Physical extent: U<user> <name>.<type>, EX: xx, S1: xx, S2: xx, RC: xx"
+;   "AL: 00 11 22 33 44 55 66 77 88 99 AA BB CC DD EE FF"
+;   "CR: xx, Rec: 00 11 22"
+; For disk labels:
+;   "Label: <name>.<type> 00 11 22 33"
+;   "00 11 22 33 44 55 66 77 88 99 AA BB CC DD EE FF"
+; For date stamps:
+;   "Date: 00 11 22 33 44 55 66 77 88 99 AA BB CC DD EE FF"
+;   "00 11 22 33 44 55 66 77 88 99 AA BB CC DD EE FF"
+; For passwords:
+;   "Password: U<user> <name>.<type> 00 11 22 33"
+;   "00 11 22 33 44 55 66 77 88 99 AA BB CC DD EE FF"
+; For unused entries:
+;   "Unused: 00 11 22 33 44 55 66 77 88 99 AA BB CC DD EE FF"
+;   "00 11 22 33 44 55 66 77 88 99 AA BB CC DD EE FF"
+; For unrecognised entries:
+;   "Unrecognised: 00 11 22 33 44 55 66 77 88 99 AA BB CC DD EE FF"
+;   "00 11 22 33 44 55 66 77 88 99 AA BB CC DD EE FF"
+; Call with:
+; IY - pointer to directory entry
+; Returns with:
+; IY is preserved.
+                ifdef DEBUG
+disp_dir_entry      push bc
+                    push de
+                    push hl
+;
+                    ld a, (iy + DIRE_USER)
+                    ld hl, dde_unused_msg   ; "Unused: "
+                    cp 0xe5
+                    jp z, dde_hex           ; Display unused entries in hex
+                    ld hl, dde_label_msg    ; "Label: "
+                    cp 0x20
+                    jp z, dde_name_hex      ; CP/M 3 only
+                    ld hl, dde_date_msg     ; "Date: "
+                    cp 0x21
+                    jp z, dde_hex           ; CP/M 3 only
+                    cp MAX_USER + 1
+                    jp c, dde_phys_ext      ; Physical extent
+                    cp 0x10 + MAX_USER + 1  ; 16 + user number (ie 16-31)
+                    jp c, dde_password      ; CP/M 3 only
+                    ld hl, dde_unrec_msg    ; "Unrecognised: "
+;
+; Display entry in hex. This is used for date stamps, unused or unrecognised
+; entries.
+dde_hex             call conwms             ; Print $-terminated string to console
+                    push iy
+                    pop hl
+; HL - pointer to entry
+                    ld b, 16
+                    call dde_hex_block      ; Display a block of bytes
+                    call cwnwln             ; Write new line characters to console
+                    ld b, 16
+                    call dde_hex_block      ; Display a block of bytes
+                    call cwnwln             ; Write new line characters to console
+                    jr dde_exit
+;
+; Display name and hex. This is used for labels. 
+dde_name_hex        call conwms             ; Print $-terminated string to console
+                    call disp_file          ; Display file or label name
+; Display last 20 bytes in hex.
+dde_hex_20          push iy
+                    pop hl
+; HL - pointer to entry.
+                    ld de, DIRE_TYP + FILEEXT_SIZE
+                    add hl, de              ; Find address after file type
+                    ld b, 4
+                    call dde_hex_block      ; Display a block of bytes
+                    call cwnwln             ; Write new line characters to console
+                    ld b, 16
+                    call dde_hex_block      ; Display a block of bytes
+                    call cwnwln             ; Write new line characters to console
+                    jr dde_exit
+;
+; Password.
+dde_password        ld hl, dde_pwd_msg      ; "Password: "
+                    call conwms             ; Print $-terminated string to console
+                    call disp_user_file     ; Display user and filename
+                    jr dde_hex_20           ; Display last 20 bytes in hex
+;
+; Physical extent.
+dde_phys_ext        ld hl, phys_ext_msg     ; "Physical extent: "
+                    call conwms             ; Print $-terminated string to console
+                    call disp_user_file     ; Display user and filename
+                    push iy
+                    pop hl
+; HL - pointer to entry.
+                    ld de, DIRE_TYP + FILEEXT_SIZE
+                    add hl, de              ; Find address after file type
+                    ld de, dde_msgs         ; Point to text
+; DE - pointer to text
+; HL - pointer to data in extent
+;
+; Current extent.
+                    scf                     ; Display ", " prefix
+                    call dfcb_item          ; EX
+                    scf
+                    call dfcb_item          ; S1
+                    scf
+                    call dfcb_item          ; S2
+                    scf
+                    call dfcb_item          ; RC
+;
+; Display associated block numbers.
+                    push hl
+                    ld hl, dde_al_msg       ; 0x0d, 0x0a, "AL:"
+                    call conwms             ; Print $-terminated string to console
+                    pop hl
+;
+                    ld b, 16
+                    call dde_hex_block      ; Display a block of bytes
+                    call cwnwln             ; Write new line characters to console
+;
+dde_exit            pop hl
+                    pop de
+                    pop bc
+                    ret
+;
+; Display accompanying text and next byte. Used by dfcb. Call with:
+; DE - pointer to text
+; HL - pointer to data in FCB
+; Carry flag - set to display preceding ", ".
+; Returns with DE and HL advanced to next item.
+dfcb_item           push bc
+;
+                    jr nc, dfcb_pref_done   ; Skip prefix if appropriate
+                    ld a, ","
+                    call conwch             ; Write character to console
+                    call cwpspc             ; Print a space
+dfcb_pref_done      ex de, hl
+                    ld c, "|"               ; Text separator
+dfcb_item_loop      ld a, (hl)
+                    inc hl
+                    cp c
+                    jr z, dfcb_name_done
+                    call conwch             ; Write character to console
+                    jr dfcb_item_loop
+dfcb_name_done      ld a, ":"
+                    call conwch             ; Write character to console
+                    call cwpspc             ; Print a space
+                    ex de, hl
+;
+; Text and separators written. Print the data.
+                    ld a, (hl)
+                    inc hl
+                    call cwphby             ; Print A in hexadecimal
+;
+                    pop bc
+                    ret
+;
+;
+; Display a block of bytes in hex preceded by spaces. Call with:
+; B - number of bytes to display
+; HL - pointer to data to display
+; Returns with HL pointing to byte after the last one displayed.
+dde_hex_block       call cwpspc             ; Print a space
+                    ld a, (hl)
+                    call cwphby             ; Print A in hexadecimal
+                    inc hl
+                    djnz dde_hex_block
+                    ret
+;
+                endif
+;
+;
+; This is copied directly from cpm_maths.z80. Doing so saves having to include
+; the entire library of routines.
+; 16-bit / 8-bit unsigned divide. Uses restoring algorithm. Derived from code at
+; https://wikiti.brandonw.net/index.php?title=Z80_Routines:Math:Division
+; Call with:
+; HL - dividend
+; C - divisor
+; Returns with:
+; HL - quotient
+; A - remainder
+madwbu          push bc
+                ld b, 16            ; Loop counter
+                xor a
+duwb_bitloop    add hl, hl          ; Shift MS bit of dividend into carry
+                rla                 ; Collect bit in LS of A
+                jr c, duwb_dosub
+                cp c
+                jr c, duwb_nextbit
+duwb_dosub      sub	a, c
+                inc	l
+duwb_nextbit    djnz duwb_bitloop
+                pop bc
+                ret
+;
+;
+; Check filename and extension for illegal characters. Returns with:
+; A - "top bits" (attributes) of the last 8 characters.
+;   (MSB) F4 F5 F6 F7 F8 T1 T2 T3 (LSB)
+;   See https://www.seasip.info/Cpm/fcb.html for descriptions. F1 to F3 are not
+;   returned.
+; Carry flag - set if one or more illegal characters are encountered
+chk_name        push bc
+                push de
+                push hl
+;
+                push iy
+                pop hl
+                ld bc, DIRE_NAME
+                add hl, bc
+; HL - start address of name.
+; This code assumes that the type immediately follows the name.
+                assert DIRE_TYP = DIRE_NAME + FILENAME_SIZE
+                ld b, FILENAME_SIZE + FILEEXT_SIZE
+                ld c, 0                 ; Error flag
+cn_loop         ld a, (hl)
+                rlca
+                rl e                    ; Collect attributes in E
+                srl a                   ; Restore A with bit 7 = 0
+                cp ' '
+                call c, set_c_reg       ; < ' ' is a control character
+                cp ascii_del
+                call nc, set_c_reg      ; >= DEL isn't visible either
+;
+; Search list of questionable filename characters.
+                push hl                 ; Save filename pointer
+                ld hl, fn_bad_list
+                ld d, a                 ; Save character
+cn_chlp         ld a, (hl)
+                and a
+                jr z, cn_chdn           ; Complete if terminator found
+                cp d
+                call z, set_c_reg       ; Flag if match
+                inc hl
+                jr cn_chlp
+; Character check done.
+cn_chdn         pop hl
+                inc hl
+                djnz cn_loop            ; Next character or exit
+;
+; C - error flag (0 or 0xff [error])
+; E - attributes
+                ld a, e                 ; Move attributes to A
+                rr c                    ; Rotate error flag into carry
+;
+                pop hl
+                pop de
+                pop bc
+                ret
+;
+;
+; Set C to non-zero. This provides a conditional flagging mechanism for use
+; when error checking. For example, "call c, set_c_reg".
+set_c_reg       ld c, 0xff
+                ret
+;
+;
 ; Error found during directory scan. Display the entry and an appropriate
 ; message, then return to continue checking. Call with:
 ; DE - pointer to message
@@ -1026,14 +1841,38 @@ sl_err_cont     push de
                 push iy
 ;
                 ld iy, (dire)           ; Pointer to directory entry structure
-                call disp_file          ; Display filename etc.
-                ex de, hl
+                call disp_user_file     ; Display user and filename
+                ld hl, dash_msg         ; " - "
+                call conwms             ; Print $-terminated string to console
+                jr rpt_err_entry
+;
+;
+; Error found during files information structure scan. Display the entry and an
+; appropriate message, then return to continue checking. Call with:
+; DE - pointer to message
+; IY - pointer to files_info entry (FI_xxx)
+spck_error      push de
+                push hl
+                push iy
+;
+                call disp_user_file     ; Display user and filename
+                ld hl, dash_msg         ; " - "
+                call conwms             ; Print $-terminated string to console
+                jr rpt_err_entry
+;
+;
+; Report error and continue. Call with:
+; DE - pointer to message
+rpt_error       push de
+                push hl
+                push iy
+;
+; Entry point used by spck_error and sl_err_cont.
+rpt_err_entry   ex de, hl
                 call conwms             ; Print $-terminated string to console
                 call cwnwln             ; Write new line characters to console
 ;
-                ld hl, (error_count)
-                inc hl
-                ld (error_count), hl
+                call inc_error_cnt      ; Increment error count
 ;
                 pop iy
                 pop hl
@@ -1041,24 +1880,17 @@ sl_err_cont     push de
                 ret
 ;
 ;
-; Error found during files infomation structure scan. Display the entry and an
-; appropriate message, then return to continue checking. Call with:
-; DE - pointer to message
-; IY - pointer to files_info entry (FI_xxx)
-spck_error      push de
-                push hl
-;
-                call disp_file          ; Display filename etc.
-                ex de, hl
-                call conwms             ; Print $-terminated string to console
-                call cwnwln             ; Write new line characters to console
+; Increment error count. Limit to 0xffff in case of overflow.
+inc_error_cnt   push hl
 ;
                 ld hl, (error_count)
                 inc hl
-                ld (error_count), hl
+                ld a, h
+                or l
+                jr z, iec_exit          ; Exit of counter has overflowed
+                ld (error_count), hl                
 ;
-                pop hl
-                pop de
+iec_exit        pop hl
                 ret
 ;
 ;
@@ -1108,12 +1940,6 @@ rshw_loop       and a
                 rr l
                 dec a
                 jr rshw_loop
-;
-;
-; Set C to non-zero. This provides a conditional flagging mechanism for use
-; when error checking. For example, "call c, set_c_reg".
-set_c_reg       ld c, 0xff
-                ret
 ;
 ;
 ; Mark block as used. Call with:
@@ -1354,9 +2180,29 @@ fimr_no_copy    ld (free_start), de     ; Save updated free_start
                 jr fimr_exit
 ;
 ;
-; Display filename etc. from directory entry OR file information structure.
+; Display user and filename from directory entry OR file information structure.
 ; Format is:
 ; U<user> <name>.<type>
+; IY - pointer to directory entry structure (DIRE_xxx)
+; IY is preserved.
+disp_user_file  push bc
+                push hl
+; Display user.
+                ld a, "U"
+                call conwch             ; Write character to console
+                ld a, (iy + DIRE_USER)  ; User number
+                and 0x0f                ; Isolate user bits
+                call cwpdby             ; Print A in decimal
+                call cwpspc             ; Print a space
+;
+                jr df_entry
+;
+;
+; Display file or label name from directory entry OR file information structure.
+; System and read-only attributes are displayed for directory entries only
+; (they are zero in the file information structures).
+; Format is:
+; <name>.<type>
 ; IY - pointer to directory entry structure (DIRE_xxx)
 ; IY is preserved.
 disp_file       push bc
@@ -1367,22 +2213,21 @@ disp_file       push bc
                 assert DIRE_NAME = FI_NAME
                 assert DIRE_TYP = FI_TYP
 ;
-; Display user.
-                ld a, "U"
-                call conwch             ; Write character to console
-                ld a, (iy + DIRE_USER)  ; User number
-                call cwpdby             ; Print A in decimal
-                call cwpspc             ; Print a space
-;
 ; Display name.
-                push iy
+df_entry        push iy
                 pop hl
                 ld bc, DIRE_NAME
                 add hl, bc
 ; HL - start address of name.
                 ld b, FILENAME_SIZE
                 ld c, "?"               ; Substitution character
-df_name_loop    ld a, (hl)
+df_name_loop    bit 7, (hl)
+                jr z, df_name_hdn
+; Indicate that the high bit is set.
+                ld a, "^"
+                call conwch             ; Write character to console
+df_name_hdn     ld a, (hl)
+                and 0x7f
                 call cwvich             ; Print only visible 7-bit characters
                 inc hl
                 djnz df_name_loop
@@ -1397,10 +2242,32 @@ df_name_loop    ld a, (hl)
 ; HL - start address of type.
                 ld b, FILEEXT_SIZE
                 ld c, "?"               ; Substitution character
-df_type_loop    ld a, (hl)
+df_type_loop    bit 7, (hl)
+                jr z, df_type_hdn
+; Indicate that the high bit is set.
+                ld a, "^"
+                call conwch             ; Write character to console
+df_type_hdn     ld a, (hl)
+                and 0x7f
                 call cwvich             ; Print only visible 7-bit characters
                 inc hl
                 djnz df_type_loop
+;
+; Display attributes for files only.
+                ld a, (iy + DIRE_USER)
+                cp MAX_USER + 1
+                jr nc, df_attr_done
+
+                ld hl, system_msg       ; " (system)"
+                ld a, (iy + DIRE_TYP + 1)       ; Fetch file type with T2 bit
+                and 0x80
+                call nz, conwms         ; Print $-terminated string to console
+;
+                ld hl, ro_msg           ; " (read only)"
+                ld a, (iy + DIRE_TYP)   ; Fetch file type with T1 bit
+                and 0x80
+                call nz, conwms         ; Print $-terminated string to console
+df_attr_done
 ;
                 pop hl
                 pop bc
@@ -1409,52 +2276,66 @@ df_type_loop    ld a, (hl)
 ;
 ; Compare file in directory entry structure with one in a file information
 ; structure. The comparison includes the user number, filename and extension.
+; Files with different flag settings (e.g. "system") will match, which matches
+; what CP/M itself does. The number of mismatched flags is returned (normally
+; zero).
 ; Call with:
 ; DE - pointer to file information structure.
 ; HL - pointer to directory entry structure.
 ; Returns with:
+; A - number of mismatched flags if carry is zero (files match)
 ; Carry flag set if files don't match.
 ; DE and HL are preserved.
-match_files     push bc
+match_file      push bc
                 push de
                 push hl
 ;
-; Compare user number.
+                ld c, 0                 ; Flag mismatch count
+; Compare user number. The directory entry might be that of a password, so match
+; only the user number bits.
                 assert FI_USER = 0
                 assert DIRE_USER = 0
+                ex de, hl
                 ld a, (de)
+                and 0x0f                ; Match only user number bits
                 cp (hl)
+                ex de, hl
                 jr nz, mf_no_match
                 inc de
                 inc hl
 ;
-; Compare filename.
+; Compare filename. Ignore attributes.
                 assert FI_NAME = 1
                 assert DIRE_NAME = 1
                 ld b, FILENAME_SIZE
 mf_name_loop    ld a, (de)
-                cp (hl)
+                xor (hl)
+                jr z, mf_name_mat_ch    ; Jump if perfect match
+                cp 0x80
                 jr nz, mf_no_match
-                inc de
+; Character matches apart from the flag.
+                inc c                   ; Bump mismatch count
+mf_name_mat_ch  inc de
                 inc hl
                 djnz mf_name_loop
 ;
-; Compare type. Ignore read-only and hidden flags.
+; Compare type. Ignore read-only, system and archive flags.
                 assert FI_TYP = 9
                 assert DIRE_TYP = 9
                 ld b, FILEEXT_SIZE
 mf_typ_loop     ld a, (de)
-                and 0x7f
-                ld c, a
-                ld a, (hl)
-                and 0x7f
-                cp c
+                xor (hl)
+                jr z, mf_typ_mat_ch     ; Jump if perfect match
+                cp 0x80
                 jr nz, mf_no_match
-                inc de
+; Character matches apart from the flag.
+                inc c                   ; Bump mismatch count
+mf_typ_mat_ch   inc de
                 inc hl
                 djnz mf_typ_loop
 ;
 ; Files match!
+                ld a, c                 ; Return with flag mismatch count in A
                 and a
 ;
 mf_exit         pop hl
@@ -1475,14 +2356,25 @@ mf_no_match     scf
 ; HL - points to start of entry
 get_entry       push bc
                 push de
-                push hl                 ; Save entry number
-; Divide by four to find the sector number.
-                and a
-                rr h
-                rr l
-                and a
-                rr h
-                rr l
+;
+                ifdef DEBUG
+                    push hl
+                    ld hl, entry_msg        ; "Dir Entry: "
+                    call conwms             ; Print $-terminated string to console
+                    pop hl
+                    push hl
+                    call cwpdwd             ; Print HL in decimal
+                    call cwnwln             ; Write new line characters to console
+                    pop hl
+                endif
+;
+                ld a, (ents_per_sec)    ; Directory entries per sector
+                ld c, a
+; HL - dividend
+; C - divisor
+                call madwbu             ; 16-bit / 8-bit unsigned divide
+; A - entry number within sector
+                push af                 ; Save for later
 ; HL - CP/M (128-byte) sector number (offset into data area)
 ; Is this already in the buffer?
                 ld de, (loaded_sector)
@@ -1497,7 +2389,7 @@ get_entry       push bc
 ge_load_reqd    ld (loaded_sector), hl  ; Save sector number
                 ld c, 0
                 ex de, hl
-; CDE - CP/M (128-byte) sector number (offset into data area)
+; CDE - sector number (offset into data area)
                 call set_sector
 ; Read the sector.
                 ld hl, BIOS_READ        ; Read a sector
@@ -1507,9 +2399,7 @@ ge_load_reqd    ld (loaded_sector), hl  ; Save sector number
                 jp nz, msg_exit
 ;
 ; The required sector is loaded. Find the start address of the directory entry.
-ge_have_sec     pop hl                  ; Restore directory entry number
-                ld a, l
-                and 0x03
+ge_have_sec     pop af                  ; Restore entry number within sector
                 ld l, a
                 ld h, 0
 ; HL - number of entry within sector.
@@ -1518,7 +2408,7 @@ ge_have_sec     pop hl                  ; Restore directory entry number
                 add hl, hl
                 add hl, hl
                 add hl, hl
-                ld de, DEF_BUFFER
+                ld de, (sec_buffer)
                 add hl, de              ; Add buffer start address
 ;
                 pop de
@@ -1527,24 +2417,27 @@ ge_have_sec     pop hl                  ; Restore directory entry number
 ;
 ;
 ; Set track and sector numbers for subsequent read and / or write operations.
-; DMA address is set to the default area (0x80). The variables track and sector
-; are set appropriately.
+; DMA address is set to sec_buffer. The variables track and sector are set
+; appropriately.
 ; Call with:
-; CDE - CP/M (128-byte) sector number (offset into data area)
+; CDE - sector number (offset into data area)
 ; IX - pointer to Disk Parameter Block (DPB)
 set_sector      push bc
                 push hl
+                push iy
+;
 ; Find track number. For this application, the track number is likely to be small
 ; (normally zero). Hence this crude algorithm is sufficient.
                 ld l, (ix + DPB_OFF)    ; Start after reserved tracks
                 ld h, (ix + DPB_OFF + 1)
+                ld iy, phys_spt         ; Point to physical sectors per track
 ss_track_loop   push de                 ; Save LS 16 bits of sector number
 ; Perform a trial subtraction to see if we have a complete track worth of sectors.
                 ld a, e
-                sub (ix + DPB_SPT)
+                sub (iy + 0)            ; Physical sectors per track
                 ld e, a
                 ld a, d
-                sbc (ix + DPB_SPT + 1)
+                sbc (iy + 1)
                 ld d, a
                 ld a, c
                 sbc 0
@@ -1558,16 +2451,49 @@ ss_track_loop   push de                 ; Save LS 16 bits of sector number
 ;
 ; There was a carry in the last subtract, so this is the track we want.
 ; HL - track number
-; (stacked) - sector number
+; (stacked) - remainder (sector number)
 ; Set track.
-ss_track_done   ld b, h                 ; Move track number to BC
+ss_track_done   ld (track), hl          ; Save track for status reporting
+                ifdef DEBUG
+                    push hl
+                    ld hl, track_msg        ; "Track: "
+                    call conwms             ; Print $-terminated string to console
+                    pop hl
+                    push hl
+                    call cwpdwd             ; Print HL in decimal
+                    pop hl
+                endif
+                ld b, h                 ; Move track number to BC
                 ld c, l
-                ld (track), bc          ; Save track for status reporting
                 ld hl, BIOS_SETTRK      ; Set track number
                 call cbios              ; Call BIOS with some registers saved
 ;
 ; Set sector.
+; The CP/M 3 DPH is significantly different from the CP/M 2 one, but the pointer
+; to the translation table is the same in both.
+                assert DPH_XLT = CP3_DPH_XLT
                 pop bc                  ; Fetch sector
+<<<<<<< HEAD
+                ld hl, dph + DPH_XLT    ; Put translate table pointer in DE
+                ld e, (hl)
+                inc hl
+                ld d, (hl)
+                ld hl, BIOS_SECTRAN     ; Ask for translation of BC (return in HL)
+                call cbios
+                ld b, h                 ; Back into BC for SETSEC
+                ld c, l
+                ld (sector), hl         ; Save sector for status reporting
+                ifdef DEBUG
+                    push bc
+                    ld hl, sector_msg       ; ", sector: "
+                    call conwms             ; Print $-terminated string to console
+                    pop hl
+                    push hl
+                    call cwpdwd             ; Print HL in decimal
+                    call cwnwln             ; Write new line characters to console
+                    pop bc
+                endif
+=======
                 ld hl, (dph)            ; put translate table pointer in DE
                 ld e, (hl)
                 inc hl
@@ -1577,14 +2503,16 @@ ss_track_done   ld b, h                 ; Move track number to BC
                 ld b,h                  ; back into BC for SETSEC
                 ld c,l
                 ld (sector), bc         ; Save sector for status reporting
+>>>>>>> refs/remotes/origin/main
                 ld hl, BIOS_SETSEC      ; Set sector number
                 call cbios              ; Call BIOS with some registers saved
 ;
 ; Set DMA address.
-                ld bc, DEF_BUFFER
+                ld bc, (sec_buffer)
                 ld hl, BIOS_SETDMA      ; Set DMA address
                 call cbios              ; Call BIOS with some registers saved
 ;
+                pop iy
                 pop hl
                 pop bc
                 ret
@@ -1596,36 +2524,116 @@ ss_track_done   ld b, h                 ; Move track number to BC
 ; *************
 ;
 ;
+<<<<<<< HEAD
+signon_msg      byte "*** CP/M File System Checker V"
+                byte MAJ_VER + "0", ".", MIN_VER + "0"
+                byte " ***", 0x0d, 0x0a
+                byte 0x0d, 0x0a, "$"
+clopt_list      byte "BS23QV", 0        ; List of option characters 
+op_err_msg      byte "Operand error. Expected format: fsck <drive>[:] [/<options>]"
+                byte 0x0d, 0x0a
+                byte "options: S=surface scan, 2=CP/M 2.x format, 3=CP/M 3.x format, Q=quiet,"
+                byte 0x0d, 0x0a
+                byte "V=verbose, B=show build information and exit"
+                byte 0x0d, 0x0a, "$"
+=======
 signon_msg      byte "*** CP/M File System Checker V1.2 ***", 0x0d, 0x0a, 0x0d, 0x0a, "$"
 no_z80_msg      byte "Z80 CPU required", 0x0d, 0x0a, "$"
 op_err_msg      byte "Operand error. Expected format: fsck <drive>[:] [/s]", 0x0d, 0x0a, "$"
 exit_msg        byte "Returning to CP/M.", 0x0d, 0x0a, "$"
+>>>>>>> refs/remotes/origin/main
 memory_msg      byte "Insufficient memory", 0x0d, 0x0a, "$"
-sel_err_msg     byte "Can't select drive.", 0x0d, 0x0a, "$"
-disk_err_msg    byte "Disk I/O error.", 0x0d, 0x0a, "$"
+sel_err_msg     byte "Can't select drive", 0x0d, 0x0a, "$"
+disk_err_msg    byte "Disk I/O error", 0x0d, 0x0a, "$"
 dir_done_msg    byte "Directory checks complete", 0x0d, 0x0a, "$"
 files_msg       byte "Files found: $"
+files1_msg      byte " including $"
+files2_msg      byte " system files and $"
+files3_msg      byte " read only files$"
+pwd_files_msg   byte "Password protected files: $"
+files_user_msg  byte "Breakdown of files by user", 0x0d, 0x0a, "$"
 unused_msg      byte "Unused directory entries: $"
 blocks_used_msg byte "Blocks used: $"
-block_map_msg   byte 0x0d, 0x0a, "Block map ('D': directory, 'F': file and '-': unused).", 0x0d, 0x0a, "$"
+of_msg          byte " of $"
+block_map_msg   byte 0x0d, 0x0a
+                byte "Block map ('D': directory, 'F': file and '-': unused)."
+                byte 0x0d, 0x0a, "$"
 errors_msg      byte "Errors and warnings: $"
 no_ss_msg       byte "Surface scan skipped", 0x0d, 0x0a, "$"
-surf_scan_msg   byte 0x0d, 0x0a, "Checking all blocks are readable (surface scan)", 0x0d, 0x0a, "$"
-track_msg       byte 0x0d, "Track: $"
+surf_scan_msg   byte 0x0d, 0x0a
+                byte "Checking all blocks are readable (surface scan)"
+                byte 0x0d, 0x0a, "$"
+track_msg       byte "Track: $"
 sector_msg      byte ", sector: $"
 scan_done_msg   byte 0x0d, 0x0a, "Scan complete", 0x0d, 0x0a, "$"
+dash_msg        byte " - $"
+cpm3_feat_msg   byte "CP/M 3 features enabled", 0x0d, 0x0a, "$"
+dis_lbl_msg     byte "Label: $" 
+mult_labels_msg byte " labels found!$"
+date_num_msg1   byte "Date stamp entry count error, expected $"
+date_num_msg2   byte " found $"
+date_mp_msg     byte " date stamp entries incorrectly placed$"
+system_msg      byte " (system)$"
+ro_msg          byte " (read only)$"
+pwd_msg1        byte " requires password", 0x0d, 0x0a, """$"
+pwd_msg2        byte """ to $"
+pwd_del_msg     byte "(delete) $"
+pwd_write_msg   byte "(write to) $"
+pwd_read_msg    byte "(read from) $"
+pwd_msg3        byte "the file", 0x0d, 0x0a, "$"
+;
+; Debugging messages
+                ifdef DEBUG
+sec_buffer_msg      byte "Sector buffer: $"
+blk_flags_msg       byte "Block flags: $"
+files_info_msg      byte "Files info: $"
+free_start_msg      byte "Free start: $"
+entry_msg           byte "Dir Entry: $"
+dde_al_msg          byte 0x0d, 0x0a, "AL:", "$"
+dde_msgs            byte "EX|S1|S2|RC|"
+dde_unused_msg      byte "Unused: $"
+dde_label_msg       byte "Label: $"
+dde_date_msg        byte "Date: $"
+dde_unrec_msg       byte "Unrecognised: $"
+dde_pwd_msg         byte "Password: $"
+phys_ext_msg        byte "Physical extent: $"
+                endif
+;
 ; Directory entry error messages
-bad_user_msg    byte " - bad user number$"
-bad_name_msg    byte " - bad file name$"
-bad_ex_cnt_msg  byte " - bad extent count$"
-bad_s1_msg      byte " - bad S1$"
-ext_dup_msg     byte " - duplicated physical extent$"
-dble_blk_msg    byte " - block not unique$"
-sparse_msg      byte " - is sparse (holed) [warning]$"
-blk_too_big_msg byte " - block number out of range$"
-no_alloc_msg    byte " - no allocations in physical extent [warning]$"
-bad_rc_msg      byte " - RC not 0x80 in intermediate extent$"
-empty_msg       byte " - has no data [warning]$"
+dire_type_msg   byte "unrecognised directory entry type$"
+bad_name_msg    byte "bad file name$"
+; bad_attr_msg    byte "bad file name attributes$"
+bad_ex_cnt_msg  byte "bad extent count$"
+bad_s1_msg      byte "bad S1$"
+bad_label_msg   byte "bad disk label$"
+ext_dup_msg     byte "duplicated physical extent$"
+dble_blk_msg    byte "block not unique$"
+sparse_msg      byte "is sparse (holed) [warning]$"
+blk_too_big_msg byte "block number out of range$"
+no_alloc_msg    byte "no allocations in physical extent [warning]$"
+bad_rc_msg      byte "RC not 0x80 in intermediate extent$"
+empty_msg       byte "has no data [warning]$"
+label_msg       byte "Disk labels not supported on CP/M 2.x$"
+date_msg        byte "Date stamps not supported on CP/M 2.x$"
+passwd_msg      byte "passwords not supported on CP/M 2.x$"
+user_msg        byte "  User: $"
+user_files_msg  byte ", files found: $"
+bad_flags_msg   byte "inconsistent file flag(s) in directory$"
+mult_pwds_msg   byte "has multiple passwords!$"
+orp_pwd_msg     byte "orphan password (has no file)$"
+;
+; List of questionable filename characters.
+fn_bad_list     byte ",!|[]:.;*?<>&!|\+()/"
+                byte "abcdefghijklmnopqrstuvwxyz", ascii_del, 0
+;
+; ASCII 0x20 to 0x7f for reference:
+;  !"#$%&'()*+,-./
+; 0123456789:;<=>?
+; @ABCDEFGHIJKLMNO
+; PQRSTUVWXYZ[\]^_
+; `abcdefghijklmno
+; pqrstuvwxyz{|}~0x7f
+;
 ;
 ;
 ; *************
@@ -1637,21 +2645,29 @@ empty_msg       byte " - has no data [warning]$"
                 dseg                ; Data segment
 ;
 bdos_sp         defs 2              ; BDOS's stack pointer
+;
+clr_start                           ; Start of cleared variables area
+;
+flags           defs 1              ; Assorted flags (see FLG_xxx in fsck.i)
 drive           defs 1              ; Drive number (0 to 15)
-scan_enable     defs 1              ; Surface scan enable flag
+clopt_flags     defs 1              ; Command line options
+dph             defs CP3_DPH_SIZE   ; Local copy of Disk Parameter Header (DPH)
+dpb             defs 2              ; Pointer to Disk Parameter Block (DPB_xxx)
 blk_flags       defs 2              ; Pointer to start of blocks used flags
 blk_flags_size  defs 2              ; Size of block flags buffer
+sec_buffer      defs 2              ; Address of sector buffer
+ents_per_sec    defs 1              ; Directory entries per sector
+phys_spt        defs 2              ; Physical sectors per track
 files_info      defs 2              ; Start address of FI structures
 free_start      defs 2              ; First free location
 loaded_sector   defs 2              ; Currently loaded sector
 dir_blocks      defs 1              ; Number of blocks used by the directory
-error_count     defs 2              ; Error count
-file_count      defs 2              ; Files count
-unused_count    defs 2              ; Unused entry count
-blocks_used     defs 2              ; Number of blocks used
 phys_extent     defs 2              ; Calculated physical extent
+<<<<<<< HEAD
+=======
 dph             defs 2              ; Pointer to Disk Parameter Header (DPH_xxx)
 dpb             defs 2              ; Pointer to Disk Parameter Block (DPB_xxx)
+>>>>>>> refs/remotes/origin/main
 dire            defs 2              ; Pointer to directory entry structure (DIRE_xxx)
 fie             defs 2              ; Pointer to file information structure (FI_xxx)
 dir_entry_num   defs 2              ; Directory entry number being processed
@@ -1662,8 +2678,22 @@ bdis_col        defs 2              ; Display column
 track           defs 2              ; Current track
 disp_track      defs 2              ; Displayed track
 sector          defs 2              ; Current sector
-total_sectors   defs 3              ; Number of sectors in file system
-                defs STACK_SIZE     ; Stack space
+total_sectors   defs 3              ; Number of physical sectors in file system
+file_count_user defs 2 * (MAX_USER + 1) ; File counts per user
+file_count      defs 2              ; Files count
+unused_count    defs 2              ; Unused entry count
+error_count     defs 2              ; Error count
+sys_count       defs 2              ; System files count
+ro_count        defs 2              ; Read only files count
+blocks_used     defs 2              ; Number of blocks used
+label_count     defs 2              ; Disk label counter
+date_count      defs 2              ; Date stamp directory entry counter
+date_mp_count   defs 2              ; Date stamp entry misplaced counter
+pwd_count       defs 2              ; Password protected files
+;
+clr_end                             ; End of cleared variables area
+;
+                defs STACKS_SIZE    ; Stack space
 app_stack_top
 ;
                 end

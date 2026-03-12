@@ -1,0 +1,80 @@
+   1:				; *******************************************************
+   2:				; * Test assembler source for lstrel                    *
+   3:				; * Version: V1.0                                       *
+   4:				; * Merlin Skinner, 20/1/2023                           *
+   5:				; *******************************************************
+   6:				;
+   7:				;
+   8:				                name LSTREL
+   9:				;
+  10:				;
+  11:				;
+  12:				; *************
+  13:				; * Externals *
+  14:				; *************
+  15:				;
+  16:				;
+  17:				                extern ext1
+  18:				                extern ext2
+  19:				;
+  20:				;
+  21:				;
+  22:				; *************
+  23:				; * Constants *
+  24:				; *************
+  25:				;
+  26:				;
+  27:				; None
+  28:				;
+  29:				;
+  30:				;
+  31:				; *************
+  32:				; * Main Code *
+  33:				; *************
+  34:				;
+  35:				                cseg                    ; Code segment
+  36:				;
+  37:				                public FUNC1
+  38:    0+10	0000' 210000  	FUNC1           ld hl, var1
+  39:   10+10	0003' 110000  	                ld de, ext1
+  40:   20+10	0006' 010100  	                ld bc, ext1 + 1         ; External plus offset
+  41:   30+7	0009' 3E00    	                ld a, high var1         ; Byte relocatable!
+  42:   37+17	000B' CD0000  	                call ext2
+  43:   54+10	000E' C9      	                ret
+  44:				;
+  45:				                public FUNC2
+  46:   64+4	000F' 76      	FUNC2           halt
+  47:   68+12	0010' 18FD    	                jr FUNC2
+  48:				;
+  49:				;
+  50:				;
+  51:				; *************
+  52:				; * Variables *
+  53:				; *************
+  54:				;
+  55:				;
+  56:				                dseg
+  57:     -	0000"         	var1            defs 1
+  58:     -	0001"         	var2            defs 1
+  59:				;
+  60:     -	0002"         	                end
+
+
+
+Statistics:
+
+     3	passes
+     0	jr promotions
+     6	symbols
+    18	bytes
+
+
+
+Symbol Table:
+
+FUNC1           00'       0 (public)
+FUNC2           0F'       15 (public)
+ext1            00        0 (extern)
+ext2            00        0 (extern)
+var1            00"       0
+var2            01"       1

@@ -20,6 +20,12 @@
                 extern mamwwu       ; 16-bit * 16-bit unsigned multiply
                 extern mamlbu       ; 32-bit * 8-bit unsigned multiply
                 extern crc16x       ; Software CRC-16 (XMODEM)
+;                extern malclr       ; 32-bit clear (HL)
+                extern malinc       ; 32-bit increment (HL)
+                extern mapcnt       ; Calculate percentage of two 32-bit values
+                extern malld	    ; Load 32-bit number from memory
+                extern malst        ; Store 32-bit number to memory
+                extern maladd       ; 32-bit add
 ;
                 endif
             endif

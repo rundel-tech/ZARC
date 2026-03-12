@@ -1,0 +1,5 @@
+#!/bin/bash
+# Script to run the progremme that lists the contents of CP/M .REL files
+# Merlin, 20/1/2023
+
+python3 /home/merlin/Technical/ZARC_Z80_Box/git/software/tools/listrel/listrel.py "$@"

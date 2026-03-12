@@ -1,0 +1,59 @@
+   1:				; *******************************************************
+   2:				; * Dummy Module to Store Top of Variables Marker       *
+   3:				; * Version: V1.0                                       *
+   4:				; * Merlin Skinner, 23/12/2022                          *
+   5:				; *******************************************************
+   6:				;
+   7:				; Make sure this is loaded last by the linker. The warm2 symbol is the last
+   8:				; variable used. The monitor checks this and warm1 to detect whether or not
+   9:				; a cold start is required. This isn't foolproof, but will detect most cases
+  10:				; where the variables are not initialised, or the monitor has been updated.
+  11:				;
+  12:				                title Top
+  13:				;
+  14:				;
+  15:				;
+  16:				; *************
+  17:				; * Externals *
+  18:				; *************
+  19:				;
+  20:				;
+  21:				; Variables
+  22:				                public warm2        ; Warm start marker 2
+  23:				;
+  24:				;
+  25:				;
+  26:				; *************
+  27:				; * Main Code *
+  28:				; *************
+  29:				;
+  30:				;
+  31:				; None.
+  32:				;
+  33:				;
+  34:				; *************
+  35:				; * Variables *
+  36:				; *************
+  37:				;
+  38:				;
+  39:				; Note: linker "-c" option is used, so no data is initialised here.
+  40:				                dseg                ; Data segment
+  41:				;
+  42:     -	0000"         	warm2           defs 1              ; Warm start marker 2
+  43:				;
+  44:     -	0001"         	                end
+
+
+
+Statistics:
+
+     3	passes
+     0	jr promotions
+     1	symbols
+     0	bytes
+
+
+
+Symbol Table:
+
+warm2           00"       0 (public)

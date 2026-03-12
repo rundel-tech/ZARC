@@ -413,7 +413,7 @@ spitr           push bc                 ; Save B register
                 ifdef spi_debug
                     push af
                     ld a, 'T'
-                    call conwch         ; Echo it
+                    CON_WR_CHAR         ; Echo it
                     pop af
                     call cwphby         ; Print byte in hexadecimal
                 endif
@@ -432,7 +432,7 @@ spitr_done      pop bc
                 ld c, a
                 ifdef spi_debug
                     ld a, 'R'
-                    call conwch         ; Echo it
+                    CON_WR_CHAR         ; Echo it
                     ld a, c
                     call cwphby         ; Print byte in hexadecimal
                     call cwnwln         ; Write new line characters to console

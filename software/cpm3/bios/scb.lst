@@ -1,0 +1,93 @@
+   1:					title 'System Control Block Definition for CP/M3 BIOS'
+   2:				
+   3:					public @civec, @covec, @aivec, @aovec, @lovec, @bnkbf
+   4:					public @crdma, @crdsk, @vinfo, @resel, @fx, @usrcd 
+   5:				        public @mltio, @ermde, @erdsk, @media, @bflgs
+   6:					public @date, @hour, @min, @sec, ?erjmp, @mxtpa
+   7:				
+   8:				
+   9:     -	FE00'         	scb$base equ    0FE00H          ; Base of the SCB
+  10:				; From DRI's CP/M Plus TM (CP/M Version 3.0) Operating System System Guide:
+  11:				; In the SCB.ASM file, the high-order byte of the various SCB addresses is
+  12:				; defined as 0FEH. The linker marks absolute external equates as page
+  13:				; relocatable when generating a System Page Relocatable (SPR) format file.
+  14:				; GENCPM recognizes page relocatable addresses of 0FExxH as references to the
+  15:				; System Control Block in the BDOS. GENCPM changes these addresses to point to
+  16:				; the actual SCB in the BDOS when it is relocating the system.
+  17:				
+  18:     -	FE22'         	@CIVEC  equ     scb$base+22h    ; Console Input Redirection 
+  19:				                                ; Vector (word, r/w)
+  20:     -	FE24'         	@COVEC  equ     scb$base+24h    ; Console Output Redirection 
+  21:				                                ; Vector (word, r/w)
+  22:     -	FE26'         	@AIVEC  equ     scb$base+26h    ; Auxiliary Input Redirection 
+  23:				                                ; Vector (word, r/w)
+  24:     -	FE28'         	@AOVEC  equ     scb$base+28h    ; Auxiliary Output Redirection 
+  25:				                                ; Vector (word, r/w)
+  26:     -	FE2A'         	@LOVEC  equ     scb$base+2Ah    ; List Output Redirection 
+  27:				                                ; Vector (word, r/w)
+  28:     -	FE35'         	@BNKBF  equ     scb$base+35h    ; Address of 128 Byte Buffer 
+  29:				                                ; for Banked BIOS (word, r/o)
+  30:     -	FE3C'         	@CRDMA  equ     scb$base+3Ch    ; Current DMA Address 
+  31:				                                ; (word, r/o)
+  32:     -	FE3E'         	@CRDSK  equ     scb$base+3Eh    ; Current Disk (byte, r/o)
+  33:     -	FE3F'         	@VINFO  equ     scb$base+3Fh    ; BDOS Variable "INFO" 
+  34:				                                ; (word, r/o)
+  35:     -	FE41'         	@RESEL  equ     scb$base+41h    ; FCB Flag (byte, r/o)
+  36:     -	FE43'         	@FX     equ     scb$base+43h    ; BDOS Function for Error 
+  37:				                                ; Messages (byte, r/o)
+  38:     -	FE44'         	@USRCD  equ     scb$base+44h    ; Current User Code (byte, r/o)
+  39:     -	FE4A'         	@MLTIO	equ	scb$base+4Ah	; Current Multi-Sector Count
+  40:								; (byte,r/w)
+  41:     -	FE4B'         	@ERMDE  equ     scb$base+4Bh    ; BDOS Error Mode (byte, r/o)
+  42:     -	FE51'         	@ERDSK	equ	scb$base+51h	; BDOS Error Disk (byte,r/o)
+  43:     -	FE54'         	@MEDIA	equ	scb$base+54h	; Set by BIOS to indicate
+  44:								; open door (byte,r/w)
+  45:     -	FE57'         	@BFLGS  equ     scb$base+57h    ; BDOS Message Size Flag (byte,r/o)  
+  46:     -	FE58'         	@DATE   equ     scb$base+58h    ; Date in Days Since 1 Jan 78 
+  47:				                                ; (word, r/w)
+  48:     -	FE5A'         	@HOUR   equ     scb$base+5Ah    ; Hour in BCD (byte, r/w)
+  49:     -	FE5B'         	@MIN    equ     scb$base+5Bh    ; Minute in BCD (byte, r/w)
+  50:     -	FE5C'         	@SEC    equ     scb$base+5Ch    ; Second in BCD (byte, r/w)
+  51:     -	FE5F'         	?ERJMP  equ     scb$base+5Fh    ; BDOS Error Message Jump
+  52:				                                ; (word, r/w)
+  53:     -	FE62'         	@MXTPA  equ     scb$base+62h    ; Top of User TPA 
+  54:				                                ; (address at 6,7)(word, r/o)
+  55:     -	0000'         		end
+
+
+
+Statistics:
+
+     3	passes
+     0	jr promotions
+    24	symbols
+     0	bytes
+
+
+
+Symbol Table:
+
+?erjmp         =FE5F      65119 (public)
+@aivec         =FE26      65062 (public)
+@aovec         =FE28      65064 (public)
+@bflgs         =FE57      65111 (public)
+@bnkbf         =FE35      65077 (public)
+@civec         =FE22      65058 (public)
+@covec         =FE24      65060 (public)
+@crdma         =FE3C      65084 (public)
+@crdsk         =FE3E      65086 (public)
+@date          =FE58      65112 (public)
+@erdsk         =FE51      65105 (public)
+@ermde         =FE4B      65099 (public)
+@fx            =FE43      65091 (public)
+@hour          =FE5A      65114 (public)
+@lovec         =FE2A      65066 (public)
+@media         =FE54      65108 (public)
+@min           =FE5B      65115 (public)
+@mltio         =FE4A      65098 (public)
+@mxtpa         =FE62      65122 (public)
+@resel         =FE41      65089 (public)
+@sec           =FE5C      65116 (public)
+@usrcd         =FE44      65092 (public)
+@vinfo         =FE3F      65087 (public)
+scb$base       =FE00      65024

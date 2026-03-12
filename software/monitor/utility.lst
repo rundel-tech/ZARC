@@ -21,7 +21,7 @@
   21:				; ************
   22:				;
   23:				                include "macros.i"
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//macros.i ****
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/macros.i ****
    1:				; ***********************************
    2:				; * ZARC Macro Definitions          *
    3:				; * Written by: Merlin Skinner      *
@@ -100,46 +100,128 @@
   76:				                endm
   77:				;
   78:				;
-  79:				; Calculate offsets into jump tables.
-  80:				; The absolute segment is used so the offsets are not marked as relocatable. This
-  81:				; avoids "Not relocatable" errors.
-  82:				JPTBL_START     macro x
+  79:				; Allocate space. This is used to generate variable addresses, affectively
+  80:				; providing a new variables segment. Allocated size is kept track of separately
+  81:				; to the address as the latter may overflow in certain error cases.
+  82:				ALLOC           macro x
   83:				                .aseg
-  84:				jptbl_addr      set x               ; Set start address
-  85:				                endm
-  86:				;
-  87:				; Invoke for each item.
-  88:				JPTBL_ENTRY     macro x
-  89:				x               equ jptbl_addr
-  90:				jptbl_addr      set jptbl_addr + 3
-  91:				                endm
-  92:				;
-  93:				; Invoke for a data block in the jump table
-  94:				JPTBL_BLOCK     macro x, size   ; <name>, <size>
-  95:				x               equ jptbl_addr
-  96:				jptbl_addr      set jptbl_addr + size
-  97:				                endm
-  98:				;
-  99:				JPTBL_END       macro x
- 100:				x               set jptbl_addr      ; Set label to next address
- 101:				                .cseg
- 102:				                endm
- 103:				;
- 104:				;
- 105:				; Define bits and masks. This is inspired by the Commodore Amiga BITDEF mechanism.
- 106:				; Given:
- 107:				; BITDEF I2C_CSR_STOP, 2
- 108:				; Yields:
- 109:				; I2C_CSR_STOP_BIT  EQU 2       ; Bit number
- 110:				; I2C_CSR_STOP_MASK EQU 1<<2    ; Bit mask
- 111:				BITDEF          macro n, b      ; <Name>, <bit>
- 112:				n`_BIT          equ b
- 113:				n`_MASK         equ 1 << b
+  84:				all_addr        set x
+  85:				all_size        set 0
+  86:				                endm
+  87:				;
+  88:				; Add a byte entry.
+  89:				ALL_BYTE        macro x
+  90:				x               equ all_addr
+  91:				all_addr        set all_addr + 1
+  92:				all_size        set all_size + 1
+  93:				                endm
+  94:				;
+  95:				; Add a word (16-bit) entry.
+  96:				ALL_WORD        macro x
+  97:				x               equ all_addr
+  98:				all_addr        set all_addr + 2
+  99:				all_size        set all_size + 2
+ 100:				                endm
+ 101:				;
+ 102:				; Add a 3 byte (24-bit) entry.
+ 103:				ALL_24BIT       macro x
+ 104:				x               equ all_addr
+ 105:				all_addr        set all_addr + 3
+ 106:				all_size        set all_size + 3
+ 107:				                endm
+ 108:				;
+ 109:				; Add a long (32-bit) entry.
+ 110:				ALL_LONG        macro x
+ 111:				x               equ all_addr
+ 112:				all_addr        set all_addr + 4
+ 113:				all_size        set all_size + 4
  114:				                endm
- 115:				
+ 115:				;
+ 116:				; Add an arbitrary length entry.
+ 117:				ALL_BLOCK       macro x, size   ; <name>, <size>
+ 118:				x               equ all_addr
+ 119:				all_addr        set all_addr + size
+ 120:				all_size        set all_size + size
+ 121:				                endm
+ 122:				;
+ 123:				; End of allocated space. Returns size of block.
+ 124:				ALL_END         macro x
+ 125:				x               equ all_size
+ 126:				                .cseg
+ 127:				                endm
+ 128:				;
+ 129:				;
+ 130:				; Calculate offsets into jump tables.
+ 131:				; The absolute segment is used so the offsets are not marked as relocatable. This
+ 132:				; avoids "Not relocatable" errors.
+ 133:				JPTBL_START     macro x
+ 134:				                .aseg
+ 135:				jptbl_addr      set x               ; Set start address
+ 136:				                endm
+ 137:				;
+ 138:				; Invoke for each item.
+ 139:				JPTBL_ENTRY     macro x
+ 140:				x               equ jptbl_addr
+ 141:				jptbl_addr      set jptbl_addr + 3
+ 142:				                endm
+ 143:				;
+ 144:				; Invoke for a data block in the jump table
+ 145:				JPTBL_BLOCK     macro x, size   ; <name>, <size>
+ 146:				x               equ jptbl_addr
+ 147:				jptbl_addr      set jptbl_addr + size
+ 148:				                endm
+ 149:				;
+ 150:				JPTBL_END       macro x
+ 151:				x               set jptbl_addr      ; Set label to next address
+ 152:				                .cseg
+ 153:				                endm
+ 154:				;
+ 155:				;
+ 156:				; Define bits and masks. This is inspired by the Commodore Amiga BITDEF mechanism.
+ 157:				; Given:
+ 158:				; BITDEF I2C_CSR_STOP, 2
+ 159:				; Yields:
+ 160:				; I2C_CSR_STOP_BIT  EQU 2       ; Bit number
+ 161:				; I2C_CSR_STOP_MASK EQU 1<<2    ; Bit mask
+ 162:				BITDEF          macro n, b      ; <Name>, <bit>
+ 163:				n`_BIT          equ b
+ 164:				n`_MASK         equ 1 << b
+ 165:				                endm
+ 166:				;
+ 167:				;
+ 168:				; Force alignment. This asserts an appropriate number of zero bytes to achieve
+ 169:				; the required alignment. Note that these macros cannot work for relocatable
+ 170:				; files.
+ 171:				; 16-bit
+ 172:				ALIGN_WORD      macro
+ 173:				                if $ and 1
+ 174:				                    byte 0
+ 175:				                endif
+ 176:				                endm
+ 177:				;
+ 178:				; 32-bit
+ 179:				ALIGN_LONG      macro
+ 180:				                ALIGN_WORD
+ 181:				                if $ and 2
+ 182:				                    byte 0, 0
+ 183:				                endif
+ 184:				                endm
+ 185:				;
+ 186:				;
+ 187:				; Write message to console (short for "call conwms").
+ 188:				CON_WR_MSG      macro
+ 189:				                rst 08
+ 190:				                endm
+ 191:				;
+ 192:				;
+ 193:				; Write character to console (short for "call conwch").
+ 194:				CON_WR_CHAR     macro
+ 195:				                rst 16
+ 196:				                endm
+ 197:				
 **** utility.z80 ****
   24:				                include "z80.i"
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//z80.i ****
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/z80.i ****
    1:				; ***********************************
    2:				; * ZARC Z80 Definitions            *
    3:				; * Written by: Merlin Skinner      *
@@ -161,7 +243,7 @@
   19:				
 **** utility.z80 ****
   25:				                include "monitor.i"
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//monitor.i ****
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/monitor.i ****
    1:				; *******************************************************
    2:				; * ZARC Monitor Definitions                            *
    3:				; * Written by: Merlin Skinner                          *
@@ -175,147 +257,153 @@
   11:				;
   12:				; The following conditionals are intended to allow the same include file to be
   13:				; used in the defining module and elsewhere as required. Some includes are used
-  14:				; for other applications than the monitor, such as the CP/M BIOS. In these cases,
-  15:				; the extern and public statements are not desirable.
+  14:				; for other applications than the monitor, such as the CP/M BIOS. In these
+  15:				; cases, the extern and public statements are not desirable.
   16:				;
   17:     -	0001'         	            ifdef monitor           ; Meaningful for monitor build only
   18:     -	0001'         	                ifndef main         ; Inhibit for this module
   19:				; Constants
   20:				;
-  21:				; Variables 
-  22:				                extern tikcnt       ; Tick counter
-  23:				;
-  24:				; Functions
-  25:				                extern panic        ; System error exception
-  26:				                extern rusby        ; Read byte from user space
-  27:				                extern ruswd        ; Read 16-bit word from user space
-  28:				                extern wusby        ; Write byte to user space
-  29:				                extern wuswd        ; Write 16-bit word to user space
-  30:				;
-  31:				                endif
-  32:				            endif
-  33:				;
+  21:				; Variables
+  22:				                extern mscnt            ; Monitor start count
+  23:				                extern mcspd            ; Approximate CPU speed in KHz
+  24:				                extern mstate           ; Machine state structure
+  25:				;
+  26:				; Functions
+  27:				                extern panic            ; System error exception
+  28:				                extern rusby            ; Read byte from user space
+  29:				                extern ruswd            ; Read 16-bit word from user space
+  30:				                extern wusby            ; Write byte to user space
+  31:				                extern wuswd            ; Write 16-bit word to user space
+  32:				                extern mcrun            ; Switch context to user code
+  33:				                extern mdisrg           ; Display registers
   34:				;
-  35:				;
-  36:				; *****************
-  37:				; * Monitor Calls *
-  38:				; *****************
+  35:				                endif
+  36:				            endif
+  37:				;
+  38:				;
   39:				;
-  40:				;
-  41:				; Calculate offsets into jump tables. Entries here must match the jump table in
-  42:				; monitor.z80.
-  43:     -	        	    JPTBL_START %(Z80_NMI_VEC + 3)   ; Start after NMI vector
+  40:				; *****************
+  41:				; * Monitor Calls *
+  42:				; *****************
+  43:				;
   44:				;
-  45:				; From monitor.z80
-  46:     -	        	    JPTBL_ENTRY MCALL_MON_ENTRY     ; Normal monitor entry
-  47:     -	        	    JPTBL_ENTRY MCALL_PANIC         ; System error monitor entry
-  48:				; From io.z80
-  49:     -	        	    JPTBL_ENTRY MCALL_CONWCH        ; Write character to the console port
-  50:     -	        	    JPTBL_ENTRY MCALL_CONRCH        ; Read character from the console port
-  51:     -	        	    JPTBL_ENTRY MCALL_CONSTA        ; Fetch console port status
-  52:     -	        	    JPTBL_ENTRY MCALL_S1WCH         ; Write character to serial port 1
-  53:     -	        	    JPTBL_ENTRY MCALL_S1RCH         ; Read character from serial port 1
-  54:     -	        	    JPTBL_ENTRY MCALL_S1STA         ; Fetch serial port 1 status
-  55:     -	        	    JPTBL_ENTRY MCALL_S2WCH         ; Write character to serial port 2
-  56:     -	        	    JPTBL_ENTRY MCALL_S2RCH         ; Read character from serial port 2
-  57:     -	        	    JPTBL_ENTRY MCALL_S2STA         ; Fetch serial port 2 status
-  58:				; From utility.z80
-  59:     -	        	    JPTBL_ENTRY MCALL_CWNWLN        ; Write new line characters to console
-  60:     -	        	    JPTBL_ENTRY MCALL_CONWMS        ; Print null-terminated string to the console
-  61:     -	        	    JPTBL_ENTRY MCALL_CONWMN        ; Print message <n> in a list
-  62:     -	        	    JPTBL_ENTRY MCALL_SKPSPC        ; Step hl past spaces
-  63:     -	        	    JPTBL_ENTRY MCALL_TOUPCA        ; Convert character in A to upper case
-  64:     -	        	    JPTBL_ENTRY MCALL_TOLOCA        ; Convert character in A to lower case
-  65:     -	        	    JPTBL_ENTRY MCALL_CWVICH        ; Print only visible 7-bit characters
-  66:     -	        	    JPTBL_ENTRY MCALL_CWPSPC        ; Print a space
-  67:     -	        	    JPTBL_ENTRY MCALL_MTWDLI        ; Match word in a string against list of options
-  68:     -	        	    JPTBL_ENTRY MCALL_CWPHNB        ; Print least-significant nibble in A in hexadecimal
-  69:     -	        	    JPTBL_ENTRY MCALL_CWPHBY        ; Print A in hexadecimal
-  70:     -	        	    JPTBL_ENTRY MCALL_CWPHWD        ; Print HL in hexadecimal
-  71:     -	        	    JPTBL_ENTRY MCALL_CWPDBY        ; Print A in decimal. Leading zeros are suppressed.
-  72:     -	        	    JPTBL_ENTRY MCALL_CWPDWD        ; Print HL in decimal. Leading zeros are suppressed.
-  73:     -	        	    JPTBL_ENTRY MCALL_CWPDLO        ; Print DEHL in decimal. Leading zeros are suppressed
-  74:     -	        	    JPTBL_ENTRY MCALL_RDHXWD        ; Read a 16-bit hexadecimal number from a string
-  75:     -	        	    JPTBL_ENTRY MCALL_RDDUWD        ; Read a 16-bit unsigned decimal number from a string
-  76:     -	        	    JPTBL_ENTRY MCALL_RDDULO        ; Read a 32-bit unsigned decimal number from a string
-  77:				; From maths.z80
-  78:     -	        	    JPTBL_ENTRY MCALL_MADLBU        ; 32-bit / 8-bit unsigned divide
-  79:     -	        	    JPTBL_ENTRY MCALL_MADWBU        ; 16-bit / 8-bit unsigned divide
-  80:     -	        	    JPTBL_ENTRY MCALL_MADBBU        ; 8-bit / 8-bit unsigned divide
-  81:     -	        	    JPTBL_ENTRY MCALL_MAMWWU        ; 16-bit * 16-bit unsigned multiply
-  82:     -	        	    JPTBL_ENTRY MCALL_MAMLBU        ; 32-bit * 8-bit unsigned multiply
-  83:     -	        	    JPTBL_ENTRY MCALL_CRC16X        ; CRC-16 (XMODEM)
-  84:				; From time.z80
-  85:     -	        	    JPTBL_ENTRY MCALL_TIRD          ; Read current time and date
-  86:     -	        	    JPTBL_ENTRY MCALL_TIWR          ; Set time and date
-  87:     -	        	    JPTBL_ENTRY MCALL_TIITOS        ; Convert integer time to structure
-  88:     -	        	    JPTBL_ENTRY MCALL_TISTOI        ; Convert structure time to integer
-  89:     -	        	    JPTBL_ENTRY MCALL_CWPTM         ; Print time structure to console
-  90:				; From mmc.z80
-  91:     -	        	    JPTBL_ENTRY MCALL_MCPRER        ; Print memory card error text
-  92:				; From cache.z80
-  93:     -	        	    JPTBL_ENTRY MCALL_CACRS         ; CP/M read sector
-  94:     -	        	    JPTBL_ENTRY MCALL_CACWS         ; CP/M write sector
-  95:     -	        	    JPTBL_ENTRY MCALL_CAFLUS        ; Flush cache (write dirty buffers)
-  96:				; From memory.z80
-  97:     -	        	    JPTBL_ENTRY MCALL_MPALL         ; Allocate new page
-  98:     -	        	    JPTBL_ENTRY MCALL_MPFREE        ; Free allocated page
-  99:     -	        	    JPTBL_ENTRY MCALL_MPSTAT        ; Allocation status
- 100:				;
- 101:     -	        	    JPTBL_END MCALL_JPTBL_NEXT
- 102:				;
- 103:				;
- 104:				;
- 105:				; **************
- 106:				; * Structures *
- 107:				; **************
+  45:				; Calculate offsets into jump tables. Entries here must match the jump table in
+  46:				; monitor.z80.
+  47:     -	        	    JPTBL_START %(Z80_NMI_VEC + 3)   ; Start after NMI vector
+  48:				;
+  49:				; From monitor.z80
+  50:     -	        	    JPTBL_ENTRY MCALL_MON_ENTRY     ; Normal monitor entry
+  51:     -	        	    JPTBL_ENTRY MCALL_PANIC         ; System error monitor entry
+  52:				; From io.z80
+  53:     -	        	    JPTBL_ENTRY MCALL_CONWCH        ; Write character to the console port
+  54:     -	        	    JPTBL_ENTRY MCALL_CONRCH        ; Read character from the console port
+  55:     -	        	    JPTBL_ENTRY MCALL_CONSTA        ; Fetch console port status
+  56:     -	        	    JPTBL_ENTRY MCALL_S1WCH         ; Write character to serial port 1
+  57:     -	        	    JPTBL_ENTRY MCALL_S1RCH         ; Read character from serial port 1
+  58:     -	        	    JPTBL_ENTRY MCALL_S1STA         ; Fetch serial port 1 status
+  59:     -	        	    JPTBL_ENTRY MCALL_S2WCH         ; Write character to serial port 2
+  60:     -	        	    JPTBL_ENTRY MCALL_S2RCH         ; Read character from serial port 2
+  61:     -	        	    JPTBL_ENTRY MCALL_S2STA         ; Fetch serial port 2 status
+  62:				; From utility.z80
+  63:     -	        	    JPTBL_ENTRY MCALL_CWNWLN        ; Write new line characters to console
+  64:     -	        	    JPTBL_ENTRY MCALL_CONWMS        ; Print null-terminated string to the console
+  65:     -	        	    JPTBL_ENTRY MCALL_CONWMN        ; Print message <n> in a list
+  66:     -	        	    JPTBL_ENTRY MCALL_SKPSPC        ; Step hl past spaces
+  67:     -	        	    JPTBL_ENTRY MCALL_TOUPCA        ; Convert character in A to upper case
+  68:     -	        	    JPTBL_ENTRY MCALL_TOLOCA        ; Convert character in A to lower case
+  69:     -	        	    JPTBL_ENTRY MCALL_CWVICH        ; Print only visible 7-bit characters
+  70:     -	        	    JPTBL_ENTRY MCALL_CWPSPC        ; Print a space
+  71:     -	        	    JPTBL_ENTRY MCALL_MTWDLI        ; Match word in a string against list of options
+  72:     -	        	    JPTBL_ENTRY MCALL_CWPHNB        ; Print least-significant nibble in A in hexadecimal
+  73:     -	        	    JPTBL_ENTRY MCALL_CWPHBY        ; Print A in hexadecimal
+  74:     -	        	    JPTBL_ENTRY MCALL_CWPHWD        ; Print HL in hexadecimal
+  75:     -	        	    JPTBL_ENTRY MCALL_CWPDBY        ; Print A in decimal. Leading zeros are suppressed.
+  76:     -	        	    JPTBL_ENTRY MCALL_CWPDWD        ; Print HL in decimal. Leading zeros are suppressed.
+  77:     -	        	    JPTBL_ENTRY MCALL_CWPDLO        ; Print DEHL in decimal. Leading zeros are suppressed
+  78:     -	        	    JPTBL_ENTRY MCALL_RDHXWD        ; Read a 16-bit hexadecimal number from a string
+  79:     -	        	    JPTBL_ENTRY MCALL_RDDUWD        ; Read a 16-bit unsigned decimal number from a string
+  80:     -	        	    JPTBL_ENTRY MCALL_RDDULO        ; Read a 32-bit unsigned decimal number from a string
+  81:				; From maths.z80
+  82:     -	        	    JPTBL_ENTRY MCALL_MADLBU        ; 32-bit / 8-bit unsigned divide
+  83:     -	        	    JPTBL_ENTRY MCALL_MADWBU        ; 16-bit / 8-bit unsigned divide
+  84:     -	        	    JPTBL_ENTRY MCALL_MADBBU        ; 8-bit / 8-bit unsigned divide
+  85:     -	        	    JPTBL_ENTRY MCALL_MAMWWU        ; 16-bit * 16-bit unsigned multiply
+  86:     -	        	    JPTBL_ENTRY MCALL_MAMLBU        ; 32-bit * 8-bit unsigned multiply
+  87:     -	        	    JPTBL_ENTRY MCALL_CRC16X        ; CRC-16 (XMODEM)
+  88:				; From time.z80
+  89:     -	        	    JPTBL_ENTRY MCALL_TIRD          ; Read current time and date
+  90:     -	        	    JPTBL_ENTRY MCALL_TIWR          ; Set time and date
+  91:     -	        	    JPTBL_ENTRY MCALL_TIITOS        ; Convert integer time to structure
+  92:     -	        	    JPTBL_ENTRY MCALL_TISTOI        ; Convert structure time to integer
+  93:     -	        	    JPTBL_ENTRY MCALL_CWPTM         ; Print time structure to console
+  94:				; From mmc.z80
+  95:     -	        	    JPTBL_ENTRY MCALL_MCPRER        ; Print memory card error text
+  96:				; From cache.z80
+  97:     -	        	    JPTBL_ENTRY MCALL_CACRS         ; CP/M read sector
+  98:     -	        	    JPTBL_ENTRY MCALL_CACWS         ; CP/M write sector
+  99:     -	        	    JPTBL_ENTRY MCALL_CARS          ; MMC read sector
+ 100:     -	        	    JPTBL_ENTRY MCALL_CAWS          ; MMC write sector
+ 101:     -	        	    JPTBL_ENTRY MCALL_CAFLUS        ; Flush cache (write dirty buffers)
+ 102:				; From memory.z80
+ 103:     -	        	    JPTBL_ENTRY MCALL_MPALL         ; Allocate new page
+ 104:     -	        	    JPTBL_ENTRY MCALL_MPFREE        ; Free allocated page
+ 105:     -	        	    JPTBL_ENTRY MCALL_MPSTAT        ; Allocation status
+ 106:				;
+ 107:     -	        	    JPTBL_END MCALL_JPTBL_NEXT
  108:				;
  109:				;
- 110:				; Machine state structure.
- 111:     -	        	                STRUCT
- 112:     -	        	                STR_BYTE MST_IEN        ; Non-zero if interrupts enabled
- 113:     -	        	                STR_BYTE MST_MMAP_EN    ; Non-zero if memory mapping enabled
- 114:     -	        	                STR_BYTE MST_MMAP0      ; Memory mapping registers
- 115:     -	        	                STR_BYTE MST_MMAP1
- 116:     -	        	                STR_BYTE MST_MMAP2
- 117:     -	        	                STR_BYTE MST_MMAP3
- 118:     -	        	                STR_WORD MST_SP
- 119:     -	        	                STR_WORD MST_PC
- 120:				; The sequence of the following entries must match those in the state save and
- 121:				; load routines.
- 122:     -	        	                STR_WORD MST_IY
- 123:     -	        	                STR_WORD MST_IX
- 124:     -	        	                STR_WORD MST_HL_P
- 125:     -	        	                STR_WORD MST_DE_P
- 126:     -	        	                STR_WORD MST_BC_P
- 127:     -	        	                STR_WORD MST_AF_P       ; Alternate ("prime") registers
- 128:     -	        	                STR_WORD MST_HL
- 129:     -	        	                STR_WORD MST_DE
- 130:     -	        	                STR_WORD MST_BC
- 131:     -	        	                STR_WORD MST_AF
- 132:				; End of sequence critical entries.
- 133:     -	        	                STR_BYTE MST_I
- 134:     -	        	                STR_BYTE MST_R
- 135:     -	        	                STR_END MST_SIZE
- 136:				;
- 137:				;
- 138:				;
- 139:				; *************
- 140:				; * Constants *
- 141:				; *************
+ 110:				;
+ 111:				; **************
+ 112:				; * Structures *
+ 113:				; **************
+ 114:				;
+ 115:				;
+ 116:				; Machine state structure.
+ 117:     -	        	                STRUCT
+ 118:     -	        	                STR_BYTE MST_IEN        ; Non-zero if interrupts enabled
+ 119:     -	        	                STR_BYTE MST_MMAP_EN    ; Non-zero if memory mapping enabled
+ 120:     -	        	                STR_BYTE MST_MMAP0      ; Memory mapping registers
+ 121:     -	        	                STR_BYTE MST_MMAP1
+ 122:     -	        	                STR_BYTE MST_MMAP2
+ 123:     -	        	                STR_BYTE MST_MMAP3
+ 124:     -	        	                STR_WORD MST_SP
+ 125:     -	        	                STR_WORD MST_PC
+ 126:				; The sequence of the following entries must match those in the state save and
+ 127:				; load routines.
+ 128:     -	        	                STR_WORD MST_IY
+ 129:     -	        	                STR_WORD MST_IX
+ 130:     -	        	                STR_WORD MST_HL_P
+ 131:     -	        	                STR_WORD MST_DE_P
+ 132:     -	        	                STR_WORD MST_BC_P
+ 133:     -	        	                STR_WORD MST_AF_P       ; Alternate ("prime") registers
+ 134:     -	        	                STR_WORD MST_HL
+ 135:     -	        	                STR_WORD MST_DE
+ 136:     -	        	                STR_WORD MST_BC
+ 137:     -	        	                STR_WORD MST_AF
+ 138:				; End of sequence critical entries.
+ 139:     -	        	                STR_BYTE MST_I
+ 140:     -	        	                STR_BYTE MST_R
+ 141:     -	        	                STR_END MST_SIZE
  142:				;
  143:				;
- 144:				; Trace mode states for trace_mode.
- 145:     -	        	                ENUM_START
- 146:     -	        	                ENUM TRM_NONE
- 147:     -	        	                ENUM TRM_SINGLE
- 148:     -	        	                ENUM TRM_TO_ADDR        ; Trace to address
- 149:     -	        	                ENUM TRM_XPT            ; Exception - start running normally
- 150:     -	        	                ENUM_END TRM_STATES     ; Number of states
- 151:				
+ 144:				;
+ 145:				; *************
+ 146:				; * Constants *
+ 147:				; *************
+ 148:				;
+ 149:				;
+ 150:				; Trace mode states for trace_mode.
+ 151:     -	        	                ENUM_START
+ 152:     -	        	                ENUM TRM_NONE
+ 153:     -	        	                ENUM TRM_SINGLE
+ 154:     -	        	                ENUM TRM_TO_ADDR        ; Trace to address
+ 155:     -	        	                ENUM TRM_XPT            ; Exception - start running normally
+ 156:     -	        	                ENUM_END TRM_STATES     ; Number of states
+ 157:				
 **** utility.z80 ****
   26:				                include "zarc.i"        ; Hardware definitions
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//zarc.i ****
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/zarc.i ****
    1:				; ***********************************
    2:				; * ZARC Definitions                *
    3:				; * Written by: Merlin Skinner      *
@@ -343,7 +431,7 @@
   25:				
 **** utility.z80 ****
   27:				                include "io_map.i"      ; I/O addresses mapping
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//io_map.i ****
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/io_map.i ****
    1:				; ***********************************
    2:				; * ZARC I/O Definitions            *
    3:				; * Written by: Merlin Skinner      *
@@ -508,7 +596,7 @@
  162:				
 **** utility.z80 ****
   28:				                include "terminal.i"    ; Terminal constants
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//terminal.i ****
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/terminal.i ****
    1:				; ***********************************
    2:				; * ZARC Terminal Definitions       *
    3:				; * Written by: Merlin Skinner      *
@@ -545,7 +633,7 @@
   34:				
 **** utility.z80 ****
   29:				                include "io.i"          ; I/O routines
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//io.i ****
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/io.i ****
    1:				; ***********************************
    2:				; * ZARC Basic I/O Extern Symbols   *
    3:				; * Written by: Merlin Skinner      *
@@ -598,7 +686,7 @@
   50:				
 **** utility.z80 ****
   30:				                include "maths.i"       ; Mathematical functions
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//maths.i ****
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/maths.i ****
    1:				; *******************************************************
    2:				; * Mathematical Routines for ZARC Z80 Computer         *
    3:				; * Written by: Merlin Skinner                          *
@@ -621,13 +709,19 @@
   20:				                extern mamwwu       ; 16-bit * 16-bit unsigned multiply
   21:				                extern mamlbu       ; 32-bit * 8-bit unsigned multiply
   22:				                extern crc16x       ; Software CRC-16 (XMODEM)
-  23:				;
-  24:				                endif
-  25:				            endif
-  26:				
+  23:				;                extern malclr       ; 32-bit clear (HL)
+  24:				                extern malinc       ; 32-bit increment (HL)
+  25:				                extern mapcnt       ; Calculate percentage of two 32-bit values
+  26:				                extern malld	    ; Load 32-bit number from memory
+  27:				                extern malst        ; Store 32-bit number to memory
+  28:				                extern maladd       ; 32-bit add
+  29:				;
+  30:				                endif
+  31:				            endif
+  32:				
 **** utility.z80 ****
   31:				                include "utility.i"     ; Utility functions
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//utility.i ****
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/utility.i ****
    1:				; ***********************************
    2:				; * ZARC Monitor Utility Routines   *
    3:				; * Written by: Merlin Skinner      *
@@ -697,9 +791,9 @@
   72:				;
   73:				; Write new line characters to console.
   74:    0+7	0000' 3E0D    	cwnwln          ld a, ascii_cr
-  75:    7+17	0002' CD0000  	                call conwch
-  76:   24+7	0005' 3E0A    	                ld a, ascii_lf
-  77:   31+10	0007' C30000  	                jp conwch
+  75:    7+11	0002' D7      	                CON_WR_CHAR
+  76:   18+7	0003' 3E0A    	                ld a, ascii_lf
+  77:   25+10	0005' C30000  	                jp conwch
   78:				;
   79:				;
   80:				; Print null-terminated string to the console.
@@ -707,12 +801,12 @@
   82:				; HL - pointer to start of message
   83:				; Returns with:
   84:				; HL - points to the terminator.
-  85:   41+7	000A' 7E      	conwms          ld a, (hl)
-  86:   48+4	000B' A7      	                and a
-  87:   52+5+6	000C' C8      	                ret z                   ; Return if terminator found
-  88:   57+17	000D' CD0000  	                call conwch             ; Write character to console
-  89:   74+6	0010' 23      	                inc hl                  ; Increment character pointer
-  90:   80+12	0011' 18F7    	                jr conwms               ; Transmit next character
+  85:   35+7	0008' 7E      	conwms          ld a, (hl)
+  86:   42+4	0009' A7      	                and a
+  87:   46+5+6	000A' C8      	                ret z                   ; Return if terminator found
+  88:   51+11	000B' D7      	                CON_WR_CHAR             ; Write character to console
+  89:   62+6	000C' 23      	                inc hl                  ; Increment character pointer
+  90:   68+12	000D' 18F9    	                jr conwms               ; Transmit next character
   91:				;
   92:				;
   93:				; Print message <n> in a null terminated list. Nothing is printed if the
@@ -725,272 +819,272 @@
  100:				; HL - points to the separator at the end of the message printed, or the
  101:				; terminator (zero).
  102:				; Carry flag is set if the message was not found (terminator encountered).
- 103:   92+11	0013' C5      	conwmn          push bc
- 104:  103+4	0014' 47      	                ld b, a                 ; Message number
- 105:  107+4	0015' 78      	pmn_msg_lp      ld a, b
- 106:  111+4	0016' A7      	                and a
- 107:  115+7+5	0017' 280B    	                jr z, pmn_found         ; Jump if this is the one
+ 103:   80+11	000F' C5      	conwmn          push bc
+ 104:   91+4	0010' 47      	                ld b, a                 ; Message number
+ 105:   95+4	0011' 78      	pmn_msg_lp      ld a, b
+ 106:   99+4	0012' A7      	                and a
+ 107:  103+7+5	0013' 280B    	                jr z, pmn_found         ; Jump if this is the one
  108:				; Skip to next message.
- 109:  122+7	0019' 7E      	pmn_sk_lp       ld a, (hl)
- 110:  129+4	001A' A7      	                and a
- 111:  133+7+5	001B' 2817    	                jr z, pmn_error         ; Error if terminator
- 112:  140+6	001D' 23      	                inc hl
- 113:  146+4	001E' B9      	                cp c
- 114:  150+7+5	001F' 20F8    	                jr nz, pmn_sk_lp        ; Keep going if not separator or terminator
+ 109:  110+7	0015' 7E      	pmn_sk_lp       ld a, (hl)
+ 110:  117+4	0016' A7      	                and a
+ 111:  121+7+5	0017' 2815    	                jr z, pmn_error         ; Error if terminator
+ 112:  128+6	0019' 23      	                inc hl
+ 113:  134+4	001A' B9      	                cp c
+ 114:  138+7+5	001B' 20F8    	                jr nz, pmn_sk_lp        ; Keep going if not separator or terminator
  115:				; Separator found
- 116:  157+4	0021' 05      	                dec b
- 117:  161+12	0022' 18F1    	                jr pmn_msg_lp
+ 116:  145+4	001D' 05      	                dec b
+ 117:  149+12	001E' 18F1    	                jr pmn_msg_lp
  118:				; HL now points to the requied message. Print it until the separator or
  119:				; terminator is encountered.
- 120:  173+7	0024' 7E      	pmn_found       ld a, (hl)
- 121:  180+4	0025' A7      	                and a
- 122:  184+7+5	0026' 2809    	                jr z, pmn_done          ; Exit if terminator found
- 123:  191+4	0028' B9      	                cp c
- 124:  195+7+5	0029' 2806    	                jr z, pmn_done          ; Exit if separator found
- 125:  202+17	002B' CD0000  	                call conwch             ; Write character to console
- 126:  219+6	002E' 23      	                inc hl                  ; Increment character pointer
- 127:  225+12	002F' 18F3    	                jr pmn_found            ; Transmit next character
+ 120:  161+7	0020' 7E      	pmn_found       ld a, (hl)
+ 121:  168+4	0021' A7      	                and a
+ 122:  172+7+5	0022' 2807    	                jr z, pmn_done          ; Exit if terminator found
+ 123:  179+4	0024' B9      	                cp c
+ 124:  183+7+5	0025' 2804    	                jr z, pmn_done          ; Exit if separator found
+ 125:  190+11	0027' D7      	                CON_WR_CHAR             ; Write character to console
+ 126:  201+6	0028' 23      	                inc hl                  ; Increment character pointer
+ 127:  207+12	0029' 18F5    	                jr pmn_found            ; Transmit next character
  128:				; Successful completion.
- 129:  237+10	0031' C1      	pmn_done        pop bc
- 130:  247+4	0032' A7      	                and a
- 131:  251+10	0033' C9      	                ret                     ; Return with carry reset (no error)
+ 129:  219+10	002B' C1      	pmn_done        pop bc
+ 130:  229+4	002C' A7      	                and a
+ 131:  233+10	002D' C9      	                ret                     ; Return with carry reset (no error)
  132:				; Terminator encountered before the message was found
- 133:  261+10	0034' C1      	pmn_error       pop bc                  ; Restore registers
- 134:  271+4	0035' 37      	                scf
- 135:  275+10	0036' C9      	                ret                     ; Return with carry set (error)
+ 133:  243+10	002E' C1      	pmn_error       pop bc                  ; Restore registers
+ 134:  253+4	002F' 37      	                scf
+ 135:  257+10	0030' C9      	                ret                     ; Return with carry set (error)
  136:				;
  137:				;
  138:				; Step HL past any spaces.
  139:				; Returns with:
  140:				; HL - points to the first non-space character
- 141:  285+7	0037' 3E20    	skpspc          ld a, ' '
- 142:  292+7	0039' BE      	sks_loop        cp (hl)
- 143:  299+5+6	003A' C0      	                ret nz                  ; Return if non-space found
- 144:  304+6	003B' 23      	                inc hl
- 145:  310+12	003C' 18FB    	                jr sks_loop
+ 141:  267+7	0031' 3E20    	skpspc          ld a, ' '
+ 142:  274+7	0033' BE      	sks_loop        cp (hl)
+ 143:  281+5+6	0034' C0      	                ret nz                  ; Return if non-space found
+ 144:  286+6	0035' 23      	                inc hl
+ 145:  292+12	0036' 18FB    	                jr sks_loop
  146:				;
  147:				;
  148:				; Convert character in A to upper case.
- 149:  322+7	003E' FE61    	toupca          cp 'a'
- 150:  329+5+6	0040' D8      	                ret c                   ; Nothing to do if < 'a'
- 151:  334+7	0041' FE7B    	                cp 'z' + 1
- 152:  341+5+6	0043' D0      	                ret nc                  ; Nothing to do if > 'z'
- 153:  346+7	0044' D620    	                sub 'a' - 'A'
- 154:  353+10	0046' C9      	                ret
+ 149:  304+7	0038' FE61    	toupca          cp 'a'
+ 150:  311+5+6	003A' D8      	                ret c                   ; Nothing to do if < 'a'
+ 151:  316+7	003B' FE7B    	                cp 'z' + 1
+ 152:  323+5+6	003D' D0      	                ret nc                  ; Nothing to do if > 'z'
+ 153:  328+7	003E' D620    	                sub 'a' - 'A'
+ 154:  335+10	0040' C9      	                ret
  155:				;
  156:				;
  157:				; Convert character in A to lower case.
- 158:  363+7	0047' FE41    	toloca          cp 'A'
- 159:  370+5+6	0049' D8      	                ret c                   ; Nothing to do if < 'A'
- 160:  375+7	004A' FE5B    	                cp 'Z' + 1
- 161:  382+5+6	004C' D0      	                ret nc                  ; Nothing to do if > 'Z'
- 162:  387+7	004D' C620    	                add 'a' - 'A'
- 163:  394+10	004F' C9      	                ret
+ 158:  345+7	0041' FE41    	toloca          cp 'A'
+ 159:  352+5+6	0043' D8      	                ret c                   ; Nothing to do if < 'A'
+ 160:  357+7	0044' FE5B    	                cp 'Z' + 1
+ 161:  364+5+6	0046' D0      	                ret nc                  ; Nothing to do if > 'Z'
+ 162:  369+7	0047' C620    	                add 'a' - 'A'
+ 163:  376+10	0049' C9      	                ret
  164:				;
  165:				;
  166:				; Print a space.
- 167:  404+7	0050' 3E20    	cwpspc          ld a, ' '
- 168:  411+10	0052' C30000  	                jp conwch
+ 167:  386+7	004A' 3E20    	cwpspc          ld a, ' '
+ 168:  393+10	004C' C30000  	                jp conwch
  169:				;
  170:				;
  171:				; Print only visible 7-bit characters. Non-visible ones are substituted by
  172:				; the character in C.
- 173:  421+7	0055' FE20    	cwvich          cp ' '
- 174:  428+7+5	0057' 3807    	                jr c, prv_do_subs       ; < ' ' is a control character
- 175:  435+7	0059' FE7F    	                cp ascii_del
- 176:  442+7+5	005B' 3003    	                jr nc, prv_do_subs      ; >= DEL isn't visible either
- 177:  449+10	005D' C30000  	                jp conwch               ; Print visible character
+ 173:  403+7	004F' FE20    	cwvich          cp ' '
+ 174:  410+7+5	0051' 3807    	                jr c, prv_do_subs       ; < ' ' is a control character
+ 175:  417+7	0053' FE7F    	                cp ascii_del
+ 176:  424+7+5	0055' 3003    	                jr nc, prv_do_subs      ; >= DEL isn't visible either
+ 177:  431+10	0057' C30000  	                jp conwch               ; Print visible character
  178:				; Use substitution character
- 179:  459+4	0060' 79      	prv_do_subs     ld a, c
- 180:  463+10	0061' C30000  	                jp conwch
+ 179:  441+4	005A' 79      	prv_do_subs     ld a, c
+ 180:  445+10	005B' C30000  	                jp conwch
  181:				;
  182:				;
  183:				; Print least-significant nibble in A in hexadecimal.
- 184:  473+7	0064' E60F    	cwphnb          and 0x0f
- 185:  480+7	0066' C630    	                add '0'
- 186:  487+7	0068' FE3A    	                cp '9' + 1
- 187:  494+7+5	006A' 3802    	                jr c, pn_numeric        ; Jump if <= '9'
- 188:  501+7	006C' C607    	                add ('A' - '9') - 1     ; Convert to alpha
- 189:  508+10	006E' C30000  	pn_numeric      jp conwch
+ 184:  455+7	005E' E60F    	cwphnb          and 0x0f
+ 185:  462+7	0060' C630    	                add '0'
+ 186:  469+7	0062' FE3A    	                cp '9' + 1
+ 187:  476+7+5	0064' 3802    	                jr c, pn_numeric        ; Jump if <= '9'
+ 188:  483+7	0066' C607    	                add ('A' - '9') - 1     ; Convert to alpha
+ 189:  490+10	0068' C30000  	pn_numeric      jp conwch
  190:				;
  191:				;
  192:				; Print A in hexadecimal.
- 193:  518+11	0071' F5      	cwphby          push af
- 194:  529+4	0072' 0F      	                rrca
- 195:  533+4	0073' 0F      	                rrca
- 196:  537+4	0074' 0F      	                rrca
- 197:  541+4	0075' 0F      	                rrca
- 198:  545+17	0076' CD6400  	                call cwphnb             ; Print MSN
- 199:  562+10	0079' F1      	                pop af
- 200:  572+10	007A' C36400  	                jp cwphnb               ; Print LSN
+ 193:  500+11	006B' F5      	cwphby          push af
+ 194:  511+4	006C' 0F      	                rrca
+ 195:  515+4	006D' 0F      	                rrca
+ 196:  519+4	006E' 0F      	                rrca
+ 197:  523+4	006F' 0F      	                rrca
+ 198:  527+17	0070' CD5E00  	                call cwphnb             ; Print MSN
+ 199:  544+10	0073' F1      	                pop af
+ 200:  554+10	0074' C35E00  	                jp cwphnb               ; Print LSN
  201:				;
  202:				;
- 203:				; Print HL in hexadecimal. Leading zeros are suppressed.
- 204:  582+4	007D' 7C      	cwphwd          ld a,h
- 205:  586+17	007E' CD7100  	                call cwphby             ; Print MSB
- 206:  603+4	0081' 7D      	                ld a,l
- 207:  607+10	0082' C37100  	                jp cwphby               ; Print LSB
+ 203:				; Print HL in hexadecimal.
+ 204:  564+4	0077' 7C      	cwphwd          ld a,h
+ 205:  568+17	0078' CD6B00  	                call cwphby             ; Print MSB
+ 206:  585+4	007B' 7D      	                ld a,l
+ 207:  589+10	007C' C36B00  	                jp cwphby               ; Print LSB
  208:				;
  209:				;
  210:				; Print A as a decimal unsigned number. Leading zeros are suppressed.
- 211:  617+11	0085' C5      	cwpdby          push bc
- 212:  628+11	0086' D5      	                push de
- 213:  639+11	0087' E5      	                push hl
- 214:  650+7	0088' 1E00    	                ld e, 0                 ; Leading zeros flag
- 215:  657+7	008A' 2600    	                ld h, 0                 ; Move A to HL
- 216:  664+4	008C' 6F      	                ld l, a
- 217:  668+12	008D' 1811    	                jr pdw_byte             ; Use word code, skipping MS digits
+ 211:  599+11	007F' C5      	cwpdby          push bc
+ 212:  610+11	0080' D5      	                push de
+ 213:  621+11	0081' E5      	                push hl
+ 214:  632+7	0082' 1E00    	                ld e, 0                 ; Leading zeros flag
+ 215:  639+7	0084' 2600    	                ld h, 0                 ; Move A to HL
+ 216:  646+4	0086' 6F      	                ld l, a
+ 217:  650+12	0087' 1811    	                jr pdw_byte             ; Use word code, skipping MS digits
  218:				;
  219:				;
  220:				; Print HL as a decimal unsigned number. Leading zeros are suppressed.
  221:				; Derived from code at http://map.grauw.nl/sources/external/z80bits.html
  222:				; HL is saved because this allows common exit code with cwpdby.
- 223:  680+11	008F' C5      	cwpdwd          push bc
- 224:  691+11	0090' D5      	                push de
- 225:  702+11	0091' E5      	                push hl
- 226:  713+7	0092' 1E00    	                ld e, 0                 ; Leading zeros flag
+ 223:  662+11	0089' C5      	cwpdwd          push bc
+ 224:  673+11	008A' D5      	                push de
+ 225:  684+11	008B' E5      	                push hl
+ 226:  695+7	008C' 1E00    	                ld e, 0                 ; Leading zeros flag
  227:				; Entry point from cwpdlo (32-bit version).
- 228:  720+10	0094' 01F0D8  	                ld bc, -10000           ; 10^4
- 229:  730+17	0097' CDB500  	                call pdw_digit
- 230:  747+10	009A' 0118FC  	pdl_entry       ld bc, -1000            ; 10^3
- 231:  757+17	009D' CDB500  	                call pdw_digit
+ 228:  702+10	008E' 01F0D8  	                ld bc, -10000           ; 10^4
+ 229:  712+17	0091' CDAF00  	                call pdw_digit
+ 230:  729+10	0094' 0118FC  	pdl_entry       ld bc, -1000            ; 10^3
+ 231:  739+17	0097' CDAF00  	                call pdw_digit
  232:				; cwpdby enters here to display a single byte.
- 233:  774+10	00A0' 019CFF  	pdw_byte        ld bc, -100             ; 10^2
- 234:  784+17	00A3' CDB500  	                call pdw_digit
- 235:  801+7	00A6' 0EF6    	                ld c, -10               ; 10^1
- 236:  808+17	00A8' CDB500  	                call pdw_digit
- 237:  825+7	00AB' 1EFF    	                ld e, 0xff              ; Always print the units digit
- 238:  832+4	00AD' 48      	                ld c, b
- 239:  836+17	00AE' CDB500  	                call pdw_digit
- 240:  853+10	00B1' E1      	                pop hl
- 241:  863+10	00B2' D1      	                pop de
- 242:  873+10	00B3' C1      	                pop bc
- 243:  883+10	00B4' C9      	                ret
+ 233:  756+10	009A' 019CFF  	pdw_byte        ld bc, -100             ; 10^2
+ 234:  766+17	009D' CDAF00  	                call pdw_digit
+ 235:  783+7	00A0' 0EF6    	                ld c, -10               ; 10^1
+ 236:  790+17	00A2' CDAF00  	                call pdw_digit
+ 237:  807+7	00A5' 1EFF    	                ld e, 0xff              ; Always print the units digit
+ 238:  814+4	00A7' 48      	                ld c, b
+ 239:  818+17	00A8' CDAF00  	                call pdw_digit
+ 240:  835+10	00AB' E1      	                pop hl
+ 241:  845+10	00AC' D1      	                pop de
+ 242:  855+10	00AD' C1      	                pop bc
+ 243:  865+10	00AE' C9      	                ret
  244:				;
- 245:  893+7	00B5' 3E2F    	pdw_digit       ld a, '0' - 1
- 246:  900+4	00B7' 3C      	pdw_digloop     inc a
- 247:  904+11	00B8' 09      	                add hl, bc
- 248:  915+7+5	00B9' 38FC    	                jr c, pdw_digloop
- 249:  922+15	00BB' ED42    	                sbc hl, bc
+ 245:  875+7	00AF' 3E2F    	pdw_digit       ld a, '0' - 1
+ 246:  882+4	00B1' 3C      	pdw_digloop     inc a
+ 247:  886+11	00B2' 09      	                add hl, bc
+ 248:  897+7+5	00B3' 38FC    	                jr c, pdw_digloop
+ 249:  904+15	00B5' ED42    	                sbc hl, bc
  250:				; A - ASCII digit
- 251:  937+7	00BD' FE30    	                cp '0'
- 252:  944+7+5	00BF' 2005    	                jr nz, pdw_prdig        ; Non-zero digit, so print it
- 253:  951+4	00C1' 1C      	                inc e
- 254:  955+7+5	00C2' 2802    	                jr z, pdw_prdig         ; Print anyway if e was 0xff
- 255:  962+4	00C4' 1D      	                dec e                   ; Restore flag
- 256:  966+10	00C5' C9      	                ret
- 257:  976+7	00C6' 1EFF    	pdw_prdig       ld e, 0xff              ; Flag non-zero found
- 258:  983+17	00C8' CD0000  	                call conwch
- 259: 1000+10	00CB' C9      	                ret
+ 251:  919+7	00B7' FE30    	                cp '0'
+ 252:  926+7+5	00B9' 2005    	                jr nz, pdw_prdig        ; Non-zero digit, so print it
+ 253:  933+4	00BB' 1C      	                inc e
+ 254:  937+7+5	00BC' 2802    	                jr z, pdw_prdig         ; Print anyway if e was 0xff
+ 255:  944+4	00BE' 1D      	                dec e                   ; Restore flag
+ 256:  948+10	00BF' C9      	                ret
+ 257:  958+7	00C0' 1EFF    	pdw_prdig       ld e, 0xff              ; Flag non-zero found
+ 258:  965+11	00C2' D7      	                CON_WR_CHAR
+ 259:  976+10	00C3' C9      	                ret
  260:				;
  261:				;
  262:				; Print DEHL as a decimal unsigned number. Leading zeros are suppressed.
- 263: 1010+11	00CC' C5      	cwpdlo          push bc
- 264: 1021+4	00CD' 44      	                ld b, h
- 265: 1025+4	00CE' 4D      	                ld c, l
+ 263:  986+11	00C4' C5      	cwpdlo          push bc
+ 264:  997+4	00C5' 44      	                ld b, h
+ 265: 1001+4	00C6' 4D      	                ld c, l
  266:				; DEBC - value to display. Store this.
- 267: 1029+10	00CF' 210400  	                ld hl, pdl_reg
- 268: 1039+7	00D2' 71      	                ld (hl), c
- 269: 1046+6	00D3' 23      	                inc hl
- 270: 1052+7	00D4' 70      	                ld (hl), b
- 271: 1059+6	00D5' 23      	                inc hl
- 272: 1065+7	00D6' 73      	                ld (hl), e
- 273: 1072+6	00D7' 23      	                inc hl
- 274: 1078+7	00D8' 72      	                ld (hl), d
+ 267: 1005+10	00C7' 210400  	                ld hl, pdl_reg
+ 268: 1015+7	00CA' 71      	                ld (hl), c
+ 269: 1022+6	00CB' 23      	                inc hl
+ 270: 1028+7	00CC' 70      	                ld (hl), b
+ 271: 1035+6	00CD' 23      	                inc hl
+ 272: 1041+7	00CE' 73      	                ld (hl), e
+ 273: 1048+6	00CF' 23      	                inc hl
+ 274: 1054+7	00D0' 72      	                ld (hl), d
  275:				; Reset leading zeros flag
- 276: 1085+7	00D9' 3E00    	                ld a, 0
- 277: 1092+13	00DB' 320800  	                ld (pdl_lz_flag), a
+ 276: 1061+7	00D1' 3E00    	                ld a, 0
+ 277: 1068+13	00D3' 320800  	                ld (pdl_lz_flag), a
  278:				; Digits
- 279: 1105+10	00DE' 1100CA  	                ld de, 0xca00           ; 10^9
- 280: 1115+10	00E1' 019A3B  	                ld bc, 0x3b9a
- 281: 1125+17	00E4' CD2401  	                call pdl_digit
- 282: 1142+10	00E7' 1100E1  	                ld de, 0xe100           ; 10^8
- 283: 1152+10	00EA' 01F505  	                ld bc, 0x05f5
- 284: 1162+17	00ED' CD2401  	                call pdl_digit
- 285: 1179+10	00F0' 118096  	                ld de, 0x9680           ; 10^7
- 286: 1189+10	00F3' 019800  	                ld bc, 0x0098
- 287: 1199+17	00F6' CD2401  	                call pdl_digit
- 288: 1216+10	00F9' 114042  	                ld de, 0x4240           ; 10^6
- 289: 1226+10	00FC' 010F00  	                ld bc, 0x000f
- 290: 1236+17	00FF' CD2401  	                call pdl_digit
- 291: 1253+10	0102' 11A086  	                ld de, 0x86a0           ; 10^5
- 292: 1263+10	0105' 010100  	                ld bc, 0x0001
- 293: 1273+17	0108' CD2401  	                call pdl_digit
- 294: 1290+10	010B' 111027  	                ld de, 0x2710           ; 10^4
- 295: 1300+10	010E' 010000  	                ld bc, 0x0000
- 296: 1310+17	0111' CD2401  	                call pdl_digit
+ 279: 1081+10	00D6' 1100CA  	                ld de, 0xca00           ; 10^9
+ 280: 1091+10	00D9' 019A3B  	                ld bc, 0x3b9a
+ 281: 1101+17	00DC' CD1C01  	                call pdl_digit
+ 282: 1118+10	00DF' 1100E1  	                ld de, 0xe100           ; 10^8
+ 283: 1128+10	00E2' 01F505  	                ld bc, 0x05f5
+ 284: 1138+17	00E5' CD1C01  	                call pdl_digit
+ 285: 1155+10	00E8' 118096  	                ld de, 0x9680           ; 10^7
+ 286: 1165+10	00EB' 019800  	                ld bc, 0x0098
+ 287: 1175+17	00EE' CD1C01  	                call pdl_digit
+ 288: 1192+10	00F1' 114042  	                ld de, 0x4240           ; 10^6
+ 289: 1202+10	00F4' 010F00  	                ld bc, 0x000f
+ 290: 1212+17	00F7' CD1C01  	                call pdl_digit
+ 291: 1229+10	00FA' 11A086  	                ld de, 0x86a0           ; 10^5
+ 292: 1239+10	00FD' 010100  	                ld bc, 0x0001
+ 293: 1249+17	0100' CD1C01  	                call pdl_digit
+ 294: 1266+10	0103' 111027  	                ld de, 0x2710           ; 10^4
+ 295: 1276+10	0106' 010000  	                ld bc, 0x0000
+ 296: 1286+17	0109' CD1C01  	                call pdl_digit
  297:				; Use 16-bit version to print the remainder of the digits.
- 298: 1327+11	0114' D5      	                push de
- 299: 1338+11	0115' E5      	                push hl
+ 298: 1303+11	010C' D5      	                push de
+ 299: 1314+11	010D' E5      	                push hl
  300:				; Fetch value.
- 301: 1349+10	0116' 210400  	                ld hl, pdl_reg
- 302: 1359+7	0119' 5E      	                ld e, (hl)
- 303: 1366+6	011A' 23      	                inc hl
- 304: 1372+7	011B' 56      	                ld d, (hl)
- 305: 1379+4	011C' EB      	                ex de, hl
- 306: 1383+13	011D' 3A0800  	                ld a, (pdl_lz_flag)
- 307: 1396+4	0120' 5F      	                ld e, a                 ; Set leading zeros flag
+ 301: 1325+10	010E' 210400  	                ld hl, pdl_reg
+ 302: 1335+7	0111' 5E      	                ld e, (hl)
+ 303: 1342+6	0112' 23      	                inc hl
+ 304: 1348+7	0113' 56      	                ld d, (hl)
+ 305: 1355+4	0114' EB      	                ex de, hl
+ 306: 1359+13	0115' 3A0800  	                ld a, (pdl_lz_flag)
+ 307: 1372+4	0118' 5F      	                ld e, a                 ; Set leading zeros flag
  308:				; E - leading zeros flag
  309:				; HL - value to print
- 310: 1400+10	0121' C39A00  	                jp pdl_entry
+ 310: 1376+10	0119' C39400  	                jp pdl_entry
  311:				;
  312:				; BCDE - significance of digit.
- 313: 1410+10	0124' 210900  	pdl_digit       ld hl, pdl_ascii
- 314: 1420+10	0127' 362F    	                ld (hl), '0' - 1
- 315: 1430+11	0129' 34      	pdl_digloop     inc (hl)                ; Update ASCII digit
+ 313: 1386+10	011C' 210900  	pdl_digit       ld hl, pdl_ascii
+ 314: 1396+10	011F' 362F    	                ld (hl), '0' - 1
+ 315: 1406+11	0121' 34      	pdl_digloop     inc (hl)                ; Update ASCII digit
  316:				; Trial subtraction.
- 317: 1441+11	012A' E5      	                push hl                 ; Save pointer to pdl_ascii
- 318: 1452+10	012B' 210400  	                ld hl, pdl_reg
- 319: 1462+7	012E' 7E      	                ld a, (hl)
- 320: 1469+4	012F' 93      	                sub e
- 321: 1473+7	0130' 77      	                ld (hl), a
- 322: 1480+6	0131' 23      	                inc hl
- 323: 1486+7	0132' 7E      	                ld a, (hl)
- 324: 1493+4	0133' 9A      	                sbc d
- 325: 1497+7	0134' 77      	                ld (hl), a
- 326: 1504+6	0135' 23      	                inc hl
- 327: 1510+7	0136' 7E      	                ld a, (hl)
- 328: 1517+4	0137' 99      	                sbc c
- 329: 1521+7	0138' 77      	                ld (hl), a
- 330: 1528+6	0139' 23      	                inc hl
- 331: 1534+7	013A' 7E      	                ld a, (hl)
- 332: 1541+4	013B' 98      	                sbc b
- 333: 1545+7	013C' 77      	                ld (hl), a
- 334: 1552+10	013D' E1      	                pop hl                  ; Restore pointer to pdl_ascii
- 335: 1562+7+5	013E' 30E9    	                jr nc, pdl_digloop      ; Keep subtracting until carry
+ 317: 1417+11	0122' E5      	                push hl                 ; Save pointer to pdl_ascii
+ 318: 1428+10	0123' 210400  	                ld hl, pdl_reg
+ 319: 1438+7	0126' 7E      	                ld a, (hl)
+ 320: 1445+4	0127' 93      	                sub e
+ 321: 1449+7	0128' 77      	                ld (hl), a
+ 322: 1456+6	0129' 23      	                inc hl
+ 323: 1462+7	012A' 7E      	                ld a, (hl)
+ 324: 1469+4	012B' 9A      	                sbc d
+ 325: 1473+7	012C' 77      	                ld (hl), a
+ 326: 1480+6	012D' 23      	                inc hl
+ 327: 1486+7	012E' 7E      	                ld a, (hl)
+ 328: 1493+4	012F' 99      	                sbc c
+ 329: 1497+7	0130' 77      	                ld (hl), a
+ 330: 1504+6	0131' 23      	                inc hl
+ 331: 1510+7	0132' 7E      	                ld a, (hl)
+ 332: 1517+4	0133' 98      	                sbc b
+ 333: 1521+7	0134' 77      	                ld (hl), a
+ 334: 1528+10	0135' E1      	                pop hl                  ; Restore pointer to pdl_ascii
+ 335: 1538+7+5	0136' 30E9    	                jr nc, pdl_digloop      ; Keep subtracting until carry
  336:				; Reverse the last subtraction to restore the value before carry.
- 337: 1569+10	0140' 210400  	                ld hl, pdl_reg
- 338: 1579+7	0143' 7E      	                ld a, (hl)
- 339: 1586+4	0144' 83      	                add e
- 340: 1590+7	0145' 77      	                ld (hl), a
- 341: 1597+6	0146' 23      	                inc hl
- 342: 1603+7	0147' 7E      	                ld a, (hl)
- 343: 1610+4	0148' 8A      	                adc d
- 344: 1614+7	0149' 77      	                ld (hl), a
- 345: 1621+6	014A' 23      	                inc hl
- 346: 1627+7	014B' 7E      	                ld a, (hl)
- 347: 1634+4	014C' 89      	                adc c
- 348: 1638+7	014D' 77      	                ld (hl), a
- 349: 1645+6	014E' 23      	                inc hl
- 350: 1651+7	014F' 7E      	                ld a, (hl)
- 351: 1658+4	0150' 88      	                adc b
- 352: 1662+7	0151' 77      	                ld (hl), a
+ 337: 1545+10	0138' 210400  	                ld hl, pdl_reg
+ 338: 1555+7	013B' 7E      	                ld a, (hl)
+ 339: 1562+4	013C' 83      	                add e
+ 340: 1566+7	013D' 77      	                ld (hl), a
+ 341: 1573+6	013E' 23      	                inc hl
+ 342: 1579+7	013F' 7E      	                ld a, (hl)
+ 343: 1586+4	0140' 8A      	                adc d
+ 344: 1590+7	0141' 77      	                ld (hl), a
+ 345: 1597+6	0142' 23      	                inc hl
+ 346: 1603+7	0143' 7E      	                ld a, (hl)
+ 347: 1610+4	0144' 89      	                adc c
+ 348: 1614+7	0145' 77      	                ld (hl), a
+ 349: 1621+6	0146' 23      	                inc hl
+ 350: 1627+7	0147' 7E      	                ld a, (hl)
+ 351: 1634+4	0148' 88      	                adc b
+ 352: 1638+7	0149' 77      	                ld (hl), a
  353:				;
- 354: 1669+10	0152' 210800  	                ld hl, pdl_lz_flag      ; Point to leading zeros flag
- 355: 1679+13	0155' 3A0900  	                ld a, (pdl_ascii)       ; Fetch ASCII digit
- 356: 1692+4	0158' 4F      	                ld c, a
- 357: 1696+7	0159' FE30    	                cp '0'
- 358: 1703+7+5	015B' 2005    	                jr nz, pdl_prdig        ; Non-zero digit, so print it
- 359: 1710+7	015D' 7E      	                ld a, (hl)
- 360: 1717+4	015E' A7      	                and a
- 361: 1721+7+5	015F' 2001    	                jr nz, pdl_prdig        ; Print anyway if flag was set
+ 354: 1645+10	014A' 210800  	                ld hl, pdl_lz_flag      ; Point to leading zeros flag
+ 355: 1655+13	014D' 3A0900  	                ld a, (pdl_ascii)       ; Fetch ASCII digit
+ 356: 1668+4	0150' 4F      	                ld c, a
+ 357: 1672+7	0151' FE30    	                cp '0'
+ 358: 1679+7+5	0153' 2005    	                jr nz, pdl_prdig        ; Non-zero digit, so print it
+ 359: 1686+7	0155' 7E      	                ld a, (hl)
+ 360: 1693+4	0156' A7      	                and a
+ 361: 1697+7+5	0157' 2001    	                jr nz, pdl_prdig        ; Print anyway if flag was set
  362:				; Skip leading zeros.
- 363: 1728+10	0161' C9      	                ret
+ 363: 1704+10	0159' C9      	                ret
  364:				;
- 365: 1738+10	0162' 36FF    	pdl_prdig       ld (hl), 0xff           ; Flag non-zero found
- 366: 1748+4	0164' 79      	                ld a, c
- 367: 1752+17	0165' CD0000  	                call conwch
- 368: 1769+10	0168' C9      	                ret
+ 365: 1714+10	015A' 36FF    	pdl_prdig       ld (hl), 0xff           ; Flag non-zero found
+ 366: 1724+4	015C' 79      	                ld a, c
+ 367: 1728+11	015D' D7      	                CON_WR_CHAR
+ 368: 1739+10	015E' C9      	                ret
  369:				;
  370:				;
  371:				; Match word in a string against list of options. This is intended for matching
@@ -1005,86 +1099,86 @@
  380:				; Returns with:
  381:				; A - index number of word in list that matched, or zero if no match.
  382:				; HL - points to space or terminator in string.
- 383: 1779+11	0169' C5      	mtwdli          push bc                 ; Preserve BC
- 384: 1790+11	016A' E5      	                push hl                 ; Save start of word in string
- 385: 1801+4	016B' 4F      	                ld c, a                 ; Save options
- 386: 1805+7	016C' 0601    	                ld b, 1                 ; Word count
- 387: 1812+8	016E' CBB9    	mw_char_loop    res MTWDLI_TERM_BIT, c  ; Flag no terminator found (yet)
+ 383: 1749+11	015F' C5      	mtwdli          push bc                 ; Preserve BC
+ 384: 1760+11	0160' E5      	                push hl                 ; Save start of word in string
+ 385: 1771+4	0161' 4F      	                ld c, a                 ; Save options
+ 386: 1775+7	0162' 0601    	                ld b, 1                 ; Word count
+ 387: 1782+8	0164' CBB9    	mw_char_loop    res MTWDLI_TERM_BIT, c  ; Flag no terminator found (yet)
  388:				; End of word or end of string?
  389:				; C - options
- 390: 1820+7	0170' 7E      	                ld a, (hl)              ; Fetch character from string
- 391: 1827+7	0171' FE20    	                cp ' '
- 392: 1834+7+5	0173' 280D    	                jr z, mw_sword_end
- 393: 1841+4	0175' A7      	                and a
- 394: 1845+7+5	0176' 280A    	                jr z, mw_sword_end
+ 390: 1790+7	0166' 7E      	                ld a, (hl)              ; Fetch character from string
+ 391: 1797+7	0167' FE20    	                cp ' '
+ 392: 1804+7+5	0169' 280D    	                jr z, mw_sword_end
+ 393: 1811+4	016B' A7      	                and a
+ 394: 1815+7+5	016C' 280A    	                jr z, mw_sword_end
  395:				; Check for abbreviation character if enabled.
- 396: 1852+8	0178' CB41    	                bit MTWDLI_ABBREV_BIT, c    ; Abbreviations enabled?
- 397: 1860+7+5	017A' 2808    	                jr z, mw_str_tm_dn
- 398: 1867+7	017C' FE2E    	                cp '.'
- 399: 1874+7+5	017E' 2840    	                jr z, mw_dot            ; Stop matching if "." found.
- 400: 1881+12	0180' 1802    	                jr mw_str_tm_dn
+ 396: 1822+8	016E' CB41    	                bit MTWDLI_ABBREV_BIT, c    ; Abbreviations enabled?
+ 397: 1830+7+5	0170' 2808    	                jr z, mw_str_tm_dn
+ 398: 1837+7	0172' FE2E    	                cp '.'
+ 399: 1844+7+5	0174' 2840    	                jr z, mw_dot            ; Stop matching if "." found.
+ 400: 1851+12	0176' 1802    	                jr mw_str_tm_dn
  401:				; Flag end of word or end of string found
- 402: 1893+8	0182' CBF9    	mw_sword_end    set MTWDLI_TERM_BIT, c  ; Flag this for later
+ 402: 1863+8	0178' CBF9    	mw_sword_end    set MTWDLI_TERM_BIT, c  ; Flag this for later
  403:				; Repeat test for word list.
- 404: 1901+7	0184' 1A      	mw_str_tm_dn    ld a, (de)              ; Fetch character from list
- 405: 1908+7	0185' FE20    	                cp ' '
- 406: 1915+7+5	0187' 2827    	                jr z, mw_end_lwd        ; End of word in list
- 407: 1922+4	0189' A7      	                and a
- 408: 1926+7+5	018A' 2824    	                jr z, mw_end_lwd        ; End of word in list
- 409: 1933+8	018C' CB49    	                bit MTWDLI_ICASE_BIT, c ; Force lower case?
- 410: 1941+10+7	018E' C44700  	                call nz, toloca         ; Optionally convert to lower case
+ 404: 1871+7	017A' 1A      	mw_str_tm_dn    ld a, (de)              ; Fetch character from list
+ 405: 1878+7	017B' FE20    	                cp ' '
+ 406: 1885+7+5	017D' 2827    	                jr z, mw_end_lwd        ; End of word in list
+ 407: 1892+4	017F' A7      	                and a
+ 408: 1896+7+5	0180' 2824    	                jr z, mw_end_lwd        ; End of word in list
+ 409: 1903+8	0182' CB49    	                bit MTWDLI_ICASE_BIT, c ; Force lower case?
+ 410: 1911+10+7	0184' C44100  	                call nz, toloca         ; Optionally convert to lower case
  411:				; There is at least one more character to match in the string and the current word
  412:				; in the list.
- 413: 1951+11	0191' C5      	                push bc                 ; Save counter
- 414: 1962+4	0192' 47      	                ld b, a
- 415: 1966+7	0193' 7E      	                ld a, (hl)
- 416: 1973+8	0194' CB49    	                bit MTWDLI_ICASE_BIT, c ; Force lower case?
- 417: 1981+10+7	0196' C44700  	                call nz, toloca         ; Optionally convert to lower case
- 418: 1991+4	0199' B8      	                cp b
- 419: 1995+10	019A' C1      	                pop bc
- 420: 2005+7+5	019B' 2004    	                jr nz, mw_char_mis
+ 413: 1921+11	0187' C5      	                push bc                 ; Save counter
+ 414: 1932+4	0188' 47      	                ld b, a
+ 415: 1936+7	0189' 7E      	                ld a, (hl)
+ 416: 1943+8	018A' CB49    	                bit MTWDLI_ICASE_BIT, c ; Force lower case?
+ 417: 1951+10+7	018C' C44100  	                call nz, toloca         ; Optionally convert to lower case
+ 418: 1961+4	018F' B8      	                cp b
+ 419: 1965+10	0190' C1      	                pop bc
+ 420: 1975+7+5	0191' 2004    	                jr nz, mw_char_mis
  421:				; Characters matched!
- 422: 2012+6	019D' 23      	                inc hl
- 423: 2018+6	019E' 13      	                inc de
- 424: 2024+12	019F' 18CD    	                jr mw_char_loop
+ 422: 1982+6	0193' 23      	                inc hl
+ 423: 1988+6	0194' 13      	                inc de
+ 424: 1994+12	0195' 18CD    	                jr mw_char_loop
  425:				; Mismatch. Try the next word in the list, if there is one.
- 426: 2036+10	01A1' E1      	mw_char_mis     pop hl                  ; Reset string pointer
- 427: 2046+11	01A2' E5      	                push hl
- 428: 2057+4	01A3' 04      	                inc b                   ; Keep track of word count
+ 426: 2006+10	0197' E1      	mw_char_mis     pop hl                  ; Reset string pointer
+ 427: 2016+11	0198' E5      	                push hl
+ 428: 2027+4	0199' 04      	                inc b                   ; Keep track of word count
  429:				; Skip forward until the next item in the list, or the end of the list
- 430: 2061+6	01A4' 13      	mw_next_lwd     inc de
- 431: 2067+7	01A5' 1A      	                ld a, (de)
- 432: 2074+4	01A6' A7      	                and a
- 433: 2078+7+5	01A7' 280E    	                jr z, mw_no_match       ; Exit if end of word list encountered
- 434: 2085+7	01A9' FE20    	                cp ' '
- 435: 2092+7+5	01AB' 20F7    	                jr nz, mw_next_lwd
- 436: 2099+6	01AD' 13      	                inc de                  ; Point to first character of next word
- 437: 2105+12	01AE' 18BE    	                jr mw_char_loop         ; Try this one
+ 430: 2031+6	019A' 13      	mw_next_lwd     inc de
+ 431: 2037+7	019B' 1A      	                ld a, (de)
+ 432: 2044+4	019C' A7      	                and a
+ 433: 2048+7+5	019D' 280E    	                jr z, mw_no_match       ; Exit if end of word list encountered
+ 434: 2055+7	019F' FE20    	                cp ' '
+ 435: 2062+7+5	01A1' 20F7    	                jr nz, mw_next_lwd
+ 436: 2069+6	01A3' 13      	                inc de                  ; Point to first character of next word
+ 437: 2075+12	01A4' 18BE    	                jr mw_char_loop         ; Try this one
  438:				;
  439:				; End of word found in list.
- 440: 2117+8	01B0' CB79    	mw_end_lwd      bit MTWDLI_TERM_BIT, c  ; Terminator found?
- 441: 2125+7+5	01B2' 2007    	                jr nz, mw_end_both
+ 440: 2087+8	01A6' CB79    	mw_end_lwd      bit MTWDLI_TERM_BIT, c  ; Terminator found?
+ 441: 2095+7+5	01A8' 2007    	                jr nz, mw_end_both
  442:				; End of word found in list, but not in the string.
- 443: 2132+6	01B4' 1B      	                dec de                  ; Allow for increment later
- 444: 2138+12	01B5' 18EA    	                jr mw_char_mis          ; Try next word in list
+ 443: 2102+6	01AA' 1B      	                dec de                  ; Allow for increment later
+ 444: 2108+12	01AB' 18EA    	                jr mw_char_mis          ; Try next word in list
  445:				;
  446:				; End of the word list reached and no match.
- 447: 2150+10	01B7' E1      	mw_no_match     pop hl                  ; Fix stack
- 448: 2160+4	01B8' AF      	                xor a                   ; Flag no match
- 449: 2164+10	01B9' C1      	                pop bc                  ; Restore BC
- 450: 2174+10	01BA' C9      	                ret
+ 447: 2120+10	01AD' E1      	mw_no_match     pop hl                  ; Fix stack
+ 448: 2130+4	01AE' AF      	                xor a                   ; Flag no match
+ 449: 2134+10	01AF' C1      	                pop bc                  ; Restore BC
+ 450: 2144+10	01B0' C9      	                ret
  451:				;
  452:				; End of words in string and list found simultanously. We have a match!                
- 453: 2184+6	01BB' 33      	mw_end_both     inc sp                  ; Fix stack
- 454: 2190+6	01BC' 33      	                inc sp
- 455: 2196+4	01BD' 78      	                ld a, b                 ; Fetch word index number
- 456: 2200+10	01BE' C1      	                pop bc                  ; Restore BC
- 457: 2210+10	01BF' C9      	                ret
+ 453: 2154+6	01B1' 33      	mw_end_both     inc sp                  ; Fix stack
+ 454: 2160+6	01B2' 33      	                inc sp
+ 455: 2166+4	01B3' 78      	                ld a, b                 ; Fetch word index number
+ 456: 2170+10	01B4' C1      	                pop bc                  ; Restore BC
+ 457: 2180+10	01B5' C9      	                ret
  458:				;
  459:				; "." found in string, so accept the current word as the match. We need to skip the
  460:				; remainder of the string.
- 461: 2220+6	01C0' 23      	mw_dot          inc hl                  ; Step past dot
- 462: 2226+12	01C1' 18F8    	                jr mw_end_both
+ 461: 2190+6	01B6' 23      	mw_dot          inc hl                  ; Step past dot
+ 462: 2196+12	01B7' 18F8    	                jr mw_end_both
  463:				;
  464:				;
  465:				; Read a 16-bit hexadecimal number from a string. Case is ignored for alphabetic
@@ -1095,54 +1189,54 @@
  470:				; HL - points to first character after number.
  471:				; DE - required number
  472:				; C flag - set on error (too many or zero valid digits)
- 473: 2238+11	01C3' C5      	rdhxwd          push bc
- 474: 2249+10	01C4' 110000  	                ld de, 0                ; Initial result
- 475: 2259+7	01C7' 0E00    	                ld c, 0                 ; Count characters read
- 476: 2266+7	01C9' 7E      	ghn_char_lp     ld a, (hl)
- 477: 2273+17	01CA' CD3E00  	                call toupca             ; Convert to upper case.
- 478: 2290+7	01CD' FE41    	                cp 'A'
- 479: 2297+7+5	01CF' 3808    	                jr c, ghn_not_alpha
- 480: 2304+7	01D1' FE47    	                cp 'F' + 1
- 481: 2311+7+5	01D3' 3004    	                jr nc, ghn_not_alpha
+ 473: 2208+11	01B9' C5      	rdhxwd          push bc
+ 474: 2219+10	01BA' 110000  	                ld de, 0                ; Initial result
+ 475: 2229+7	01BD' 0E00    	                ld c, 0                 ; Count characters read
+ 476: 2236+7	01BF' 7E      	ghn_char_lp     ld a, (hl)
+ 477: 2243+17	01C0' CD3800  	                call toupca             ; Convert to upper case.
+ 478: 2260+7	01C3' FE41    	                cp 'A'
+ 479: 2267+7+5	01C5' 3808    	                jr c, ghn_not_alpha
+ 480: 2274+7	01C7' FE47    	                cp 'F' + 1
+ 481: 2281+7+5	01C9' 3004    	                jr nc, ghn_not_alpha
  482:				; Character is alphabetic.
- 483: 2318+7	01D5' D637    	                sub 'A' - 10
- 484: 2325+12	01D7' 1808    	                jr ghn_got_dig
+ 483: 2288+7	01CB' D637    	                sub 'A' - 10
+ 484: 2295+12	01CD' 1808    	                jr ghn_got_dig
  485:				; Character is not alphabetic.
- 486: 2337+7	01D9' D630    	ghn_not_alpha   sub '0'
- 487: 2344+7+5	01DB' 381E    	                jr c, ghn_done          ; End of number if < '0'
- 488: 2351+7	01DD' FE0A    	                cp 10
- 489: 2358+7+5	01DF' 301A    	                jr nc, ghn_done         ; End of number if not a digit
+ 486: 2307+7	01CF' D630    	ghn_not_alpha   sub '0'
+ 487: 2314+7+5	01D1' 381E    	                jr c, ghn_done          ; End of number if < '0'
+ 488: 2321+7	01D3' FE0A    	                cp 10
+ 489: 2328+7+5	01D5' 301A    	                jr nc, ghn_done         ; End of number if not a digit
  490:				; Value of digit is in LSN of A. Make space for it in the result.
- 491: 2365+4	01E1' EB      	ghn_got_dig     ex de, hl
- 492: 2369+11	01E2' 29      	                add hl, hl              ; Shift left
- 493: 2380+7+5	01E3' 3812    	                jr c, ghn_error_ex      ; No bits should fall off the end
- 494: 2387+11	01E5' 29      	                add hl, hl
- 495: 2398+7+5	01E6' 380F    	                jr c, ghn_error_ex      ; No bits should fall off the end
- 496: 2405+11	01E8' 29      	                add hl, hl
- 497: 2416+7+5	01E9' 380C    	                jr c, ghn_error_ex      ; No bits should fall off the end
- 498: 2423+11	01EB' 29      	                add hl, hl
- 499: 2434+7+5	01EC' 3809    	                jr c, ghn_error_ex      ; No bits should fall off the end
- 500: 2441+4	01EE' EB      	                ex de, hl
+ 491: 2335+4	01D7' EB      	ghn_got_dig     ex de, hl
+ 492: 2339+11	01D8' 29      	                add hl, hl              ; Shift left
+ 493: 2350+7+5	01D9' 3812    	                jr c, ghn_error_ex      ; No bits should fall off the end
+ 494: 2357+11	01DB' 29      	                add hl, hl
+ 495: 2368+7+5	01DC' 380F    	                jr c, ghn_error_ex      ; No bits should fall off the end
+ 496: 2375+11	01DE' 29      	                add hl, hl
+ 497: 2386+7+5	01DF' 380C    	                jr c, ghn_error_ex      ; No bits should fall off the end
+ 498: 2393+11	01E1' 29      	                add hl, hl
+ 499: 2404+7+5	01E2' 3809    	                jr c, ghn_error_ex      ; No bits should fall off the end
+ 500: 2411+4	01E4' EB      	                ex de, hl
  501:				; Insert new digit
- 502: 2445+4	01EF' B3      	                or e
- 503: 2449+4	01F0' 5F      	                ld e, a
+ 502: 2415+4	01E5' B3      	                or e
+ 503: 2419+4	01E6' 5F      	                ld e, a
  504:				; Count digits and check limit.
- 505: 2453+6	01F1' 23      	                inc hl                  ; Point to next character
- 506: 2459+4	01F2' 0C      	                inc c                   ; One more digit
- 507: 2463+7+5	01F3' 20D4    	                jr nz, ghn_char_lp      ; Keep going unless over limit
- 508: 2470+12	01F5' 1801    	                jr ghn_error
+ 505: 2423+6	01E7' 23      	                inc hl                  ; Point to next character
+ 506: 2429+4	01E8' 0C      	                inc c                   ; One more digit
+ 507: 2433+7+5	01E9' 20D4    	                jr nz, ghn_char_lp      ; Keep going unless over limit
+ 508: 2440+12	01EB' 1801    	                jr ghn_error
  509:				; Too many or zero digits or overflow.
- 510: 2482+4	01F7' EB      	ghn_error_ex    ex de, hl
- 511: 2486+10	01F8' C1      	ghn_error       pop bc
- 512: 2496+4	01F9' 37      	                scf
- 513: 2500+10	01FA' C9      	                ret                     ; Return with carry flag set (error)
+ 510: 2452+4	01ED' EB      	ghn_error_ex    ex de, hl
+ 511: 2456+10	01EE' C1      	ghn_error       pop bc
+ 512: 2466+4	01EF' 37      	                scf
+ 513: 2470+10	01F0' C9      	                ret                     ; Return with carry flag set (error)
  514:				; Non-hex character found.
- 515: 2510+4	01FB' 79      	ghn_done        ld a, c
- 516: 2514+4	01FC' A7      	                and a
- 517: 2518+7+5	01FD' 28F9    	                jr z, ghn_error         ; Error if no digits read
+ 515: 2480+4	01F1' 79      	ghn_done        ld a, c
+ 516: 2484+4	01F2' A7      	                and a
+ 517: 2488+7+5	01F3' 28F9    	                jr z, ghn_error         ; Error if no digits read
  518:				; Normal completion.
- 519: 2525+10	01FF' C1      	                pop bc
- 520: 2535+10	0200' C9      	                ret                     ; Return with carry flag reset (OK)
+ 519: 2495+10	01F5' C1      	                pop bc
+ 520: 2505+10	01F6' C9      	                ret                     ; Return with carry flag reset (OK)
  521:				;
  522:				;
  523:				; Read a 16-bit unsigned decimal number from a string.
@@ -1152,52 +1246,52 @@
  527:				; HL - points to first character after number.
  528:				; DE - required number
  529:				; C flag - set on error (too many or zero valid digits)
- 530: 2545+11	0201' C5      	rdduwd          push bc
- 531: 2556+10	0202' 110000  	                ld de, 0                ; Initial result
- 532: 2566+7	0205' 0E00    	                ld c, 0                 ; Count characters read
- 533: 2573+7	0207' 7E      	gdn_char_lp     ld a, (hl)
- 534: 2580+7	0208' D630    	                sub '0'
- 535: 2587+7+5	020A' 3827    	                jr c, gdn_done          ; End of number if < '0'
- 536: 2594+7	020C' FE0A    	                cp 10
- 537: 2601+7+5	020E' 3023    	                jr nc, gdn_done         ; End of number if not a digit
+ 530: 2515+11	01F7' C5      	rdduwd          push bc
+ 531: 2526+10	01F8' 110000  	                ld de, 0                ; Initial result
+ 532: 2536+7	01FB' 0E00    	                ld c, 0                 ; Count characters read
+ 533: 2543+7	01FD' 7E      	gdn_char_lp     ld a, (hl)
+ 534: 2550+7	01FE' D630    	                sub '0'
+ 535: 2557+7+5	0200' 3827    	                jr c, gdn_done          ; End of number if < '0'
+ 536: 2564+7	0202' FE0A    	                cp 10
+ 537: 2571+7+5	0204' 3023    	                jr nc, gdn_done         ; End of number if not a digit
  538:				; Value of digit is in LSN of A. Make space for it in the result.
- 539: 2608+11	0210' C5      	                push bc                 ; Save counter
- 540: 2619+4	0211' EB      	                ex de, hl
- 541: 2623+4	0212' 44      	                ld b, h                 ; Save result x 1
- 542: 2627+4	0213' 4D      	                ld c, l
- 543: 2631+11	0214' 29      	                add hl, hl              ; Find result x 2
- 544: 2642+7+5	0215' 3817    	                jr c, gdn_error_pop     ; No bits should fall off the end
- 545: 2649+11	0217' 29      	                add hl, hl              ; Find result x 4
- 546: 2660+7+5	0218' 3814    	                jr c, gdn_error_pop
- 547: 2667+11	021A' 09      	                add hl, bc              ; Find result x 5
- 548: 2678+7+5	021B' 3811    	                jr c, gdn_error_pop                
- 549: 2685+11	021D' 29      	                add hl, hl              ; Find result x 10
- 550: 2696+7+5	021E' 380E    	                jr c, gdn_error_pop
+ 539: 2578+11	0206' C5      	                push bc                 ; Save counter
+ 540: 2589+4	0207' EB      	                ex de, hl
+ 541: 2593+4	0208' 44      	                ld b, h                 ; Save result x 1
+ 542: 2597+4	0209' 4D      	                ld c, l
+ 543: 2601+11	020A' 29      	                add hl, hl              ; Find result x 2
+ 544: 2612+7+5	020B' 3817    	                jr c, gdn_error_pop     ; No bits should fall off the end
+ 545: 2619+11	020D' 29      	                add hl, hl              ; Find result x 4
+ 546: 2630+7+5	020E' 3814    	                jr c, gdn_error_pop
+ 547: 2637+11	0210' 09      	                add hl, bc              ; Find result x 5
+ 548: 2648+7+5	0211' 3811    	                jr c, gdn_error_pop                
+ 549: 2655+11	0213' 29      	                add hl, hl              ; Find result x 10
+ 550: 2666+7+5	0214' 380E    	                jr c, gdn_error_pop
  551:				; Insert new digit
- 552: 2703+7	0220' 0600    	                ld b, 0
- 553: 2710+4	0222' 4F      	                ld c, a
- 554: 2714+11	0223' 09      	                add hl, bc              ; Add digit
- 555: 2725+7+5	0224' 3808    	                jr c, gdn_error_pop
- 556: 2732+4	0226' EB      	                ex de, hl
- 557: 2736+10	0227' C1      	                pop bc                  ; Restore counter
+ 552: 2673+7	0216' 0600    	                ld b, 0
+ 553: 2680+4	0218' 4F      	                ld c, a
+ 554: 2684+11	0219' 09      	                add hl, bc              ; Add digit
+ 555: 2695+7+5	021A' 3808    	                jr c, gdn_error_pop
+ 556: 2702+4	021C' EB      	                ex de, hl
+ 557: 2706+10	021D' C1      	                pop bc                  ; Restore counter
  558:				; Count digits and check limit.
- 559: 2746+6	0228' 23      	                inc hl                  ; Point to next character
- 560: 2752+4	0229' 0C      	                inc c                   ; One more digit
- 561: 2756+7+5	022A' 20DB    	                jr nz, gdn_char_lp      ; Keep going unless 256 digits (unlikely)
- 562: 2763+12	022C' 1802    	                jr gdn_error
+ 559: 2716+6	021E' 23      	                inc hl                  ; Point to next character
+ 560: 2722+4	021F' 0C      	                inc c                   ; One more digit
+ 561: 2726+7+5	0220' 20DB    	                jr nz, gdn_char_lp      ; Keep going unless 256 digits (unlikely)
+ 562: 2733+12	0222' 1802    	                jr gdn_error
  563:				; Too many or zero digits or overflow.
- 564: 2775+4	022E' EB      	gdn_error_pop   ex de, hl               ; Move pointer back to HL
- 565: 2779+10	022F' C1      	                pop bc                  ; Clean up stack
- 566: 2789+10	0230' C1      	gdn_error       pop bc                  ; Restore original BC
- 567: 2799+4	0231' 37      	                scf
- 568: 2803+10	0232' C9      	                ret                     ; Return with carry flag set (error)
+ 564: 2745+4	0224' EB      	gdn_error_pop   ex de, hl               ; Move pointer back to HL
+ 565: 2749+10	0225' C1      	                pop bc                  ; Clean up stack
+ 566: 2759+10	0226' C1      	gdn_error       pop bc                  ; Restore original BC
+ 567: 2769+4	0227' 37      	                scf
+ 568: 2773+10	0228' C9      	                ret                     ; Return with carry flag set (error)
  569:				; Non-digit character found.
- 570: 2813+4	0233' 79      	gdn_done        ld a, c
- 571: 2817+4	0234' A7      	                and a
- 572: 2821+7+5	0235' 28F9    	                jr z, gdn_error         ; Error if no digits read
+ 570: 2783+4	0229' 79      	gdn_done        ld a, c
+ 571: 2787+4	022A' A7      	                and a
+ 572: 2791+7+5	022B' 28F9    	                jr z, gdn_error         ; Error if no digits read
  573:				; Normal completion.
- 574: 2828+10	0237' C1      	                pop bc
- 575: 2838+10	0238' C9      	                ret                     ; Return with carry flag reset (OK)
+ 574: 2798+10	022D' C1      	                pop bc
+ 575: 2808+10	022E' C9      	                ret                     ; Return with carry flag reset (OK)
  576:				;
  577:				;
  578:				; Read a 32-bit unsigned decimal number from a string.
@@ -1207,98 +1301,98 @@
  582:				; HL - points to first character after number.
  583:				; BCDE - required number
  584:				; C flag - set on error (too many or zero valid digits)
- 585: 2848+10	0239' 010000  	rddulo          ld bc, 0                ; Initial result
- 586: 2858+4	023C' 50      	                ld d, b
- 587: 2862+4	023D' 59      	                ld e, c
- 588: 2866+7	023E' 3E00    	                ld a, 0                 ; Count characters read
- 589: 2873+11	0240' F5      	gldn_char_lp    push af                 ; Save counter
- 590: 2884+7	0241' 7E      	                ld a, (hl)
- 591: 2891+7	0242' D630    	                sub '0'
- 592: 2898+7+5	0244' 385E    	                jr c, gldn_done         ; End of number if < '0'
- 593: 2905+7	0246' FE0A    	                cp 10
- 594: 2912+7+5	0248' 305A    	                jr nc, gldn_done        ; End of number if not a digit
+ 585: 2818+10	022F' 010000  	rddulo          ld bc, 0                ; Initial result
+ 586: 2828+4	0232' 50      	                ld d, b
+ 587: 2832+4	0233' 59      	                ld e, c
+ 588: 2836+7	0234' 3E00    	                ld a, 0                 ; Count characters read
+ 589: 2843+11	0236' F5      	gldn_char_lp    push af                 ; Save counter
+ 590: 2854+7	0237' 7E      	                ld a, (hl)
+ 591: 2861+7	0238' D630    	                sub '0'
+ 592: 2868+7+5	023A' 385E    	                jr c, gldn_done         ; End of number if < '0'
+ 593: 2875+7	023C' FE0A    	                cp 10
+ 594: 2882+7+5	023E' 305A    	                jr nc, gldn_done        ; End of number if not a digit
  595:				; Value of digit is in LSN of A. Make space for it in the result.
- 596: 2919+11	024A' E5      	                push hl                 ; Save pointer
- 597: 2930+11	024B' F5      	                push af                 ; Save digit
+ 596: 2889+11	0240' E5      	                push hl                 ; Save pointer
+ 597: 2900+11	0241' F5      	                push af                 ; Save digit
  598:				; Save result x 1 
- 599: 2941+10	024C' 210000  	                ld hl, gldn_x1
- 600: 2951+7	024F' 73      	                ld (hl), e
- 601: 2958+6	0250' 23      	                inc hl
- 602: 2964+7	0251' 72      	                ld (hl), d
- 603: 2971+6	0252' 23      	                inc hl
- 604: 2977+7	0253' 71      	                ld (hl), c
- 605: 2984+6	0254' 23      	                inc hl
- 606: 2990+7	0255' 70      	                ld (hl), b
+ 599: 2911+10	0242' 210000  	                ld hl, gldn_x1
+ 600: 2921+7	0245' 73      	                ld (hl), e
+ 601: 2928+6	0246' 23      	                inc hl
+ 602: 2934+7	0247' 72      	                ld (hl), d
+ 603: 2941+6	0248' 23      	                inc hl
+ 604: 2947+7	0249' 71      	                ld (hl), c
+ 605: 2954+6	024A' 23      	                inc hl
+ 606: 2960+7	024B' 70      	                ld (hl), b
  607:				; Find result x 2
- 608: 2997+8	0256' CB23    	                sla e
- 609: 3005+8	0258' CB12    	                rl d
- 610: 3013+8	025A' CB11    	                rl c
- 611: 3021+8	025C' CB10    	                rl b
- 612: 3029+7+5	025E' 3840    	                jr c, gldn_error_pop    ; No bits should fall off the end
+ 608: 2967+8	024C' CB23    	                sla e
+ 609: 2975+8	024E' CB12    	                rl d
+ 610: 2983+8	0250' CB11    	                rl c
+ 611: 2991+8	0252' CB10    	                rl b
+ 612: 2999+7+5	0254' 3840    	                jr c, gldn_error_pop    ; No bits should fall off the end
  613:				; Find result x 4
- 614: 3036+8	0260' CB23    	                sla e
- 615: 3044+8	0262' CB12    	                rl d
- 616: 3052+8	0264' CB11    	                rl c
- 617: 3060+8	0266' CB10    	                rl b
- 618: 3068+7+5	0268' 3836    	                jr c, gldn_error_pop    ; No bits should fall off the end
+ 614: 3006+8	0256' CB23    	                sla e
+ 615: 3014+8	0258' CB12    	                rl d
+ 616: 3022+8	025A' CB11    	                rl c
+ 617: 3030+8	025C' CB10    	                rl b
+ 618: 3038+7+5	025E' 3836    	                jr c, gldn_error_pop    ; No bits should fall off the end
  619:				; Add "x 1" to obtain result x 5
- 620: 3075+10	026A' 210000  	                ld hl, gldn_x1
- 621: 3085+4	026D' 7B      	                ld a, e
- 622: 3089+7	026E' 86      	                add (hl)
- 623: 3096+4	026F' 5F      	                ld e, a
- 624: 3100+6	0270' 23      	                inc hl
- 625: 3106+4	0271' 7A      	                ld a, d
- 626: 3110+7	0272' 8E      	                adc (hl)
- 627: 3117+4	0273' 57      	                ld d, a
- 628: 3121+6	0274' 23      	                inc hl
- 629: 3127+4	0275' 79      	                ld a, c
- 630: 3131+7	0276' 8E      	                adc (hl)
- 631: 3138+4	0277' 4F      	                ld c, a
- 632: 3142+6	0278' 23      	                inc hl
- 633: 3148+4	0279' 78      	                ld a, b
- 634: 3152+7	027A' 8E      	                adc (hl)
- 635: 3159+4	027B' 47      	                ld b, a
- 636: 3163+7+5	027C' 3822    	                jr c, gldn_error_pop    ; No bits should fall off the end
+ 620: 3045+10	0260' 210000  	                ld hl, gldn_x1
+ 621: 3055+4	0263' 7B      	                ld a, e
+ 622: 3059+7	0264' 86      	                add (hl)
+ 623: 3066+4	0265' 5F      	                ld e, a
+ 624: 3070+6	0266' 23      	                inc hl
+ 625: 3076+4	0267' 7A      	                ld a, d
+ 626: 3080+7	0268' 8E      	                adc (hl)
+ 627: 3087+4	0269' 57      	                ld d, a
+ 628: 3091+6	026A' 23      	                inc hl
+ 629: 3097+4	026B' 79      	                ld a, c
+ 630: 3101+7	026C' 8E      	                adc (hl)
+ 631: 3108+4	026D' 4F      	                ld c, a
+ 632: 3112+6	026E' 23      	                inc hl
+ 633: 3118+4	026F' 78      	                ld a, b
+ 634: 3122+7	0270' 8E      	                adc (hl)
+ 635: 3129+4	0271' 47      	                ld b, a
+ 636: 3133+7+5	0272' 3822    	                jr c, gldn_error_pop    ; No bits should fall off the end
  637:				; Find result x 10
- 638: 3170+8	027E' CB23    	                sla e
- 639: 3178+8	0280' CB12    	                rl d
- 640: 3186+8	0282' CB11    	                rl c
- 641: 3194+8	0284' CB10    	                rl b
- 642: 3202+7+5	0286' 3818    	                jr c, gldn_error_pop    ; No bits should fall off the end
- 643: 3209+10	0288' F1      	                pop af                  ; Restore digit
+ 638: 3140+8	0274' CB23    	                sla e
+ 639: 3148+8	0276' CB12    	                rl d
+ 640: 3156+8	0278' CB11    	                rl c
+ 641: 3164+8	027A' CB10    	                rl b
+ 642: 3172+7+5	027C' 3818    	                jr c, gldn_error_pop    ; No bits should fall off the end
+ 643: 3179+10	027E' F1      	                pop af                  ; Restore digit
  644:				; Insert new digit
- 645: 3219+7	0289' 2E00    	                ld l, 0                 ; Cache zero
- 646: 3226+4	028B' 83      	                add e
- 647: 3230+4	028C' 5F      	                ld e, a
- 648: 3234+4	028D' 7D      	                ld a, l
- 649: 3238+4	028E' 8A      	                adc d
- 650: 3242+4	028F' 57      	                ld d, a
- 651: 3246+4	0290' 7D      	                ld a, l
- 652: 3250+4	0291' 89      	                adc c
- 653: 3254+4	0292' 4F      	                ld c, a
- 654: 3258+4	0293' 7D      	                ld a, l
- 655: 3262+4	0294' 88      	                adc b
- 656: 3266+4	0295' 47      	                ld b, a
- 657: 3270+7+5	0296' 3808    	                jr c, gldn_error_pop    ; No bits should fall off the end
+ 645: 3189+7	027F' 2E00    	                ld l, 0                 ; Cache zero
+ 646: 3196+4	0281' 83      	                add e
+ 647: 3200+4	0282' 5F      	                ld e, a
+ 648: 3204+4	0283' 7D      	                ld a, l
+ 649: 3208+4	0284' 8A      	                adc d
+ 650: 3212+4	0285' 57      	                ld d, a
+ 651: 3216+4	0286' 7D      	                ld a, l
+ 652: 3220+4	0287' 89      	                adc c
+ 653: 3224+4	0288' 4F      	                ld c, a
+ 654: 3228+4	0289' 7D      	                ld a, l
+ 655: 3232+4	028A' 88      	                adc b
+ 656: 3236+4	028B' 47      	                ld b, a
+ 657: 3240+7+5	028C' 3808    	                jr c, gldn_error_pop    ; No bits should fall off the end
  658:				; BCDE - required number
- 659: 3277+10	0298' E1      	                pop hl                  ; Restore pointer
+ 659: 3247+10	028E' E1      	                pop hl                  ; Restore pointer
  660:				; Count digits and check limit.
- 661: 3287+6	0299' 23      	                inc hl                  ; Point to next character
- 662: 3293+10	029A' F1      	                pop af                  ; Restore counter
- 663: 3303+4	029B' 3C      	                inc a                   ; One more digit
- 664: 3307+7+5	029C' 20A2    	                jr nz, gldn_char_lp     ; Keep going unless 256 digits (unlikely)
- 665: 3314+12	029E' 1802    	                jr gldn_error
+ 661: 3257+6	028F' 23      	                inc hl                  ; Point to next character
+ 662: 3263+10	0290' F1      	                pop af                  ; Restore counter
+ 663: 3273+4	0291' 3C      	                inc a                   ; One more digit
+ 664: 3277+7+5	0292' 20A2    	                jr nz, gldn_char_lp     ; Keep going unless 256 digits (unlikely)
+ 665: 3284+12	0294' 1802    	                jr gldn_error
  666:				; Too many or zero digits or overflow.
- 667: 3326+10	02A0' E1      	gldn_error_pop  pop hl                  ; Restore pointer
- 668: 3336+10	02A1' F1      	                pop af                  ; Discard counter
- 669: 3346+4	02A2' 37      	gldn_error      scf
- 670: 3350+10	02A3' C9      	                ret                     ; Return with carry flag set (error)
+ 667: 3296+10	0296' E1      	gldn_error_pop  pop hl                  ; Restore pointer
+ 668: 3306+10	0297' F1      	                pop af                  ; Discard counter
+ 669: 3316+4	0298' 37      	gldn_error      scf
+ 670: 3320+10	0299' C9      	                ret                     ; Return with carry flag set (error)
  671:				; Non-digit character found.
- 672: 3360+10	02A4' F1      	gldn_done       pop af                  ; Restore counter
- 673: 3370+4	02A5' A7      	                and a
- 674: 3374+7+5	02A6' 28FA    	                jr z, gldn_error        ; Error if no digits read
+ 672: 3330+10	029A' F1      	gldn_done       pop af                  ; Restore counter
+ 673: 3340+4	029B' A7      	                and a
+ 674: 3344+7+5	029C' 28FA    	                jr z, gldn_error        ; Error if no digits read
  675:				; Normal completion.
- 676: 3381+10	02A8' C9      	                ret                     ; Return with carry flag reset (OK)
+ 676: 3351+10	029E' C9      	                ret                     ; Return with carry flag reset (OK)
  677:				;
  678:				;
  679:				;
@@ -1333,11 +1427,11 @@ Statistics:
 
      4	passes
      0	jr promotions
-   309	symbols
-   681	bytes
+   320	symbols
+   671	bytes
 
-   117	macro calls
-  1320	macro bytes
+   124	macro calls
+  2391	macro bytes
      0	invented symbols
 
 
@@ -1404,7 +1498,9 @@ IOA_SPI_CSR    =20        32
 IOA_SPI_DATA   =21        33
 MCALL_CACRS    =E4        228
 MCALL_CACWS    =E7        231
-MCALL_CAFLUS   =EA        234
+MCALL_CAFLUS   =F0        240
+MCALL_CARS     =EA        234
+MCALL_CAWS     =ED        237
 MCALL_CONRCH   =72        114
 MCALL_CONSTA   =75        117
 MCALL_CONWCH   =6F        111
@@ -1421,7 +1517,7 @@ MCALL_CWPHWD   =AB        171
 MCALL_CWPSPC   =9F        159
 MCALL_CWPTM    =DE        222
 MCALL_CWVICH   =9C        156
-MCALL_JPTBL_NEXT=F6        246
+MCALL_JPTBL_NEXT=FC        252
 MCALL_MADBBU   =C6        198
 MCALL_MADLBU   =C0        192
 MCALL_MADWBU   =C3        195
@@ -1429,9 +1525,9 @@ MCALL_MAMLBU   =CC        204
 MCALL_MAMWWU   =C9        201
 MCALL_MCPRER   =E1        225
 MCALL_MON_ENTRY=69        105
-MCALL_MPALL    =ED        237
-MCALL_MPFREE   =F0        240
-MCALL_MPSTAT   =F3        243
+MCALL_MPALL    =F3        243
+MCALL_MPFREE   =F6        246
+MCALL_MPSTAT   =F9        249
 MCALL_MTWDLI   =A2        162
 MCALL_PANIC    =6C        108
 MCALL_RDDULO   =BD        189
@@ -1560,76 +1656,86 @@ ZKEY_PAGE_UP   =1D        29
 conrch          00        0 (extern)
 consta          00        0 (extern)
 conwch          00        0 (extern)
-conwmn          13'       19 (public)
-conwms          0A'       10 (public)
+conwmn          0F'       15 (public)
+conwms          08'       8 (public)
 coport          00        0 (extern)
 crc16x          00        0 (extern)
 cwnwln          00'       0 (public)
-cwpdby          85'       133 (public)
-cwpdlo          CC'       204 (public)
-cwpdwd          8F'       143 (public)
-cwphby          71'       113 (public)
-cwphnb          64'       100 (public)
-cwphwd          7D'       125 (public)
-cwpspc          50'       80 (public)
-cwvich          55'       85 (public)
+cwpdby          7F'       127 (public)
+cwpdlo          C4'       196 (public)
+cwpdwd          89'       137 (public)
+cwphby          6B'       107 (public)
+cwphnb          5E'       94 (public)
+cwphwd          77'       119 (public)
+cwpspc          4A'       74 (public)
+cwvich          4F'       79 (public)
 enum_counter   =02        2
-gdn_char_lp      207'     519
-gdn_done         233'     563
-gdn_error        230'     560
-gdn_error_pop    22E'     558
-ghn_char_lp      1C9'     457
-ghn_done         1FB'     507
-ghn_error        1F8'     504
-ghn_error_ex     1F7'     503
-ghn_got_dig      1E1'     481
-ghn_not_alpha    1D9'     473
-gldn_char_lp     240'     576
-gldn_done        2A4'     676
-gldn_error       2A2'     674
-gldn_error_pop   2A0'     672
+gdn_char_lp      1FD'     509
+gdn_done         229'     553
+gdn_error        226'     550
+gdn_error_pop    224'     548
+ghn_char_lp      1BF'     447
+ghn_done         1F1'     497
+ghn_error        1EE'     494
+ghn_error_ex     1ED'     493
+ghn_got_dig      1D7'     471
+ghn_not_alpha    1CF'     463
+gldn_char_lp     236'     566
+gldn_done        29A'     666
+gldn_error       298'     664
+gldn_error_pop   296'     662
 gldn_x1         00"       0
 i2crd           00        0 (extern)
 i2cwr           00        0 (extern)
-jptbl_addr     =F6        246
+jptbl_addr     =FC        252
 madbbu          00        0 (extern)
 madlbu          00        0 (extern)
 madwbu          00        0 (extern)
+maladd          00        0 (extern)
+malinc          00        0 (extern)
+malld           00        0 (extern)
+malst           00        0 (extern)
 mamlbu          00        0 (extern)
 mamwwu          00        0 (extern)
+mapcnt          00        0 (extern)
+mcrun           00        0 (extern)
+mcspd           00        0 (extern)
+mdisrg          00        0 (extern)
 monitor        =01        1
-mtwdli           169'     361 (public)
-mw_char_loop     16E'     366
-mw_char_mis      1A1'     417
-mw_dot           1C0'     448
-mw_end_both      1BB'     443
-mw_end_lwd       1B0'     432
-mw_next_lwd      1A4'     420
-mw_no_match      1B7'     439
-mw_str_tm_dn     184'     388
-mw_sword_end     182'     386
+mscnt           00        0 (extern)
+mstate          00        0 (extern)
+mtwdli           15F'     351 (public)
+mw_char_loop     164'     356
+mw_char_mis      197'     407
+mw_dot           1B6'     438
+mw_end_both      1B1'     433
+mw_end_lwd       1A6'     422
+mw_next_lwd      19A'     410
+mw_no_match      1AD'     429
+mw_str_tm_dn     17A'     378
+mw_sword_end     178'     376
 panic           00        0 (extern)
 pdl_ascii       09"       9
-pdl_digit        124'     292
-pdl_digloop      129'     297
-pdl_entry       9A'       154
+pdl_digit        11C'     284
+pdl_digloop      121'     289
+pdl_entry       94'       148
 pdl_lz_flag     08"       8
-pdl_prdig        162'     354
+pdl_prdig        15A'     346
 pdl_reg         04"       4
-pdw_byte        A0'       160
-pdw_digit       B5'       181
-pdw_digloop     B7'       183
-pdw_prdig       C6'       198
-pmn_done        31'       49
-pmn_error       34'       52
-pmn_found       24'       36
-pmn_msg_lp      15'       21
-pmn_sk_lp       19'       25
-pn_numeric      6E'       110
-prv_do_subs     60'       96
-rddulo           239'     569 (public)
-rdduwd           201'     513 (public)
-rdhxwd           1C3'     451 (public)
+pdw_byte        9A'       154
+pdw_digit       AF'       175
+pdw_digloop     B1'       177
+pdw_prdig       C0'       192
+pmn_done        2B'       43
+pmn_error       2E'       46
+pmn_found       20'       32
+pmn_msg_lp      11'       17
+pmn_sk_lp       15'       21
+pn_numeric      68'       104
+prv_do_subs     5A'       90
+rddulo           22F'     559 (public)
+rdduwd           1F7'     503 (public)
+rdhxwd           1B9'     441 (public)
 rusby           00        0 (extern)
 ruswd           00        0 (extern)
 s1rch           00        0 (extern)
@@ -1638,15 +1744,14 @@ s1wch           00        0 (extern)
 s2rch           00        0 (extern)
 s2sta           00        0 (extern)
 s2wch           00        0 (extern)
-skpspc          37'       55 (public)
-sks_loop        39'       57
+skpspc          31'       49 (public)
+sks_loop        33'       51
 spiini          00        0 (extern)
 spiss           00        0 (extern)
 spitr           00        0 (extern)
 str_offset     =20        32
-tikcnt          00        0 (extern)
-toloca          47'       71 (public)
-toupca          3E'       62 (public)
+toloca          41'       65 (public)
+toupca          38'       56 (public)
 trarch          00        0 (extern)
 trawch          00        0 (extern)
 trport          00        0 (extern)

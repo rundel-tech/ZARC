@@ -1,0 +1,514 @@
+; *******************************************************
+; * CP/M 3 BIOS for ZARC Z80 Computer                   *
+; * "Disk" I/O module                                   *
+; * Version: V1.0                                       *
+; * Merlin Skinner, 3/2/2023                            *
+; *******************************************************
+;
+; Modified from DRI's FD1797SD.ASM. Converted to Z80 mnemonics and much modified
+; for ZARC and its memory card.
+;
+; One option to shrink the common area usage of this code would be to move
+; some of it into the banked area. This would appear to mean bank 0 due to
+; CPMLDR not having a bank switching mechanism. One target might be debug code.
+;
+;
+                title "Memory card module for CP/M 3 linked BIOS"
+
+;    CP/M-80 Version 3     --  Modular BIOS
+;
+;
+;
+; ************
+; * Includes *
+; ************
+;
+                include "macros.i"
+                include "z80.i"
+                include "zarc.i"        ; Hardware definitions
+                include "monitor.i"
+                include "io_map.i"      ; I/O addresses mapping
+;                include "terminal.i"    ; Terminal constants
+;                include "io.i"          ; I/O routines
+;                include "utility.i"     ; Utility functions
+;                include "maths.i"       ; Mathematical functions
+;                include "interrupts.i"  ; Interrupts
+;                include "time.i"        ; Routines associated with time
+;                include "diags.i"       ; Diagnostics
+;                include "heap.i"
+                include "cpm.i"
+                include "cpm3.i"
+                include "disks.i"
+                include "mmc.i"
+                include "memory.i"      ; Memory page allocation
+                include "bios.i"
+;
+;
+;
+; *************
+; * Externals *
+; *************
+;
+;
+                extern @cbnk,?bank      ; Current bank and bank select
+;
+                extern bpanic           ; BIOS panic
+                extern bpar             ; BIOS parameter block (from monitor)
+                extern mmmon            ; Select monitor memory map
+;
+; Stacks
+                extern cpmsp            ; CP/M environment stack pointer
+;
+; Disk drive dispatching tables for linked BIOS
+;
+; Pointers to XDPH structures.
+;	            public	fdsd0,fdsd1
+                public xdph0, xdph1, xdph2, xdph3
+                public xdph4, xdph5, xdph6, xdph7
+                public xdph8, xdph9, xdph10, xdph11
+                public xdph12, xdph13, xdph14, xdph15
+;
+; Variables containing parameters passed by BDOS
+                extrn	@adrv,@rdrv
+                extrn	@dma,@trk,@sect
+                extrn	@dbnk
+;
+; System Control Block variables
+                extrn	@ermde		; BDOS error mode
+;
+; Utility routines in standard BIOS
+                extrn	?wboot	; warm boot vector
+                extrn	?pmsg	; print message @<HL> up to 00, saves <BC> & <DE>
+                extrn	?pdec	; print binary number in <A> from 0 to 99.
+                extrn	?pderr	; print BIOS disk error header
+                extrn	?conin,?cono	; con in and out
+                extrn	?const		; get console status
+;
+;
+;
+; *************
+; * Constants *
+; *************
+;
+;
+; None
+;
+;
+;
+; *************
+; * Main Code *
+; *************
+;
+;
+                dseg                    ; Use banked memory
+
+
+
+
+; Extended Disk Parameter Headers (XPDHs)
+; This is based on the CP/M 2.2 DPH, but there are differences.
+
+;	dw	mc$write
+;	dw	mc$read
+;	dw	mc$login
+;	dw	mc$init0
+;	db	0,0		; relative drive zero
+;fdsd0	dph     trans,mc_dpb,16,31
+
+;	dw	mc$write
+;	dw	mc$read
+;	dw	mc$login
+;	dw	mc$init1
+;	db	1,0		; relative drive one
+;fdsd1	dph	trans,mc_dpb,16,31
+
+;
+xdph_gen        macro d
+; Extended parameters go *before* the label.
+                word mc$write           ; Sector write
+                word mc$read            ; Sector read
+                word mc$login           ; Drive login
+                word mc$init            ; Drive initialisation
+                byte d                  ; Relative drive on controller
+                byte 0                  ; Media type always known
+; DPH follows. See CP/M 3 System Guide section 3.3.2. Note that this differs
+; slightly to the CP/M 2.2 definitions.
+; DRI's DPH macro gives odd results with ZMAC, so this is hard coded along with
+; the DPB.
+xdph`d          word 0                  ; XLT No sector translation
+                dc 9, 0                 ; BDOS scratch area
+                byte 0                  ; MF Media flag
+                word mc_dpb             ; DPB Pointer to DPB
+                word 0                  ; CSV No check required for fixed disk
+                word bdos_all_`d        ; ALV Allocation area *2
+                word 0xfffe             ; DIRBCB Dir. Buffer Control Block *1
+                word 0xfffe             ; DTABCB Data Buffer Control Block *1
+                word hash_addr          ; HASH Directory hashing *1
+                byte 2                  ; HBANK Hash bank *1
+                endm
+;
+; *1 - value set to trigger GENCPM to allocate buffers.
+; *2 - allocation vector allocated here due to a reported bug in GENCPM's
+;   allocation vector space allocation.
+;
+; Define a null for drive "d" as it doesn't exist. This is required as the "`"
+; mechanism only works in a macro.
+xdph_null       macro d
+                .aseg
+xdph`d          equ 0
+                .dseg
+                endm
+;
+; Build XDPH structures.
+; Directory hash tables are stored in bank 2 at 0x8000 to 0xbfff. Ensure that
+; the GENCPM memory segment table entries allow for this. Allocation is done
+; here as there were odd effects when GENCPM allocated the buffers.
+disk_xdph_base
+                .aseg
+hash_addr       set 0x8000                  ; Address of first table
+hash_tbl_size   equ 4 * CPM_DIR_ENTRIES     ; Size of each table
+drive           set 0
+                rept CP3_NUM_DISKS_MAX
+                .dseg
+                if drive < CP3_NUM_DISKS
+                    xdph_gen %drive
+                    .aseg
+                    hash_addr = hash_addr + hash_tbl_size
+                else
+                    xdph_null %drive
+                endif
+                .aseg
+drive           set drive + 1
+                endm 
+                .dseg
+;
+                assert (xdph1 - xdph0) = CP3_XDPH_SIZE
+                assert drive = CP3_NUM_DISKS_MAX
+                assert hash_addr <= MMAP_BANK3_START
+;
+                cseg	; DPB must be resident
+;
+;
+; This is similar to the CP/M 2.2 implementation, but we add the offset in the
+; read and write routines rather than modifying the DPB OFF field on the fly.
+; See FS_Calculations.ods for derivation. As only a single DPB is required as
+; all drives are identical.
+; I tried using the DRI dpb macro, but this failed due to "Not relocatable"
+; errors in the arithmetic.
+mc_dpb          word DISK_SPT   ; SPT logical sectors per track
+                byte 4          ; BSH data allocation block shift factor
+                byte 15         ; BLM is the data allocation block mask (2^[BSH-1])
+                byte 0          ; EXM is the extent mask
+                word DISK_DSM   ; DSM maximum block number
+                word CPM_DIR_ENTRIES - 1    ; DRM maximum directory entry number
+                byte 0xff       ; AL0, AL1 determine reserved directory blocks
+                byte 0
+                word 0x8000     ; CKS directory check vector (not used)
+                word 0          ; OFF number of reserved tracks
+; Assumed by PSH and PHM values
+                assert MMC_SECTOR_SIZE = 512
+                byte 2          ; PSH physical record shift factor
+                byte 3          ; PHM physical record mask
+;
+                assert ($ - mc_dpb) = CP3_DPB_SIZE
+;
+;
+                dseg	; rest is banked
+;
+;
+; Generate allocation buffers for each drive. The start addresses are
+; bdos_all_<drive>.
+all_buff_gen    macro d
+bdos_all_`d     defs (DISK_DSM / 4) + 2  ; Allocation vector for this drive
+                endm
+;
+                .aseg
+drive           set 0
+                rept NUM_DISKS
+                .dseg
+                all_buff_gen %drive
+                .aseg
+drive           set drive + 1
+                endm
+                .dseg
+;
+;
+; No sector translation.
+;trans	skew 26,6,1
+;
+;
+; Disk I/O routines for standardised BIOS interface
+;
+;
+; Initialisation entry point.
+; Called once per drive for first time initialisation.
+mc$init:        ret             ; Nothing to do!
+;
+;
+; This entry is called when a logical drive is about to
+; be logged into for the purpose of density determination.
+; It may adjust the parameters contained in the disk
+; parameter header pointed at by <DE>
+mc$login:       ret             ; We have nothing to do in
+; simple single density only environment.
+;
+;
+; Disk READ and WRITE entry points.
+; these entries are called with the following arguments:
+;
+; relative drive number in @rdrv (8 bits)
+; absolute drive number in @adrv (8 bits)
+; disk transfer address in @dma (16 bits)
+; disk transfer bank	in @dbnk (8 bits)
+; disk track address	in @trk (16 bits)
+; disk sector address	in @sect (16 bits)
+; pointer to XDPH in <DE>
+;
+; they transfer the appropriate data, perform retries
+; if necessary, then return an error code in <A>
+;
+                cseg    ; Use common as this calls the monitor
+;
+;
+; 36: Read a sector [adapted from ldrbios.z80]
+; Returns with:
+; A - 0 if OK, 1 otherwise.
+; DRI code has overwritten DE and HL at this stage so there is no need for this
+; code to preserve them.
+mc$read:        ld (cpmsp), sp          ; CP/M environment stack pointer
+                ld sp, MC_STK_TOP_P1    ; Use monitor call stack space
+                call mmmon              ; Swap to monitor memory map
+; Monitor context selected.
+;
+                push bc
+                push ix
+;
+                ld a, (bpar + BPS_OPTIONS)  ; See BIOS_OPT_xxx definitions.
+                and BIOS_OPT_DEBUG_MASK
+                jr z, read_no_debug
+;
+; Debugging messages.
+                ld hl, read_msg        ; "<Read "
+                call MCALL_CONWMS       ; Print message
+                call disp_params
+                call MCALL_CWNWLN       ; Write new line characters to console
+;
+read_no_debug   call find_lba           ; Find LBA sector number
+; CDE - sector number (0 to (sectors - 1)) (offset into partition)
+                ld hl, COM_SEC_BUFFER   ; Sector buffer in common area
+                ld ix, (bpar + BPS_PARTITION)   ; Point to partition table entry
+                call MCALL_CARS         ; MMC read sector
+; A - zero (OK) or error code (SPI_ERR_xxx)
+; HL - pointer to sector buffer
+                and a
+                jr nz, rw_error         ; Jump on error
+;
+; Successful read. Now copy the data to the DMA location.
+rd_ok           ld a, (@dbnk)           ; Select the DMA bank
+                call ?bank              ; Set bank without changing @cbnk
+                ld hl, COM_SEC_BUFFER
+                ld de, (@dma)
+                ld bc, MMC_SECTOR_SIZE
+; BC - length
+; DE - destination address
+; HL - sector buffer
+                ldir
+;
+; Successful read.
+rw_exit_ok      xor a                   ; Flag success
+rw_exit         pop ix
+                pop bc
+; Switch back to the CP/M context.
+                push af
+                ld a, (@cbnk)
+                call ?bank              ; Set bank without changing @cbnk
+                pop af
+                ld sp, (cpmsp)          ; CP/M environment stack pointer
+                ret
+;
+; Something went wrong. Used by READ and WRITE routines. Assumes monitor
+; bank is selected.
+rw_error        ld c, a
+                call MCALL_CWNWLN       ; Write new line characters to console
+                ld a, c
+                call MCALL_MCPRER       ; Call monitor function
+                ld a, 1                 ; Flag error
+                jr rw_exit
+;
+;
+; 39: Write a sector
+; Returns with:
+; A - 0 if OK, 1 otherwise.
+; DRI code has overwritten DE and HL at this stage so there is no need for this
+; code to preserve them.
+mc$write        ld (cpmsp), sp
+                ld sp, MC_STK_TOP_P1    ; Use monitor call stack space
+;
+                push bc
+                push ix
+;
+                ld a, (bpar + BPS_OPTIONS)  ; See BIOS_OPT_xxx definitions.
+                and BIOS_OPT_DEBUG_MASK
+                jr z, write_no_debug
+;
+                call mmmon              ; Swap to monitor memory map
+; Debugging messages.
+                ld hl, write_msg        ; "<Write "
+                call MCALL_CONWMS       ; Print message
+                call disp_params
+                call MCALL_CWNWLN       ; Write new line characters to console
+;
+; Copy the data to the sector buffer.
+write_no_debug  ld a, (@dbnk)           ; Select the DMA bank
+                call ?bank              ; Set bank without changing @cbnk
+                ld hl, (@dma)           ; Current DMA address
+                ld de, COM_SEC_BUFFER
+                ld bc, MMC_SECTOR_SIZE
+                ldir
+; Switch to monitor context. We are already using the correct stack.
+                call mmmon              ; Swap to monitor memory map
+; Monitor context selected.
+                call find_lba           ; Find LBA sector number
+                ld ix, (bpar + BPS_PARTITION)   ; Point to partition table entry
+                ld hl, COM_SEC_BUFFER
+; IX - pointer to partition table entry
+; CDE - MMC (512-byte) sector number (offset into partition)
+; HL - destination address for read data
+                call MCALL_CAWS          ; MMC write sector
+; A - zero (OK) or error code (SPI_ERR_xxx)
+                and a
+                jr nz, rw_error         ; Jump on error
+;
+; Successful write.
+                jr rw_exit_ok
+;
+;
+; Calculate physical sector number based on selected drive, track and sector
+; numbers. For drive A: (@rdrv = 0), offset is:
+; CPM_SYS_TRACKS + (CPM_DRIVE_TRACKS * (CP3_DRIVE_A))
+; For drives B: to H: (@rdrv = 1 to 7):
+; CPM_SYS_TRACKS + (CPM_DRIVE_TRACKS * ((@rdrv - 1) + CP3_DRIVE_B))
+; LBA = <physical sectors per track> * (track + offset) + sector
+; Returns with:
+; CDE - MMC (512-byte) sector number (offset into partition)
+find_lba        push hl
+;
+; Check track and sector are sensible.
+                ld hl, (@trk)
+                ld de, CPM_DRIVE_TRACKS
+                and a
+                sbc hl, de
+                call nc, bpanic         ; Panic if track is out of range
+; Sector
+                ld hl, (@sect)
+                ld de, DISK_PHYS_SPT
+                and a
+                sbc hl, de
+                call nc, bpanic         ; Panic if track is out of range
+;
+; Find offset (first sector of the required drive). The DPB is identical for
+; all drives, so we don't use the OFF field as we do for CP/M 2.2.
+                ld a, (@rdrv)           ; Drive for this controller
+                cp CP3_NUM_DISKS
+                call nc, bpanic         ; Panic if drive is out of range
+;
+                ld l, CP3_DRIVE_A
+                and a
+                jr z, fl_have_offset    ; Use this offset for drive A
+; Drives B to H.
+                dec a
+                add CP3_DRIVE_B
+                ld l, a
+; L - offset in units of MB drives, not including system tracks. 
+                assert CPM_DRIVE_TRACKS = 32
+fl_have_offset  ld h, 0
+                add hl, hl
+                add hl, hl
+                add hl, hl
+                add hl, hl
+                add hl, hl
+                ld de, CPM_SYS_TRACKS
+                add hl, de
+; hl - offset
+                ld de, (@trk)
+                add hl, de
+; Multiply tracks by sectors per track to find the sector number. 24-bit
+; arithmetic is used, though for this application 16 bits would be sufficient.
+                ld c, 0                 ; MS bits
+                assert DISK_PHYS_SPT = 64
+                add hl, hl
+                rl c
+                add hl, hl
+                rl c
+                add hl, hl
+                rl c
+                add hl, hl
+                rl c
+                add hl, hl
+                rl c
+                add hl, hl
+                rl c
+                ex de, hl
+; CDE = 64 * track
+; Add sector
+                ld hl, (@sect)
+                add hl, de
+                ex de, hl
+                ld a, c
+                adc 0                   ; Propagate carry
+                ld c, a
+;
+                pop hl
+                ret
+;
+;
+; Display sector I/O parameters for debugging. Format is:
+; <drive letter>:<track>,<sector>(<dma bank>.<dma address>)>
+disp_params     push hl
+;
+                ld a, (@adrv)           ; Absolute drive number
+                add "A"
+                call MCALL_CONWCH       ; Write character to the console
+                ld a, ":"
+                call MCALL_CONWCH       ; Write character to the console
+                ld hl, (@trk)
+                call MCALL_CWPDWD       ; Print HL in decimal
+                ld a, ","
+                call MCALL_CONWCH       ; Write character to the console
+                ld hl, (@sect)
+                call MCALL_CWPDWD       ; Print HL in decimal
+                ld a, "("
+                call MCALL_CONWCH       ; Write character to the console
+                ld a, (@dbnk)           ; Disk transfer bank
+                call MCALL_CWPDBY       ; Print A in decimal
+                ld a, "."
+                call MCALL_CONWCH       ; Write character to the console
+                ld hl, (@dma)           ; Disk transfer address
+                call MCALL_CWPHWD       ; Print HL in hexadecimal
+                ld a, ")"
+                call MCALL_CONWCH       ; Write character to the console
+                ld a, ">"
+                call MCALL_CONWCH       ; Write character to the console
+;
+                pop hl
+                ret
+;
+;
+                cseg                ; easier to put ID buffer in common
+
+; Some variables must be in common (shared) memory. Consideration should be
+; given to placing these in the block used by CPMLDR at CPMLDR_B_C_START as this
+; would otherwise be wasted.
+;
+;
+;
+; *************
+; * Constants *
+; *************
+;
+;
+read_msg        byte "<Read ", 0
+write_msg       byte "<Write ", 0
+;
+                end
+

@@ -1,0 +1,269 @@
+; Copyright (c) 2009 John Elliott
+; 
+; This software is provided 'as-is', without any express or implied warranty. 
+; In no event will the author be held liable for any damages arising from the 
+; use of this software.
+;
+; Permission is granted to anyone to use this software for any purpose, 
+; including commercial applications, and to alter it and redistribute it 
+; freely, subject to the following restrictions:
+;
+;    1. The origin of this software must not be misrepresented; you must not 
+; claim that you wrote the original software. If you use this software in a 
+; product, an acknowledgement in the product documentation would be appreciated 
+; but is not required.
+; 
+;    2. Altered source versions must be plainly marked as such, and must not 
+; be misrepresented as being the original software.
+; 
+;    3. This notice may not be removed or altered from any source distribution.
+
+; 28/2/2025: Modified to compile with ZMAC by Merlin Skinner-Oakes
+
+fdos            equ 5
+cr              equ 0Dh
+lf              equ 0Ah
+eof equ         1Ah
+
+; The CP/M transient area start address is set in the linker invocation (see
+; makefile).
+                cseg                    ; Code segment
+
+                defb 0EBh, 04h          ;DOS protection: JMPS code
+                ex de, hl
+                jp begin
+                defb 0B4h, 09h          ; code: MOV AH, 9
+                defb 0BAh               ; MOV DX, dosmsg
+                defw dosmsg
+                defb 0CDh, 021h         ; INT 21h
+                defb 0CDh, 020h         ; INT 20h
+;
+                defb cr, 'Sysinfo: Copyright 2009 John Elliott',cr,lf
+                defb 'Date: 27 Oct 2009',cr,lf,eof
+;
+begin:
+;
+; Detect CPU
+;
+                ld de, cpumsg
+                call print
+                ld de, cpu80
+                sub a
+                call pe, print
+                ld de, cpuz80
+                call po, print
+;
+; Detect CP/M version
+;
+                ld de, vermsg
+                call print
+                ld c,0Ch
+                call fdos
+                ld (version), hl
+                ld a, h
+                and 4
+                ld de, verconc
+                call nz, print
+                ld a, h
+                and 1
+                ld de, vermpm
+                call nz, print
+                ld de, vercpm
+                call z, print
+                ld a, h
+                and 2
+                ld de, vernet
+                call nz, print
+                ld a, l
+                or a
+                ld de, ver1x
+                call z, print
+                call nz, showver
+;
+; Print memory statistics
+;
+                call crlf
+
+                ld de, ttpmsg
+                call print
+                ld hl, (6)
+                ld l, 0
+                call hexhl
+                call crlf
+
+                ld de, bismsg
+                call print
+                ld hl, (1)
+                ld l, 0
+                call hexhl
+                call crlf
+
+                ld a, (version)
+                cp 30h
+                jp c, notcpm3
+;
+; Under CP/M Plus we can get the real address of the BDOS
+;
+                ld c, 31h               ; Get SCB
+                ld de, scbpb
+                call fdos
+                ld (scb), hl
+                ld l, 99h
+                ld h, (hl)
+                ld l, 0
+                ld de, bdsmsg
+                call print
+                call hexhl
+                call crlf
+;
+; And the base of common memory
+;
+                ld hl, (scb)
+                ld l, 0F9h
+                ld e, (hl)
+                inc hl
+                ld d, (hl)
+                ex de, hl
+                ld de, cbsmsg
+                call print
+                call hexhl
+                call crlf
+
+;
+; And get the list of valid drives from the DRVTBL
+;
+                ld hl, (1)
+                ld de, 3Fh
+                add hl, de
+                call pchl
+                ld (drvtbl), hl
+;
+; Copy the DRVTBL into the program.
+;
+                ld bc, 0100h
+                call XMOVE
+                ld hl, (drvtbl)
+                ld de, drvbuf
+                ld bc, 32
+                ex de, hl
+                call MOVE
+;
+; Now dump its contents.
+;
+                ld de, drvmsg
+                call print
+                ld bc, 1041h
+                ld hl, drvbuf
+ckdrv:          ld a, (hl)
+                inc hl
+                or (hl)                 ; 0 => drive does not exist
+                inc hl
+                jp z, ckdrv1
+                push bc
+                ld a, c                 ; Drive letter
+                call verch
+                ld a, ':'               ; and colon
+                call verch
+                ld a, ' '               ; and space
+                call verch
+                pop bc
+ckdrv1:         inc c
+                dec b
+                jp nz, ckdrv
+                call crlf
+notcpm3:
+
+                rst 0
+;
+XMOVE:          ld hl, (1)              ; Set up for an inter-bank block move.
+                ld de, 54h
+                add hl, de
+                jp (hl)
+;
+MOVE:           push hl                 ; Do a block move (maybe inter-bank).
+                push de
+                ld hl, (1)
+                ld de, 48h
+                add hl, de
+                pop de
+                ex (sp), hl
+                ret
+;
+pchl:           jp (hl)
+;
+hexhl:          ld a, h                 ; Output a 4-digit hex number in HL
+                call hexa
+                ld a, l
+hexa:           push af                 ; Output a 2-digit hex number in A
+                rrca
+                rrca
+                rrca
+                rrca
+                call hexdgt
+                pop af
+hexdgt:         and 0Fh
+                cp 10
+                jp c, hexdgt1
+                add a, 7
+hexdgt1:
+                jp verdgt1
+;
+showver:        ; Output a BCD version number in L
+                ld a, l
+                rrca
+                rrca
+                rrca
+                rrca
+                call verdgt
+                ld a, '.'
+                call verch
+                ld a, l
+verdgt:
+                and 0Fh
+verdgt1:
+                add a, '0'
+verch:          ld e, a                 ; Output a character in A. Preserves HL.
+                ld c, 2
+                push hl
+                call fdos
+                pop hl
+                ret
+;
+print:          push af                 ; Output a string in DE. Preserves AF BC HL
+                push bc
+                push hl
+                ld c,9
+                call fdos
+                pop hl
+                pop bc
+                pop af
+                ret
+;
+crlf:           ld de, crmsg            ; Print a CR/LF. Preserves nothing.
+                ld c, 9
+                jp fdos
+
+cpumsg:         defb 'Processor:   $'
+vermsg:         defb 'System:      $'
+ttpmsg:         defb 'Top of TPA:  $'
+bismsg:         defb 'BIOS start:  $'
+bdsmsg:         defb 'BDOS start:  $'
+cbsmsg:         defb 'Common base: $'
+drvmsg:         defb 'Drives:      $'
+vermpm:         defb 'MP/M $'
+vercpm:         defb 'CP/M $'
+vernet:         defb '(with CP/Net) $'
+verconc:        defb 'Multiuser $'
+ver1x:          defb '1.x$'
+cpu80:          defb '8080',cr,lf,'$' 
+cpuz80:         defb 'Z80',cr,lf,'$' 
+dosmsg:         defb 'Processor: 80x86',cr,lf
+                defb 'System:    DOS'
+crmsg:          defb cr,lf,'$'
+version:
+                defw 0
+scb:            defw 0
+scbpb:          defw 3Ah
+drvtbl:         defw 0
+drvbuf:         defs 32
+

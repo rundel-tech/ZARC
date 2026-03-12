@@ -4,6 +4,10 @@
 ; * Merlin Skinner, 11/12/2021                          *
 ; *******************************************************
 ;
+; V1.0 - 11/12/2021, initial version.
+; V1.1 - 26/2/2026, updated to use latest shared libraries. Use BDOS for console
+;   I/O.
+;
 ; This program is intended to run on a ZARC system under CP/M 2.2. It will not
 ; work on a conventional CP/M system as this will not support the paged memory
 ; provided by ZARC.
@@ -40,6 +44,8 @@
 ; Variables
                 public brkflg   ; Non-zero if break character detected
 ;
+                extern btime    ; Build time string
+;
 ;
 ;
 ; *************
@@ -57,16 +63,19 @@
                 ld (bdos_sp), sp
                 ld sp, app_stack_top    ; Switch to our stack space
 ;
-; Determine CPU type.
-                call z80det             ; Detect Z80 (instead of 8080 / 8085)
-                jp nc, on_z80           ; Jump if we have a Z80
+                call init               ; Common initialisation code
 ;
-; 8080 / 8085 detected. Print message and exit. We can't use conwms as this
-; assumes a Z80.
-                ld de, no_z80_msg       ; "Z80 CPU required"
-                ld c, BDOS_PRINT_STRING ; Print String
-                call BDOS
-                jp 0                    ; Warm boot
+;Use BIOS console I/O functions to avoid BDOS tab expansion etc.
+                ld a, CONMOD_BIOS
+                call conmod
+;
+; Clear variables area
+                ld hl, clr_start        ; Start address
+                ld b, clr_end - clr_start
+                xor a
+clr_loop        ld (hl), a
+                inc hl
+                djnz clr_loop
 ;
 ; Are we running on a ZARC system?
 on_z80          call zrcdet
@@ -76,8 +85,41 @@ on_z80          call zrcdet
                 call conwms             ; Print $-terminated string to console
                 jp 0                    ; Warm boot
 ;
+; Examine the command tail, looking for operands. This is stored in the default
+; buffer. "The first byte at 0080H contains the length of the command tall,
+; while the command tail itself begins at 0081H. The command tail is terminated
+; by a byte containing a binary zero value."
+; (http://www.cpm.z80.de/manuals/cpm22-m.pdf appendix H).
+on_zarc         ld hl, DEF_BUFFER + 1
+;
+; Check for options. These may begin with "[", "/" or "$", to match all
+; conventions I have found used with CP/M.
+                ld de, clopt_list       ; Null-terminated list of options
+                call clopts             ; Read command line options
+                jr c, op_error          ; Error on bad options
+                ld (clopt_flags), a
+;
+; HL - points to first character after options and any trailing spaces.
+; The terminator should follow.
+                ld a, (hl)
+                and a
+                jr z, clopt_term
+;
+; Go here if we don't like the operands supplied.
+op_error        ld hl, op_err_msg
+                jp msg_exit
+;
+; Command line terminator found. Show build information if requested, then exit.
+clopt_term      ld a, (clopt_flags)
+                bit CLOPT_BUILD_BIT, a
+                jr z, no_build
+                ld hl, btime            ; Build time string
+                call conwms             ; Print $-terminated string to console
+                call cwnwln             ; Write new line characters to console
+                jp exit
+;
 ; Determine terminal type.
-on_zarc         call ccinit             ; Determine terminal capabilities
+no_build        call ccinit             ; Determine terminal capabilities
                 ld hl, concap           ; Console capabilities (CONCAP_xxx)
                 bit CONCAP_ANSI_BIT, (hl)
                 jr nz, term_ok
@@ -132,7 +174,7 @@ init_fcbr       ld ix, fcbr
                 and a
                 sbc hl, de
                 ld hl, bad_mem_msg      ; "Memory space error"
-                jp c, msg_exit
+                jp c, msg_diag_exit
 ;
 ; This programme and its data should end before MMAP_BANK2_START.
                 ld hl, fstfre           ; First location after end of data
@@ -140,7 +182,7 @@ init_fcbr       ld ix, fcbr
                 and a
                 sbc hl, de
                 ld hl, bad_mem_msg      ; "Memory space error"
-                jp nc, msg_exit
+                jp nc, msg_diag_exit
 ;
 ; This programme and its data should end before the absolute locations required
 ; for transfer to and from the emulated space.
@@ -149,7 +191,7 @@ init_fcbr       ld ix, fcbr
                 and a
                 sbc hl, de
                 ld hl, bad_mem_msg      ; "Memory space error"
-                jp nc, msg_exit
+                jp nc, msg_diag_exit
 ;
 ; Examine the command tail, looking for operands. This is stored in the default
 ; buffer. "The first byte at 0080H contains the length of the command tall, while
@@ -166,11 +208,7 @@ op_check_term   call skpspc
                     ; Ignore operands so we can run under ddtz27 or similar.
                     jr operands_ok
                 endif
-                jr z, operands_ok       ; Normal behaviour
-;
-; Go here if we don't like the operands supplied.
-op_error        ld hl, op_err_msg
-                jp msg_exit
+                jp nz, op_error         ; Jump if no terminator
 ;
 ; Operand processing complete.
 operands_ok     xor a
@@ -202,7 +240,7 @@ all_page_loop   ld hl, MON_VIS_VAR + MVV_PAGE_NAME  ; Point to name
                 exx
                 ex af, af'              ; Restore C flag from monitor call
                 ld hl, no_mem_msg       ; "Insufficient memory pages"
-                jp c, msg_exit
+                jp c, msg_diag_exit
                 ld (de), a              ; Save new page number
                 inc de
                 ld hl, MON_VIS_VAR + MVV_PAGE_NAME + 3  ; Point to last character
@@ -247,7 +285,7 @@ chk_page_loop1  ld a, (hl)
 ; Emulator page in use!
                 pop bc                  ; Discard counter
                 ld hl, page_clash_msg   ; "Emulator page in use by CP/M!"
-                jp msg_exit
+                jp msg_diag_exit
 ;
 ; No match, so all is well so far.
 chk_page_ok     inc hl
@@ -280,7 +318,7 @@ chk_page_ok     inc hl
 ; Carry set on error. A generic message will have been written to the console
 ; if an error occurred.
                 ld hl, load_err_msg     ; "Error reading file"
-                jp c, msg_exit
+                jp c, msg_diag_exit
 ;
 ; Initialise to 0xff. write_em_byte will map the relevant page into bank 2
 ; (8000 - BFFF) to perform the writes.
@@ -307,7 +345,9 @@ romr_loop       ld a, b
                 or c
                 jr z, romr_done         ; Exit if all done
 ; Read a byte.
-                call frdby
+                call frdby              ; Read byte from file
+; A - BDOS error code if carry = 1 (e.g. BDOS_READ_SEQ_EOF) or byte if
+; carry = 0
                 jp c, romr_err          ; Finish on error
                 call write_em_byte      ; Write byte to emulated space
                 inc hl
@@ -318,7 +358,7 @@ romr_loop       ld a, b
 ; BDOS error reported. An EOF is acceptable, but anything else is trouble.
 romr_err        ld hl, load_err_msg     ; "Error reading file"
                 cp BDOS_READ_SEQ_EOF
-                jp nz, msg_exit         ; Return with EOF error
+                jp nz, msg_diag_exit    ; Return with EOF error
 ;
 ; We have either read the entire file (to EOF) or 16 KB. If the latter, any
 ; remaining data is ignored. Display the amount of data loaded.
@@ -460,9 +500,12 @@ ret_em          ld sp, (cpm_sp)
                 jp z, em_save
                 cp ETOC_LOAD            ; Load BASIC programme
                 jp z, em_load
+                cp ETOC_PAUSE           ; Pause for BC frames
+                jp z, em_pause
+;
                 ld hl, exit_msg         ; "Returning to CP/M"
                 cp ETOC_EXIT            ; Terminate the session?
-                jp z, msg_exit
+                jp z, msg_diag_exit
                 call panic              ; Fatal error if not one of the above
 ;
 ;
@@ -487,8 +530,9 @@ em_disp         res 7, d                ; Reset expand flag
                 jr c, emd_good_loc
 ;
 ; Display the received coordinates if out of range.
-emd_bad_loc     ld a, "["
-                call conwch             ; Write character to console
+emd_bad_loc     call load_diag_pos
+                ld hl, bad_posn_msg     ; "Bad S_POSN: "
+                call conwms             ; Print $-terminated string to console
                 ld a, e
                 call cwpdby             ; Print A in decimal
                 ld a, ","
@@ -496,8 +540,7 @@ emd_bad_loc     ld a, "["
                 ld a, d
                 and 0x7f                ; Reset expand flag
                 call cwpdby             ; Print A in decimal
-                ld a, "]"
-                call conwch             ; Write character to console
+                jr emd_loc_done         ; Skip moving cursor
 ;
 ; Convert row to origin at top left-hand corner (0, 0).
 emd_good_loc    ld a, 24
@@ -516,7 +559,7 @@ emd_good_loc    ld a, 24
 emd_loc_done    ld a, "?"               ; Substitution character
                 bit 6, b
                 jr nz, emd_ascii        ; Jump if unprintable
-; The substution character will be display with the current inverse video
+; The substitution character will be display with the current inverse video
 ; state. This seems better than drawing attention to it by changing the state.
                 ld a, (inv_video)       ; Bit 7 set if inverse video
                 xor b
@@ -558,6 +601,11 @@ emd_exit        ld c, CTOE_RET          ; Return
 ;
 ; Handle the low resolution graphics characters. These require Unicode.
 ; BC - character code
+; Unicode appears to be more a by-product of the way Minicom is written.
+; In general, it works. However, there are issues:
+; 1) U+259B is not rendered properly, despite it working in the Linux console.
+; 2) A long string of Unicode characters seems to cause odd effects at the
+;   end of the line.
 emd_unicode     ld hl, concap           ; Console capabilities (CONCAP_xxx)
                 bit CONCAP_UNICODE_BIT, (hl)
                 jr nz, emd_uni_ok
@@ -643,7 +691,7 @@ em_read_key     call conrch             ; Read character from the console
 ; Exit if ^C pressed.
                 ld hl, break_msg        ; "Exiting due to ^C"
                 cp BREAK_CHAR
-                jp z, msg_exit          ; Exit on break
+                jp z, msg_diag_exit     ; Exit on break
 ;
 ; Convert the character to ZX81. First handle special cases.
                 ld de, 0xfdbf           ; Newline column / row code
@@ -834,6 +882,46 @@ elo_done        call fclose             ; Close file
                 jr els_exit
 ;
 ;
+; Pause for BC frames. This an approximation as ZARC tick intervals are 100 ms.
+; DE - number of frames to pause (0 to 32767). 0 pauses indefinitely.
+; A keypress terminates the pause.
+em_pause        
+; Convert 20 ms TV frames to centiseconds. There are 2 centiseconds per frame
+; so we can just multiply by 2. This handily still fits in 16 bits.
+                sla e
+                rl d
+; DE - number of centiseconds to pause
+                push de
+;
+; Reset timer.
+                ld bc, 0
+                ld de, 0
+; BCDE - 32-bit time in centiseconds (0 to approximately 497 days).
+                ld hl, BIOS_SET_TIMER   ; Set timer in centiseconds
+                call cbios
+;
+emp_wait_lp     halt                    ; Wait for an interrupt
+; Had a key been pressed?
+                call const              ; Fetch console input status
+                and a
+                jr nz, emp_done         ; Jump if key pressed
+; No key pressed.
+                ld hl, BIOS_GET_TIMER   ; Get time in centiseconds
+                call cbios
+; BCDE - 32-bit time in centiseconds (0 to approximately 497 days).
+                pop bc                  ; Restore target time
+                push bc
+                and a
+                ex de, hl               ; Move LS 16 bits to HL
+                sbc hl, bc
+                jr c, emp_wait_lp
+; Go here on timeout or if key pressed. The key is not read so it can be checked
+; by the break test code. This allows us to break out of a pause.
+emp_done        pop bc                  ; Clean up stack
+                ld c, CTOE_RET          ; Return
+                jp em_loop
+;
+;
 rel_toem_len    equ (rel_now - rel_toem)    ; To em space code length
 abs_toem        equ EM_XFER_START - rel_toem_len    ; Abs to em code addr
 rel_code_len    equ (rel_end - rel_toem)    ; Relocatable code code length
@@ -856,12 +944,19 @@ rel_now         jp 0                    ; *
 rel_end                                ; End of code to copy
 ;
 ;
-; Print message pointed to by HL, then exit.
-msg_exit        call load_diag_pos
+; Print message pointed to by HL in the diagnostics area, then exit.
+msg_diag_exit   call load_diag_pos
                 xor a
                 call conrev             ; Turn reverse off
                 call conwms             ; Print $-terminated string to console
                 jp exit
+;
+; Print message pointed to by HL, then exit. This should be used if we haven't
+; set diag_msg_row yet.
+msg_exit        xor a
+                call conrev             ; Turn reverse off
+                call conwms             ; Print $-terminated string to console
+                jp exit_raw
 ;
 ;
 ; Return to CP/M.
@@ -870,6 +965,12 @@ exit            ld a, 1
                 call csrvis             ; Show cursor
                 xor a
                 call conrev             ; Turn reverse off
+; Move cursor to the bottom row for easier reading.
+; H - row
+; L - column
+; (0, 0) is the top left-hand corner.
+                ld hl, 256 * 23
+                call load_cursor_pos
 ;
 ; Rescind supervisor (I/O) access for banks 0 to 2. This returns the system to
 ; the normal state for CP/M. Bank 3 always has supervisor as it is required for
@@ -883,8 +984,8 @@ exit            ld a, 1
                 call fclose             ; Close file if it is open
 ; Ignore any errors in this case as there is no sensible action we can take.
 ;
-; Return
-                ld sp, (bdos_sp)
+; Return. Go straight here if we haven't initialised the fcbr and memory etc.
+exit_raw       ld sp, (bdos_sp)
 ; For this application a warm boot is required as we may have overwritten the
 ; CCP.
 ;                ret                     ; Return to BDOS
@@ -1147,6 +1248,10 @@ ldp_row_ok      ld (diag_msg_row), a
 ; A space separates the emulator display and the messages.
                 ld hl, spc_era_msg      ; Space and erase to end of line
                 call conwms             ; Print "$" terminated string to the console
+; Force loading of cursor position when the ZX81 next displays something.
+                ld a, 0xff              ; Set unrealistic value to force load
+                ld (cursor_row), a
+                ld (cursor_col), a
                 pop hl
                 ret
 ;
@@ -1157,19 +1262,23 @@ ldp_row_ok      ld (diag_msg_row), a
 ; *************
 ;
 ;
-signon_msg      byte "ZX81 Emulator V1.0$"
+signon_msg      byte "ZX81 Emulator V"
+                byte MAJ_VER + "0", ".", MIN_VER + "0", "$"
 no_z80_msg      byte "Z80 CPU required", 0x0d, 0x0a, "$"
 no_zarc_msg     byte "ZARC BIOS not detected.", 0x0d, 0x0a, "$"
+clopt_list      byte "B", 0         ; List of option characters 
 bad_term_msg    byte "No compatible terminal detected.", 0x0d, 0x0a, "$"
 no_uni_msg      byte "Terminal won't support semigraphics.$"
 bad_mem_msg     byte "Memory space error.$"
 no_mem_msg      byte "Insufficient memory pages$"
-op_err_msg      byte "Unexpected operand(s).$"
+op_err_msg      byte "Operand error. Expected format: zx81 [/<options>]", 0x0d, 0x0a
+                byte "Options:", 0x0d, 0x0a
+                byte "B=show build information and exit", 0x0d, 0x0a, "$"
 page_clash_msg  byte "Emulator page in use by CP/M!$"
 load_rom_msg    byte "Loading modified ROM. $"
 rom_fn          byte "ZX81ROM BIN"
 load_err_msg    byte "Error reading file.$"
-break_msg       byte 0x0d, 0x0a, "Exiting due to ^C", 0x0d, 0x0a, "$"
+break_msg       byte "Exiting due to ^C.$"
 exit_msg        byte "Returning to CP/M.", 0x0d, 0x0a, "$"
 spc_era_msg     byte " ", 0x1b, "[K$"   ; Space and erase to end of line
 start_msg       byte "Starting ZX81 system. Press ^C to exit.$"
@@ -1179,6 +1288,7 @@ emf_toolong_msg byte "Filename too long$"
 save_msg        byte "Saving file $"
 load_msg        byte "Loading file $"
 bytes_msg       byte " bytes$"
+bad_posn_msg    byte "Bad S_POSN: $"
 ;
 ; Character lookup table. This table covers codes 0 to 63. When bit 7 is set,
 ; the same codes are displayed in inverse video. Zero entries indicate that
@@ -1202,7 +1312,7 @@ zx81_to_unicode byte 0xe2, 0x96, 0x98, 0    ; U+2598 Quadrant upper left
                 byte 0xe2, 0x96, 0x8c, 0    ; U+258C Left half block
                 byte 0xe2, 0x96, 0x9e, 0    ; U+259E Upper right and lower left
 ;                byte 0xe2, 0x96, 0x9b, 0    ; U+259B Upper left, upper right, lower left
-; U+259B does not render properly in the minicom terminal regardless of font
+; U+259B does not render properly in the Minicom terminal regardless of font
 ; selected. The following character is close, but not exactly what we want.
                 byte 0xf0, 0x9f, 0xac, 0x95 ; U+1FB15 Approximation of above
 ; The next three characters are from the Unicode "Symbols for Legacy Computing"
@@ -1288,6 +1398,10 @@ ascii_to_key    word 0xfd7f, 0xfcf7, 0xfaf7, 0xfcbf ; | !"#|
                 dseg                ; Data segment
 ;
 bdos_sp         defs 2              ; BDOS's stack pointer
+;
+clr_start                           ; Start of cleared variables area
+;
+clopt_flags     defs 1              ; Command line options
 brkflg          defs 1              ; Non-zero if break character detected
 fcbr            defs FCBR_SIZE      ; FCB and record buffer structure
 cpm_sp          defs 2              ; CP/M space stack pointer
@@ -1301,6 +1415,8 @@ load_save_name  defs FILENAME_SIZE + FILEEXT_SIZE   ; Name buffer
 ; Memory pages.
 em_pages        defs MMAP_BANKS     ; Emulator pages
 cpm_pages       defs MMAP_BANKS     ; CP/M pages
+;
+clr_end                             ; End of cleared variables area
 ;
                 defs STACK_SIZE     ; Stack space
 app_stack_top

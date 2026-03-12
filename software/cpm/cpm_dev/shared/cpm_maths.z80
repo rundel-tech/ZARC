@@ -53,6 +53,7 @@ CPMM            equ 1                   ; Flag module for includes
                 public mamwwu       ; 16-bit * 16-bit unsigned multiply
                 public mamlbu       ; 32-bit * 8-bit unsigned multiply
                 public crc16x       ; Software CRC-16 (XMODEM)
+                public adler        ; Adler-32 checksum
 ;
 ;
 ;
@@ -83,7 +84,7 @@ dulb_bitloop    add	hl, hl          ; Shift MS bit of dividend into carry
                 jr c, dulb_nextbit
 dulb_dosub      sub	a, c
                 inc	l
-dulb_nextbit    djnz	dulb_bitloop
+dulb_nextbit    djnz	 dulb_bitloop
                 pop bc
                 ret
 ;
@@ -271,6 +272,61 @@ crc16x          push bc
                 ld l, a
 ;
                 pop bc
+                ret
+;
+;
+; Adler-32 checksum. See https://en.wikipedia.org/wiki/Adler-32 for details.
+; Call with:
+; DEHL - checksum. Set to 1 for first pass.
+; A - byte to be included
+; Returns with:
+; DEHL - updated checksum
+adler           push bc
+;
+; HL - "A" part
+; DE - "B" part
+; Perform a = (a + data) % MOD_ADLER;
+                ld c, a
+                ld b, 0
+                add hl, bc
+                call adl_mod
+;
+; Perform b = (b + a) % MOD_ADLER;
+adl_a_done      ex de, hl
+; DE - "A" part
+; HL - "B" part
+                add hl, de
+                call adl_mod
+                ex de, hl
+;
+                pop bc
+                ret
+;
+;
+;  Subroutine for use with adler. Performs mod 65521 (0xfff1). Call with:
+; HL - input parameter
+; Carry flag - set as result of previous add operation
+; Returns with:
+; HL - result
+; Note: BC is not preserved.
+adl_mod         jr c, adlm_over         ; Overflow if > 65535
+; No 16-bit overflow.
+                ld a, h
+                inc a
+                ret nz                  ; OK if not 0xffxx
+                ld a, l
+                cp low 65521
+                ret c                   ; OK if < 0xfff1
+; Adler overflow.
+                ld bc, 65521
+                and a
+                sbc hl, bc
+                ret
+;
+; Result has carried, so is 65536 less than it should be. However, we need to
+; subtract 65521 to perform the modulus operation.
+adlm_over       ld bc, 65536 - 65521
+                add hl, bc
                 ret
 ;
 ;

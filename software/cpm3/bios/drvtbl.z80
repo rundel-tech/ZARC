@@ -1,0 +1,87 @@
+; *******************************************************
+; * CP/M 3 BIOS for ZARC Z80 Computer                   *
+; * "Drive Table" module                                *
+; * Version: V1.0                                       *
+; * Merlin Skinner, 8/2/2023                            *
+; *******************************************************
+;
+; Modified from DRI's DRVTBL.ASM. Modified for ZARC and its memory card.
+;
+;
+;
+; ************
+; * Includes *
+; ************
+;
+                include "macros.i"
+;                include "z80.i"
+;                include "zarc.i"        ; Hardware definitions
+;                include "monitor.i"
+;                include "io_map.i"      ; I/O addresses mapping
+;                include "terminal.i"    ; Terminal constants
+;                include "io.i"          ; I/O routines
+;                include "utility.i"     ; Utility functions
+;                include "maths.i"       ; Mathematical functions
+;                include "interrupts.i"  ; Interrupts
+;                include "time.i"        ; Routines associated with time
+;                include "diags.i"       ; Diagnostics
+;                include "heap.i"
+                include "cpm.i"
+                include "cpm3.i"
+;                include "disks.i"
+                include "mmc.i"
+                include "memory.i"      ; Memory page allocation
+                include "bios.i"
+;
+;
+;
+; *************
+; * Externals *
+; *************
+;
+;
+                public @dtbl
+; Pointers to XDPH structures.
+                extrn xdph0, xdph1, xdph2, xdph3
+                extrn xdph4, xdph5, xdph6, xdph7
+                extrn xdph8, xdph9, xdph10, xdph11
+                extrn xdph12, xdph13, xdph14, xdph15
+;
+;
+;
+; *************
+; * Main Code *
+; *************
+;
+;
+                cseg                            ; Use common bank
+;
+;
+; Define a single pointer to a XDPH for drive "d". This is required as the
+; "`" mechanism only works in a macro.
+ins_word        macro d
+                word xdph`d
+                endm
+;
+;
+; Drive table as defined in CP/M 3 System Guide section 3.3.1. It is a list
+; of pointers to the Disk Parameter Headers for each logical drive name, A
+; through P. This inserts a zero where required rather than using the external
+; symbols to do it. This is because LINK always treats externals as relative.
+@dtbl
+                .aseg
+drive           set 0
+                rept CP3_NUM_DISKS_MAX
+                .cseg
+                if drive < CP3_NUM_DISKS
+                    ins_word %drive
+                else
+                    word 0                  ; Insert zero
+                endif
+                .aseg
+drive           set drive + 1
+                endm 
+                .cseg
+;
+                end
+

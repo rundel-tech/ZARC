@@ -58,7 +58,9 @@ MMAP_BANK3_END      equ 0xffff
 MMAP_MON_B0_PAGE    equ 0x3f        ; Page for bank 0
 MMAP_MON_B1_PAGE    equ 0x3e        ; Page for bank 1
 ;
-STACKS_SIZE     equ 64              ; Space allocated to normal stacks
+; This may seem large, but MMC sector writes for example require over 70 bytes
+; of stack!
+STACKS_SIZE     equ 128             ; Space allocated to normal stacks
 ;
 HEAP_TOP        equ MMAP_BANK1_END  ; Top (end) of heap space.
 

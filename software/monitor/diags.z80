@@ -29,6 +29,8 @@ diags           equ 1                   ; Flag module for includes
                 include "utility.i"     ; Utility functions
                 include "maths.i"       ; Mathematical functions
                 include "memory.i"      ; Memory page allocation
+                include "mmc.i"         ; Memory card
+                include "cache.i"       ; MMC sector cache
 ;
 ;
 ; *************
@@ -157,7 +159,7 @@ mt_walk0_lp     ld a, d
                 push hl             ; Save address
                 push bc             ; Save length
                 ld hl, mt_addr_msg
-                call conwms   ; Print "Addressing test" message
+                CON_WR_MSG   ; Print "Addressing test" message
 ; Restore address and length but leave a copy on the stack.
                 pop bc
                 pop hl
@@ -192,12 +194,12 @@ mt_vea_lp       ld a, b
                 push af             ; Save data read
                 push hl             ; Save address
                 ld hl, mt_err1_msg
-                call conwms         ; Print "Error at " message
+                CON_WR_MSG         ; Print "Error at " message
                 pop hl
                 push hl
                 call cwphwd         ; Print address in hex
                 ld hl, mt_err2_msg
-                call conwms         ; Print ", read " message
+                CON_WR_MSG         ; Print ", read " message
                 pop hl
                 pop af
                 call cwphby         ; Print data read in hex
@@ -223,11 +225,11 @@ mt_test_dn      ld a, (mt_err_flag) ; Return with error flag in A
                 jr nz, mt_errs
 ; No errors
                 ld hl, mt_pass_msg
-                call conwms         ; Print "Passed" message
+                CON_WR_MSG         ; Print "Passed" message
                 ret
 ; One or more errors occurred.
 mt_errs         ld hl, mt_fail_msg
-                call conwms         ; Print "Failed" message
+                CON_WR_MSG         ; Print "Failed" message
                 ret 
 ;
 ; Test an area of memory with the pattern specified. This is used by memtst.
@@ -241,7 +243,7 @@ mt_test_patt    push hl             ; Save address
                 push bc             ; Save length
                 ld e, a             ; Save pattern
                 ld hl, mt_patt_msg
-                call conwms         ; Print "Pattern " message
+                CON_WR_MSG         ; Print "Pattern " message
                 ld a, e
                 call cwphby         ; Print in hex
                 call cwnwln         ; Write new line characters to console
@@ -273,12 +275,12 @@ mt_ve_patt_lp   ld a, b
                 push af             ; Save data read
                 push hl             ; Save address
                 ld hl, mt_err1_msg
-                call conwms         ; Print "Error at " message
+                CON_WR_MSG         ; Print "Error at " message
                 pop hl
                 push hl
                 call cwphwd         ; Print address in hex
                 ld hl, mt_err2_msg
-                call conwms         ; Print ", read " message
+                CON_WR_MSG         ; Print ", read " message
                 pop hl
                 pop af
                 call cwphby         ; Print data read in hex
@@ -296,7 +298,8 @@ mt_ve_byte_dn   inc hl
 ; Returns with:
 ; A - 0 if all went well.
 ; Registers are not preserved.
-memtal          xor a
+memtal          call caflus         ; Flush cache
+                xor a
                 ld (mt_err_flag), a ; Reset error flag
                 ld c, 0             ; Starting page
 mta_page_lp     ld a, c
@@ -306,7 +309,7 @@ mta_page_lp     ld a, c
                 jr z, mta_next_page
 ; Print the current page
                 ld hl, mta_page_msg
-                call conwms         ; Print "Page" message
+                CON_WR_MSG         ; Print "Page" message
                 ld a, c
                 call cwphby         ; Print page in hex
                 call cwnwln         ; Write new line characters to console
@@ -333,7 +336,7 @@ mta_next_page   inc c
 ; is really working.
 ; Loop through each page again
                 ld hl, mta_pagetst_msg
-                call conwms         ; Print "Paging test" message
+                CON_WR_MSG         ; Print "Paging test" message
                 ld c, 0             ; Starting page
 mta_page_sel_lp  ld a, c
                 cp MMAP_MON_B0_PAGE
@@ -354,11 +357,11 @@ mta_page_sel_lp  ld a, c
 ; C - data expected (page number)
                 push af             ; Save data read
                 ld hl, mt_err3_msg
-                call conwms         ; Print "Expected " message
+                CON_WR_MSG         ; Print "Expected " message
                 ld a, c
                 call cwphby         ; Print data expected in hex
                 ld hl, mt_err2_msg
-                call conwms         ; Print ", read " message
+                CON_WR_MSG         ; Print ", read " message
                 pop af
                 call cwphby         ; Print data read in hex
                 call cwnwln         ; Write new line characters to console

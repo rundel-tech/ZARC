@@ -1,9 +1,14 @@
 ; *******************************************************
 ; * Monitor for ZARC Z80 Computer                       *
 ; * (Serial boot version).                              *
-; * Version: V0.0                                       *
+; * Version: V1.1                                       *
 ; * Merlin Skinner, 14/5/2020                           *
 ; *******************************************************
+;
+;
+; V1.0, 14/5/2020 - initial version.
+; V1.1, 9/12/2022 - added CP/M 3 support
+;
 ;
 ; This code will be loaded from the console serial port by the stage 1 bootloader.
 ; This is entered manually from the front panel:
@@ -29,8 +34,8 @@
 ; Memory Map (Monitor Mode)
 ; 
 ; 0 (0000 - 3FFF): 3f read only, supervisor - monitor program
-; 1 (4000 - 7FFF): 3e writeable - monitor variables, stacks, buffers etc.
-; 2 (8000 - BFFF): (not used)
+; 1 (4000 - 7FFF): 3e writable - monitor variables, stacks, buffers etc.
+; 2 (8000 - BFFF): set by the monitor as required
 ; 3 (C000 - FFFF): (mapped as required)
 ;
 ; This is the default map used by the monitor, and is selected when the monitor is
@@ -46,10 +51,10 @@
 ;
 ; Memory Map (CP/M Mode)
 ; 
-; 0 (0000 - 3FFF): 00 writeable
-; 1 (4000 - 7FFF): 01 writeable
-; 2 (8000 - BFFF): 02 writeable
-; 3 (C000 - FFFF): 03 writeable
+; 0 (0000 - 3FFF): 00 writable
+; 1 (4000 - 7FFF): 01 writable
+; 2 (8000 - BFFF): 02 writable
+; 3 (C000 - FFFF): 03 writable
 ;
 ; When running CP/M, memory is mapped as shown above.
 ;
@@ -98,15 +103,15 @@ main            equ 1                   ; Flag module for includes
                 public wusby            ; Write byte to user space
                 public wuswd            ; Write 16-bit word to user space
                 extern prpnam           ; Print memory page name
-;
-; Variables
-                public tikdiv           ; Tick divider
-                public mscnt            ; Monitor start count
-                public mcspd            ; Approximate CPU speed in KHz
                 public mcrun            ; Switch context to user code
                 public mdisrg           ; Display registers
+;
+; Variables
+                public mscnt            ; Monitor start count
+                public mcspd            ; Approximate CPU speed in KHz
                 public mstate           ; Machine state structure
-                public warm1            ; Warm start marker 1 
+                public warm1            ; Warm start marker 1
+                extern warm2            ; Warm start marker 2
 ;
 ;
 ; *************
@@ -148,9 +153,39 @@ reset           di
                 ld c, 0xff
                 jp init
 ;
-; Make space to allow RST and interrupt vectors to be inserted if we are running
-; at 0x0000.
-                defs 0x63               ; Skip to end of NMI vector allowing for a jump
+; Some vectors are used as aliases for commonly-used functions in the monitor.
+; See macros.i for definitions.
+; RST 08 handler.
+                defs 2                  ; Align following vector
+                jp conwms               ; Print null-terminated string to the console
+;
+; RST 10 handler.
+                defs 5                  ; Align following vector
+                jp conwch               ; Write character to the console
+;
+; RST 18 handler.
+                defs 5                  ; Align following vector
+                jp default_rst18
+;
+; RST 20 handler.
+                defs 5                  ; Align following vector
+                jp default_rst20
+;
+; RST 28 handler.
+                defs 5                  ; Align following vector
+                jp default_rst28
+;
+; RST 30 handler.
+                defs 5                  ; Align following vector
+                jp default_rst30
+;
+; RST 38 handler.
+                defs 5                  ; Align following vector
+                jp default_rst38
+;
+; NMI service routine.
+                defs 0x2b               ; Align following vector
+                jp default_nmi
 ;
 ; Functions made externally available have fixed entry points in the same manner
 ; CP/M uses. This allows changes to the monitor without having to recompile
@@ -208,6 +243,8 @@ reset           di
 ; From cache.z80
                 jp cacrs        ; CP/M read sector
                 jp cacws        ; CP/M write sector
+                jp cars         ; Read MMC sector
+                jp caws         ; Write MMC sector
                 jp caflus       ; Flush cache (write dirty buffers)
 ; From memory.z80
                 jp mpall        ; Allocate new page
@@ -220,15 +257,15 @@ reset           di
 ; C - 0xff if we are here due to a reset.
 init            di                      ; Required if coming from exception handler
 ;
-; Set initial memory map. Page 0 is made writeable initially to allow vectors to be
+; Set initial memory map. Page 0 is made writable initially to allow vectors to be
 ; initialised. Set unused banks to arbitrary values so the FPGA shadow registers
 ; reflect the real bank registers.
-; Note - can't call mmap_page0_rw here as we have no writeable stack yet.
+; Note - can't call mmap_page0_rw here as we have no writable stack yet.
 ;
-; Set bank 0 (0x0000 to 0x3fff) writeable with I/O access.
+; Set bank 0 (0x0000 to 0x3fff) writable with I/O access.
                 ld a, MMAP_MON_B0_PAGE + MMAP_SUPER_MASK
                 out (IOA_MMAP_0), a
-; Bank 1 (0x4000 to 0x7fff) writeable.
+; Bank 1 (0x4000 to 0x7fff) writable.
                 ld a, MMAP_MON_B1_PAGE
                 out (IOA_MMAP_1), a
 ; Banks 2 and 3 are mapped later as required.
@@ -237,107 +274,53 @@ init            di                      ; Required if coming from exception hand
                 ld a, SYSCTRL_MMAP_MASK
                 out (IOA_CONTROL), a
 ;
+                ld sp, mon_stack_p1     ; Setup stack
+;
+; Clear bank 1 RAM (variables) on a cold start.
+                call chk_warm           ; Check for warm start markers
+                jr nc, init_noclr       ; Skip clear on warm start
+;
+; Note - this will clear all variables and any data on the stack!
+                ld hl, MMAP_BANK1_START
+init_var_clr    ld (hl), 0
+                inc hl
+                ld a, h
+                cp high (MMAP_BANK1_START + MMAP_PAGE_SIZE)
+                jr nz, init_var_clr
+                assert low (MMAP_BANK1_START + MMAP_PAGE_SIZE) = 0
+;
 ; Set rst_flag appropriately now we can write.
-                ld a, c
+init_noclr      ld a, c
                 ld (rst_flag), a        ; Flag reset (or RST 00)
 ;
-                ld sp, mon_stack_p1     ; Setup stack
 ; IX is pre-loaded with the base address of the machine state structure as so
 ; much code uses it.
                 ld ix, mstate           ; Machine state structure
-;
-; Write vectors to locations in the monitor. These may be overwitten as required.
-; RST 0 already points to the initialisation code.
-                ld a, 0x08
-                ld de, default_rst08    ; Point to default handler
-                call utrivc
-                call c, panic           ; Panic on error
-;
-                ld a, 0x10
-                ld de, default_rst10    ; Point to default handler
-                call utrivc
-                call c, panic           ; Panic on error
-;
-                ld a, 0x18
-                ld de, default_rst18    ; Point to default handler
-                call utrivc
-                call c, panic           ; Panic on error
-;
-                ld a, 0x20
-                ld de, default_rst20    ; Point to default handler
-                call utrivc
-                call c, panic           ; Panic on error
-;
-                ld a, 0x28
-                ld de, default_rst28    ; Point to default handler
-                call utrivc
-                call c, panic           ; Panic on error
-;
-                ld a, 0x30
-                ld de, default_rst30    ; Point to default handler
-                call utrivc
-                call c, panic           ; Panic on error
-;
-                ld a, 0x38
-                ld de, default_rst38    ; Point to default handler
-                call utrivc
-                call c, panic           ; Panic on error
-;
-; NMI vector
-                ld de, default_nmi      ; Point to default handler
-                ld hl, Z80_NMI_VEC
-                ld (hl), 0xc3           ; Jump instruction
-                inc hl
-                ld (hl), e              ; LS byte of address
-                inc hl
-                ld (hl), d              ; MS byte of address
 ;
                 ld a, NMI_REASONS_ALL
                 out (IOA_NMI_REASONS)   ; Discard any pending NMI reasons
 ;
                 call mmap_page0_ro      ; Set page 0 to read only
 ;
-                call con_init_basic     ; Initialise console I/O in basic mode
+                call con_init           ; Initialise console I/O
 ;
                 call cpuspd             ; Measure approximate CPU clock speed
                 ld (mcspd), bc          ; Approximate CPU speed in KHz
 ;
-; Is this a cold or warm start? Markers are placed at the beginning and the
-; end of the variables area. If these are set appropriately, we must have run
-; before so this is a warm start.
-                ld a, (warm1)
-                cp WARM_MAGIC_1
-                jr nz, init_cold
-                ld a, (warm2)
-                cp WARM_MAGIC_2
-                jr nz, init_cold
-                jr init_warm            ; Do warm start
+                call chk_warm           ; Check for warm start markers
+                jp nc, init_warm
 ;
-; Cold start initialisation.
-; Use the default monitor stack location.
-init_cold       ld hl, 0
-                ld (mscnt), hl    ; Reset reset counter
-; Initialise user registers.
-                ld hl, mstate
-                ld b, MST_SIZE
-                xor a
-ic_zero_lp      ld (hl), a
-                inc hl
-                djnz ic_zero_lp
-;
-; Set default memory mapping (CP/M map), albeit without I/O access (SUPER bit).
+; Cold start initialisation. Variables will have been cleared above.
+; Set default memory mapping. These pages will be the last to allocate, so
+; should be safe against inadvertent writes.
                 ld (ix + MST_MMAP_EN), 1    ; Memory mapping enabled
-                ld (ix + MST_MMAP0), 0
-                ld (ix + MST_MMAP1), 1
-                ld (ix + MST_MMAP2), 2
-                ld (ix + MST_MMAP3), 3
+                ld (ix + MST_MMAP0), 58
+                ld (ix + MST_MMAP1), 59
+                ld (ix + MST_MMAP2), 60
+                ld (ix + MST_MMAP3), 61
 ;
-; Initialise the command history. Fill the buffer with end of string characters.
-                ld hl, cmd_history
-                ld de, cmd_history + 1
-                ld (hl), 0
-                ld bc, CMD_HIST_SIZE - 1
-                ldir
+; Initialise the command history. Buffer will be full of end of string
+; characters (0x00).
                 ld hl, cmd_history
                 ld (cmd_hist_iptr), hl  ; Set pointer to start of buffer
 ;
@@ -352,19 +335,17 @@ ic_zero_lp      ld (hl), a
                 ld (warm2), a
 ;
                 ld hl, cold_start_msg   ; Announce cold start
-                call conwms             ; Print message
+                CON_WR_MSG             ; Print message
 ;
-                call cacold             ; Reset memory card cache (cold start)
                 call mpinit             ; Initialise page map
+                call cacold             ; Reset memory card cache (cold start)
+                call mccold             ; Memory card cold start initialisation
 ;
 ; Warm start (may be after cold start code).
 ; Increment the restart counter. This includes resets and exceptions
 ; that cause the monitor to be entered.
 init_warm       ld hl, mscnt            ; Monitor start count
-                inc (hl)
-                jr nz, init_signon
-                inc hl
-                inc (hl)
+                call malinc             ; 32-bit increment
 ;
 ; For the time being at least, force the console to serial port 1 on any reset,
 ; not just cold starts. This helps to avoid loss of control of the system.
@@ -381,11 +362,11 @@ init_signon     call cwnwln             ; Write new line characters to console
 ;
 ; Display banner message.
                 ld hl, zarc_msg
-                call conwms             ; Print message
+                CON_WR_MSG             ; Print message
 ;
 ; Display normal sign-on.
 init_skip_ban   ld hl, signon_msg
-                call conwms             ; Print message
+                CON_WR_MSG             ; Print message
 ;
                 ld a, (rst_flag)
                 and a
@@ -399,7 +380,7 @@ init_skip_ban   ld hl, signon_msg
                 out (IOA_MMAP_2), a
                 out (IOA_MMAP_3), a
 ; Initialise heap.
-                call hinit
+;                call hinit             ; Not used
 ;
 ; Set memory card to idle (not initialised).
 init_ints_ok    ld a, MMC_STAT_IDLE
@@ -410,13 +391,17 @@ init_ints_ok    ld a, MMC_STAT_IDLE
 ; Print error text if there is an error.
                 call nz, mcprer         ; Print memory card error text
 ;
+; Dirty cache buffers are written to the memory card to avoid loss of data.
                 call cawarm             ; Initialise cache (warm start)
                 call caflus             ; Flush cache (write dirty buffers)
+; Reset the cache. This forces all data to be re-read, which is useful in case
+; the card has changed.
+                call cacold             ; Reset memory card cache (cold start)
 ;
 ; Command loop
 get_cmd         ld sp, mon_stack_p1     ; Reset stack
                 ld hl, cmd_prompt       ; Display prompt
-                call conwms             ; Print message
+                CON_WR_MSG             ; Print message
 ; Initialise the history buffer output pointer.
                 ld hl, (cmd_hist_iptr)
                 call hist_val_ptr       ; Make sure it is valid
@@ -453,7 +438,7 @@ gc_loop         call conrch             ; Fetch next character from user
                 ld a, b                 ; Restore character
                 ld (hl), a              ; Store in buffer
                 inc hl
-                call conwch             ; Echo it
+                CON_WR_CHAR             ; Echo it
                 jr gc_loop
 ;
 ; Delete the last character.
@@ -548,7 +533,7 @@ gcp_copy_loop   xor a
                 jr z, gcp_copy_done     ; Jump if terminator found
                 ld a, (hl)
                 ld (de), a
-                call conwch             ; Display character
+                CON_WR_CHAR             ; Display character
                 inc c
                 inc de
                 inc hl
@@ -593,10 +578,10 @@ gc_do_del       ld a, (cmd_len)
                 dec hl
 ; Delete on terminal.
                 ld a, ascii_bs
-                call conwch
+                CON_WR_CHAR
                 call cwpspc             ; Print a space
                 ld a, ascii_bs
-                call conwch
+                CON_WR_CHAR
                 ret
 ;
 ; End of command.
@@ -694,7 +679,7 @@ run_ctl_mmap_dn ld a, (trace_mode)
 ; resulting NMI won't be able to push the PC. There are other conditions that
 ; will cause similar issues, but we can't catch them all.
                 ld hl, tr_map_msg      ; "Can't trace without mapping"
-                call conwms             ; Print message
+                CON_WR_MSG             ; Print message
                 jp get_cmd              ; Fetch another command
 ; Mapping with trace is OK, so arm the trace NMI.
 run_tr_map_ok   ld a, c
@@ -804,37 +789,6 @@ run_ld_bc       ld bc, 0
 run_ld_a        ld a, 0
 run_ei          ei                      ; Set to EI or NOP as required
 run_jump        jp 0                    ; Address will be set to desired PC
-;
-;
-; Set RST vector to point to a new service routine.
-; Call with:
-; A - RST number of vector to change (0x08, 0x10, 0x18 ... 0x38)
-; DE - points to the new service routine
-; Returns with:
-; C flag - set on error (invalid vector number)
-utrivc          push hl
-                ld l, a                 ; Save vector number
-                and 0xc7
-                jr nz, srvec_err
-                ld a, l
-; Calculate vector address
-                ld hl, Z80_RST00_VEC
-                add l
-                ld l, a
-; HL - vector address
-                ld (hl), jmp            ; Jump instruction
-                inc hl
-                ld (hl), e              ; LS byte of address
-                inc hl
-                ld (hl), d              ; MS byte of address
-; Successful return
-                pop hl
-                and a
-                ret                     ; Return with carry flag reset (OK)
-; Error
-srvec_err       pop hl
-                scf
-                ret                     ; Return with carry flag set (error)
 ;
 ;
 ; Set bank 0 to read/write mode to vectors etc. can be changed.
@@ -966,7 +920,7 @@ default_nmi     push af
 ; Set bank 0 (0x0000 to 0x3fff) as read-only with I/O access.
                 ld a, MMAP_MON_B0_PAGE + MMAP_PROT_MASK + MMAP_SUPER_MASK
                 out (IOA_MMAP_0), a
-; Bank 1 (0x4000 to 0x7fff) writeable.
+; Bank 1 (0x4000 to 0x7fff) writable.
                 ld a, MMAP_MON_B1_PAGE
                 out (IOA_MMAP_1), a
 ; Enable normal memory mapping and disable mapping for writes only. From now on,
@@ -998,7 +952,7 @@ except_hdlr     ld (xpt_id), a          ; Store exception ID
 ; Set bank 0 (0x0000 to 0x3fff) as read-only with I/O access.
                 ld a, MMAP_MON_B0_PAGE + MMAP_PROT_MASK + MMAP_SUPER_MASK
                 out (IOA_MMAP_0), a
-; Bank 1 (0x4000 to 0x7fff) writeable.
+; Bank 1 (0x4000 to 0x7fff) writable.
                 ld a, MMAP_MON_B1_PAGE
                 out (IOA_MMAP_1), a
 ;
@@ -1100,9 +1054,9 @@ xpt_tr_to_addr  ld de, (trace_addr)
 ; Display the reason for the exception.
 xpt_disp_reason ld a, TRM_NONE
                 ld (trace_mode), a      ; Disable tracing
-                call con_init_basic     ; Initialise console I/O in basic mode
+                call con_init           ; Initialise console I/O
                 ld hl, xpt_pre_msg
-                call conwms             ; Print "*** " message
+                CON_WR_MSG             ; Print "*** " message
                 ld hl, xpt_desc_msgs
                 ld a, (xpt_id)          ; Fetch exception ID
                 ld c, "|"               ; Separator
@@ -1131,7 +1085,7 @@ xpt_disp_reason ld a, TRM_NONE
                 ld a, NMI_REASONS_ALL
                 out (IOA_NMI_REASONS)
 xpt_notnmi      ld hl, xpt_post_msg
-                call conwms             ; Print " ***" message
+                CON_WR_MSG             ; Print " ***" message
                 call mdisrg             ; Display registers
                 ld c, 0                 ; Flag not a reset
                 jp init                 ; Initialise monitor, stack etc.
@@ -1164,14 +1118,14 @@ mdisrg          ld de, mstate + MST_AF  ; Point to first saved entry
                 call dr_reg_set         ; Display alternate set
 ; PC
                 push de
-                call conwms             ; Print next part of text
+                CON_WR_MSG             ; Print next part of text
                 push hl
                 ld hl, (mstate + MST_PC)
                 call cwphwd             ; Print word
                 pop hl
                 inc hl                  ; Skip terminator
 ; SP
-                call conwms             ; Print next part of text
+                CON_WR_MSG             ; Print next part of text
                 push hl
                 ld hl, (mstate + MST_SP)
                 call cwphwd             ; Print word
@@ -1191,7 +1145,7 @@ mdisrg          ld de, mstate + MST_AF  ; Point to first saved entry
                 ld de, mstate + MST_R
                 call dr_8               ; Display and update pointers
 ; Interrupt enable.
-                call conwms             ; Print next part of text
+                CON_WR_MSG             ; Print next part of text
                 ld a, (mstate + MST_IEN)
                 and a
                 jr z, disr_ien_dn
@@ -1199,14 +1153,14 @@ mdisrg          ld de, mstate + MST_AF  ; Point to first saved entry
 disr_ien_dn     call cwphnb             ; Print as a nibble
 ; Memory mapping state.
                 inc hl                  ; Step past message terminator
-                call conwms             ; Print next part of text
+                CON_WR_MSG             ; Print next part of text
                 push hl                 ; Save message address
                 ld a, (mstate + MST_MMAP_EN)
                 and a
                 jr nz, disr_mmap_en     ; Jump if mapping enabled
 ; Memory mapping disabled.
                 ld hl, dr_off_msg       ; "off"
-                call conwms             ; Print next part of text
+                CON_WR_MSG             ; Print next part of text
                 jr disr_mmap_dn
 ;
 ; Memory mapping enabled. Display a summary of the mapping state.
@@ -1222,7 +1176,7 @@ disr_dis_map_lp ld a, (hl)
                 dec b
                 jr z, disr_mmap_dn
                 ld a, ","               ; Display separator
-                call conwch
+                CON_WR_CHAR
                 call cwpspc             ; Print a space
                 inc hl
                 jr disr_dis_map_lp
@@ -1230,7 +1184,7 @@ disr_dis_map_lp ld a, (hl)
 ; Display a few words at the top of the stack.
 disr_mmap_dn    pop hl                  ; Restore message address
                 inc hl                  ; Skip terminator
-                call conwms             ; Print next part of text
+                CON_WR_MSG             ; Print next part of text
 ; No more messages to print, so we can overwrite HL.
                 ld hl, (mstate + MST_SP)
                 ld b, 10                ; Aligns nicely with above text
@@ -1295,7 +1249,7 @@ disr_disp_prelp ld e, (hl)
 ; DE - address in dr_inst_add_buf
 ; HL - instruction address
                 ld a, ' '               ; Make space for current PC marker
-                call conwch             ; Write character
+                CON_WR_CHAR             ; Write character
                 call diproc             ; Disassemble instruction to intermediate form
                 call diprnt             ; Print the result
                 call cwnwln             ; New line
@@ -1310,7 +1264,7 @@ disr_disp_curnt ld hl, (mstate + MST_PC)
                 ld b, DIS_PRE_INSTRS + 1
                 ld c, '*'               ; Marker for current PC
 disr_disp_polp  ld a, c
-                call conwch             ; Write character
+                CON_WR_CHAR             ; Write character
                 ld c, ' '               ; Further lines will have a space
                 call diproc             ; Disassemble instruction to intermediate form
                 call diprnt             ; Print the result
@@ -1331,7 +1285,7 @@ disr_disp_polp  ld a, c
 dr_reg_set      inc de                  ; Point to A (high byte of AF)
                 call dr_8               ; Display A register
 ; Flags
-                call conwms             ; Print next part of text
+                CON_WR_MSG             ; Print next part of text
                 ex de, hl
                 ld a, (hl)
                 and 11010111b           ; Mask out "not used" flags
@@ -1350,7 +1304,7 @@ dr_flg_loop     rl c                    ; Rotate next bit into carry
                 jr dr_flg_disp
 ; Flag is set, so write its name
 dr_flg_set      ld a, (hl)
-dr_flg_disp     call conwch             ; Write character
+dr_flg_disp     CON_WR_CHAR             ; Write character
 dr_flg_done     inc hl
                 djnz dr_flg_loop
 ; Flags written
@@ -1375,7 +1329,7 @@ dr_lp           call dr_16
 ; Returns with:
 ; HL - updated message pointer (i.e. incremented)
 ; DE - updated register pointer (i.e. decremented)
-dr_8            call conwms             ; Print next part of text
+dr_8            CON_WR_MSG             ; Print next part of text
                 ex de, hl
                 ld a, (hl)
                 call cwphby             ; Print byte
@@ -1393,7 +1347,7 @@ dr_8            call conwms             ; Print next part of text
 ; Returns with:
 ; HL - updated message pointer (i.e. incremented)
 ; DE - updated register pointer (i.e. decremented twice)
-dr_16           call conwms             ; Print next part of text
+dr_16           CON_WR_MSG             ; Print next part of text
                 inc de                  ; Point to MS byte
                 ex de, hl
                 ld a, (hl)              ; High byte
@@ -1410,9 +1364,9 @@ dr_16           call conwms             ; Print next part of text
 ;
 ; Initialise console I/O.
 ; Write some nulls to initialise console output.
-con_init_basic  ld b, 10
+con_init        ld b, 10
 init_null_lp    xor a
-                call conwch
+                CON_WR_CHAR
                 djnz init_null_lp
                 ret
 ;
@@ -1525,6 +1479,21 @@ mua_have_page   out (IOA_MMAP_3), a
 mua_exit        ret                     ; Return with carry clear
 ;
 ;
+; Is this a cold or warm start? Markers are placed at the beginning and the
+; end of the variables area. If these are set appropriately, we must have run
+; before so this is a warm start. Returns with:
+; Carry set if warm markers are not found (cold start required).
+chk_warm        ld a, (warm1)
+                cp WARM_MAGIC_1
+                jr nz, ckw_cold
+                ld a, (warm2)
+                cp WARM_MAGIC_2
+                jr nz, ckw_cold
+                and a
+                ret                     ; Warm start
+;
+ckw_cold        scf                     ; Cold start required
+                ret
 ;
 ; *************
 ; * Constants *
@@ -1536,7 +1505,7 @@ zarc_msg        byte "____  __  ___   ___", 0x0d, 0x0a
                 byte "  /  |__| |__/ |", 0x0d, 0x0a
                 byte " /   |  | |  \ |", 0x0d, 0x0a
                 byte "/___ |  | |  | \___", 0x0d, 0x0a, 0x0d, 0x0a, 0
-signon_msg      byte "ZARC Monitor V1.0", 0x0d, 0x0a, 0
+signon_msg      byte "ZARC Monitor V1.1", 0x0d, 0x0a, 0
 cold_start_msg  byte 0x0d, 0x0a, "*** Cold start ***", 0
 cmd_prompt      byte "> ", 0
 ;
@@ -1585,10 +1554,9 @@ tr_map_msg      byte 0x0d, 0x0a, "Can't trace without mapping.", 0x0d, 0x0a, 0
 ;
 warm1           defs 1              ; Warm start marker 1
 ;
-mscnt           defs 2              ; Reset counter
+mscnt           defs 4              ; Reset counter
 cmd_buf         defs CMD_BUF_SIZE   ; Command buffer
 cmd_len         defs 1              ; Current command length
-tikdiv          defs 1              ; Tick divider
 xpt_id          defs 1              ; Exception ID
 mcspd           defs 2              ; Approximate CPU speed in KHz
 trace_mode      defs 1              ; Trace mode (TRM_xxx)
@@ -1605,6 +1573,5 @@ mstate          defs MST_SIZE       ; Machine state structure
 ; Stacks
                 defs STACKS_SIZE
 mon_stack_p1                        ; Monitor stack + 1
-warm2           defs 1              ; Warm start marker 2
 ;
                 end

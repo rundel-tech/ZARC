@@ -21,7 +21,7 @@
   21:				;
   22:				;
   23:				                include "macros.i"
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//macros.i ****
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/macros.i ****
    1:				; ***********************************
    2:				; * ZARC Macro Definitions          *
    3:				; * Written by: Merlin Skinner      *
@@ -100,46 +100,128 @@
   76:				                endm
   77:				;
   78:				;
-  79:				; Calculate offsets into jump tables.
-  80:				; The absolute segment is used so the offsets are not marked as relocatable. This
-  81:				; avoids "Not relocatable" errors.
-  82:				JPTBL_START     macro x
+  79:				; Allocate space. This is used to generate variable addresses, affectively
+  80:				; providing a new variables segment. Allocated size is kept track of separately
+  81:				; to the address as the latter may overflow in certain error cases.
+  82:				ALLOC           macro x
   83:				                .aseg
-  84:				jptbl_addr      set x               ; Set start address
-  85:				                endm
-  86:				;
-  87:				; Invoke for each item.
-  88:				JPTBL_ENTRY     macro x
-  89:				x               equ jptbl_addr
-  90:				jptbl_addr      set jptbl_addr + 3
-  91:				                endm
-  92:				;
-  93:				; Invoke for a data block in the jump table
-  94:				JPTBL_BLOCK     macro x, size   ; <name>, <size>
-  95:				x               equ jptbl_addr
-  96:				jptbl_addr      set jptbl_addr + size
-  97:				                endm
-  98:				;
-  99:				JPTBL_END       macro x
- 100:				x               set jptbl_addr      ; Set label to next address
- 101:				                .cseg
- 102:				                endm
- 103:				;
- 104:				;
- 105:				; Define bits and masks. This is inspired by the Commodore Amiga BITDEF mechanism.
- 106:				; Given:
- 107:				; BITDEF I2C_CSR_STOP, 2
- 108:				; Yields:
- 109:				; I2C_CSR_STOP_BIT  EQU 2       ; Bit number
- 110:				; I2C_CSR_STOP_MASK EQU 1<<2    ; Bit mask
- 111:				BITDEF          macro n, b      ; <Name>, <bit>
- 112:				n`_BIT          equ b
- 113:				n`_MASK         equ 1 << b
+  84:				all_addr        set x
+  85:				all_size        set 0
+  86:				                endm
+  87:				;
+  88:				; Add a byte entry.
+  89:				ALL_BYTE        macro x
+  90:				x               equ all_addr
+  91:				all_addr        set all_addr + 1
+  92:				all_size        set all_size + 1
+  93:				                endm
+  94:				;
+  95:				; Add a word (16-bit) entry.
+  96:				ALL_WORD        macro x
+  97:				x               equ all_addr
+  98:				all_addr        set all_addr + 2
+  99:				all_size        set all_size + 2
+ 100:				                endm
+ 101:				;
+ 102:				; Add a 3 byte (24-bit) entry.
+ 103:				ALL_24BIT       macro x
+ 104:				x               equ all_addr
+ 105:				all_addr        set all_addr + 3
+ 106:				all_size        set all_size + 3
+ 107:				                endm
+ 108:				;
+ 109:				; Add a long (32-bit) entry.
+ 110:				ALL_LONG        macro x
+ 111:				x               equ all_addr
+ 112:				all_addr        set all_addr + 4
+ 113:				all_size        set all_size + 4
  114:				                endm
- 115:				
+ 115:				;
+ 116:				; Add an arbitrary length entry.
+ 117:				ALL_BLOCK       macro x, size   ; <name>, <size>
+ 118:				x               equ all_addr
+ 119:				all_addr        set all_addr + size
+ 120:				all_size        set all_size + size
+ 121:				                endm
+ 122:				;
+ 123:				; End of allocated space. Returns size of block.
+ 124:				ALL_END         macro x
+ 125:				x               equ all_size
+ 126:				                .cseg
+ 127:				                endm
+ 128:				;
+ 129:				;
+ 130:				; Calculate offsets into jump tables.
+ 131:				; The absolute segment is used so the offsets are not marked as relocatable. This
+ 132:				; avoids "Not relocatable" errors.
+ 133:				JPTBL_START     macro x
+ 134:				                .aseg
+ 135:				jptbl_addr      set x               ; Set start address
+ 136:				                endm
+ 137:				;
+ 138:				; Invoke for each item.
+ 139:				JPTBL_ENTRY     macro x
+ 140:				x               equ jptbl_addr
+ 141:				jptbl_addr      set jptbl_addr + 3
+ 142:				                endm
+ 143:				;
+ 144:				; Invoke for a data block in the jump table
+ 145:				JPTBL_BLOCK     macro x, size   ; <name>, <size>
+ 146:				x               equ jptbl_addr
+ 147:				jptbl_addr      set jptbl_addr + size
+ 148:				                endm
+ 149:				;
+ 150:				JPTBL_END       macro x
+ 151:				x               set jptbl_addr      ; Set label to next address
+ 152:				                .cseg
+ 153:				                endm
+ 154:				;
+ 155:				;
+ 156:				; Define bits and masks. This is inspired by the Commodore Amiga BITDEF mechanism.
+ 157:				; Given:
+ 158:				; BITDEF I2C_CSR_STOP, 2
+ 159:				; Yields:
+ 160:				; I2C_CSR_STOP_BIT  EQU 2       ; Bit number
+ 161:				; I2C_CSR_STOP_MASK EQU 1<<2    ; Bit mask
+ 162:				BITDEF          macro n, b      ; <Name>, <bit>
+ 163:				n`_BIT          equ b
+ 164:				n`_MASK         equ 1 << b
+ 165:				                endm
+ 166:				;
+ 167:				;
+ 168:				; Force alignment. This asserts an appropriate number of zero bytes to achieve
+ 169:				; the required alignment. Note that these macros cannot work for relocatable
+ 170:				; files.
+ 171:				; 16-bit
+ 172:				ALIGN_WORD      macro
+ 173:				                if $ and 1
+ 174:				                    byte 0
+ 175:				                endif
+ 176:				                endm
+ 177:				;
+ 178:				; 32-bit
+ 179:				ALIGN_LONG      macro
+ 180:				                ALIGN_WORD
+ 181:				                if $ and 2
+ 182:				                    byte 0, 0
+ 183:				                endif
+ 184:				                endm
+ 185:				;
+ 186:				;
+ 187:				; Write message to console (short for "call conwms").
+ 188:				CON_WR_MSG      macro
+ 189:				                rst 08
+ 190:				                endm
+ 191:				;
+ 192:				;
+ 193:				; Write character to console (short for "call conwch").
+ 194:				CON_WR_CHAR     macro
+ 195:				                rst 16
+ 196:				                endm
+ 197:				
 **** disass.z80 ****
   24:				                include "z80.i"
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//z80.i ****
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/z80.i ****
    1:				; ***********************************
    2:				; * ZARC Z80 Definitions            *
    3:				; * Written by: Merlin Skinner      *
@@ -161,7 +243,7 @@
   19:				
 **** disass.z80 ****
   25:				                include "zarc.i"        ; Hardware definitions
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//zarc.i ****
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/zarc.i ****
    1:				; ***********************************
    2:				; * ZARC Definitions                *
    3:				; * Written by: Merlin Skinner      *
@@ -189,7 +271,7 @@
   25:				
 **** disass.z80 ****
   26:				                include "monitor.i"
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//monitor.i ****
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/monitor.i ****
    1:				; *******************************************************
    2:				; * ZARC Monitor Definitions                            *
    3:				; * Written by: Merlin Skinner                          *
@@ -203,147 +285,153 @@
   11:				;
   12:				; The following conditionals are intended to allow the same include file to be
   13:				; used in the defining module and elsewhere as required. Some includes are used
-  14:				; for other applications than the monitor, such as the CP/M BIOS. In these cases,
-  15:				; the extern and public statements are not desirable.
+  14:				; for other applications than the monitor, such as the CP/M BIOS. In these
+  15:				; cases, the extern and public statements are not desirable.
   16:				;
   17:     -	0001'         	            ifdef monitor           ; Meaningful for monitor build only
   18:     -	0001'         	                ifndef main         ; Inhibit for this module
   19:				; Constants
   20:				;
-  21:				; Variables 
-  22:				                extern tikcnt       ; Tick counter
-  23:				;
-  24:				; Functions
-  25:				                extern panic        ; System error exception
-  26:				                extern rusby        ; Read byte from user space
-  27:				                extern ruswd        ; Read 16-bit word from user space
-  28:				                extern wusby        ; Write byte to user space
-  29:				                extern wuswd        ; Write 16-bit word to user space
-  30:				;
-  31:				                endif
-  32:				            endif
-  33:				;
+  21:				; Variables
+  22:				                extern mscnt            ; Monitor start count
+  23:				                extern mcspd            ; Approximate CPU speed in KHz
+  24:				                extern mstate           ; Machine state structure
+  25:				;
+  26:				; Functions
+  27:				                extern panic            ; System error exception
+  28:				                extern rusby            ; Read byte from user space
+  29:				                extern ruswd            ; Read 16-bit word from user space
+  30:				                extern wusby            ; Write byte to user space
+  31:				                extern wuswd            ; Write 16-bit word to user space
+  32:				                extern mcrun            ; Switch context to user code
+  33:				                extern mdisrg           ; Display registers
   34:				;
-  35:				;
-  36:				; *****************
-  37:				; * Monitor Calls *
-  38:				; *****************
+  35:				                endif
+  36:				            endif
+  37:				;
+  38:				;
   39:				;
-  40:				;
-  41:				; Calculate offsets into jump tables. Entries here must match the jump table in
-  42:				; monitor.z80.
-  43:     -	        	    JPTBL_START %(Z80_NMI_VEC + 3)   ; Start after NMI vector
+  40:				; *****************
+  41:				; * Monitor Calls *
+  42:				; *****************
+  43:				;
   44:				;
-  45:				; From monitor.z80
-  46:     -	        	    JPTBL_ENTRY MCALL_MON_ENTRY     ; Normal monitor entry
-  47:     -	        	    JPTBL_ENTRY MCALL_PANIC         ; System error monitor entry
-  48:				; From io.z80
-  49:     -	        	    JPTBL_ENTRY MCALL_CONWCH        ; Write character to the console port
-  50:     -	        	    JPTBL_ENTRY MCALL_CONRCH        ; Read character from the console port
-  51:     -	        	    JPTBL_ENTRY MCALL_CONSTA        ; Fetch console port status
-  52:     -	        	    JPTBL_ENTRY MCALL_S1WCH         ; Write character to serial port 1
-  53:     -	        	    JPTBL_ENTRY MCALL_S1RCH         ; Read character from serial port 1
-  54:     -	        	    JPTBL_ENTRY MCALL_S1STA         ; Fetch serial port 1 status
-  55:     -	        	    JPTBL_ENTRY MCALL_S2WCH         ; Write character to serial port 2
-  56:     -	        	    JPTBL_ENTRY MCALL_S2RCH         ; Read character from serial port 2
-  57:     -	        	    JPTBL_ENTRY MCALL_S2STA         ; Fetch serial port 2 status
-  58:				; From utility.z80
-  59:     -	        	    JPTBL_ENTRY MCALL_CWNWLN        ; Write new line characters to console
-  60:     -	        	    JPTBL_ENTRY MCALL_CONWMS        ; Print null-terminated string to the console
-  61:     -	        	    JPTBL_ENTRY MCALL_CONWMN        ; Print message <n> in a list
-  62:     -	        	    JPTBL_ENTRY MCALL_SKPSPC        ; Step hl past spaces
-  63:     -	        	    JPTBL_ENTRY MCALL_TOUPCA        ; Convert character in A to upper case
-  64:     -	        	    JPTBL_ENTRY MCALL_TOLOCA        ; Convert character in A to lower case
-  65:     -	        	    JPTBL_ENTRY MCALL_CWVICH        ; Print only visible 7-bit characters
-  66:     -	        	    JPTBL_ENTRY MCALL_CWPSPC        ; Print a space
-  67:     -	        	    JPTBL_ENTRY MCALL_MTWDLI        ; Match word in a string against list of options
-  68:     -	        	    JPTBL_ENTRY MCALL_CWPHNB        ; Print least-significant nibble in A in hexadecimal
-  69:     -	        	    JPTBL_ENTRY MCALL_CWPHBY        ; Print A in hexadecimal
-  70:     -	        	    JPTBL_ENTRY MCALL_CWPHWD        ; Print HL in hexadecimal
-  71:     -	        	    JPTBL_ENTRY MCALL_CWPDBY        ; Print A in decimal. Leading zeros are suppressed.
-  72:     -	        	    JPTBL_ENTRY MCALL_CWPDWD        ; Print HL in decimal. Leading zeros are suppressed.
-  73:     -	        	    JPTBL_ENTRY MCALL_CWPDLO        ; Print DEHL in decimal. Leading zeros are suppressed
-  74:     -	        	    JPTBL_ENTRY MCALL_RDHXWD        ; Read a 16-bit hexadecimal number from a string
-  75:     -	        	    JPTBL_ENTRY MCALL_RDDUWD        ; Read a 16-bit unsigned decimal number from a string
-  76:     -	        	    JPTBL_ENTRY MCALL_RDDULO        ; Read a 32-bit unsigned decimal number from a string
-  77:				; From maths.z80
-  78:     -	        	    JPTBL_ENTRY MCALL_MADLBU        ; 32-bit / 8-bit unsigned divide
-  79:     -	        	    JPTBL_ENTRY MCALL_MADWBU        ; 16-bit / 8-bit unsigned divide
-  80:     -	        	    JPTBL_ENTRY MCALL_MADBBU        ; 8-bit / 8-bit unsigned divide
-  81:     -	        	    JPTBL_ENTRY MCALL_MAMWWU        ; 16-bit * 16-bit unsigned multiply
-  82:     -	        	    JPTBL_ENTRY MCALL_MAMLBU        ; 32-bit * 8-bit unsigned multiply
-  83:     -	        	    JPTBL_ENTRY MCALL_CRC16X        ; CRC-16 (XMODEM)
-  84:				; From time.z80
-  85:     -	        	    JPTBL_ENTRY MCALL_TIRD          ; Read current time and date
-  86:     -	        	    JPTBL_ENTRY MCALL_TIWR          ; Set time and date
-  87:     -	        	    JPTBL_ENTRY MCALL_TIITOS        ; Convert integer time to structure
-  88:     -	        	    JPTBL_ENTRY MCALL_TISTOI        ; Convert structure time to integer
-  89:     -	        	    JPTBL_ENTRY MCALL_CWPTM         ; Print time structure to console
-  90:				; From mmc.z80
-  91:     -	        	    JPTBL_ENTRY MCALL_MCPRER        ; Print memory card error text
-  92:				; From cache.z80
-  93:     -	        	    JPTBL_ENTRY MCALL_CACRS         ; CP/M read sector
-  94:     -	        	    JPTBL_ENTRY MCALL_CACWS         ; CP/M write sector
-  95:     -	        	    JPTBL_ENTRY MCALL_CAFLUS        ; Flush cache (write dirty buffers)
-  96:				; From memory.z80
-  97:     -	        	    JPTBL_ENTRY MCALL_MPALL         ; Allocate new page
-  98:     -	        	    JPTBL_ENTRY MCALL_MPFREE        ; Free allocated page
-  99:     -	        	    JPTBL_ENTRY MCALL_MPSTAT        ; Allocation status
- 100:				;
- 101:     -	        	    JPTBL_END MCALL_JPTBL_NEXT
- 102:				;
- 103:				;
- 104:				;
- 105:				; **************
- 106:				; * Structures *
- 107:				; **************
+  45:				; Calculate offsets into jump tables. Entries here must match the jump table in
+  46:				; monitor.z80.
+  47:     -	        	    JPTBL_START %(Z80_NMI_VEC + 3)   ; Start after NMI vector
+  48:				;
+  49:				; From monitor.z80
+  50:     -	        	    JPTBL_ENTRY MCALL_MON_ENTRY     ; Normal monitor entry
+  51:     -	        	    JPTBL_ENTRY MCALL_PANIC         ; System error monitor entry
+  52:				; From io.z80
+  53:     -	        	    JPTBL_ENTRY MCALL_CONWCH        ; Write character to the console port
+  54:     -	        	    JPTBL_ENTRY MCALL_CONRCH        ; Read character from the console port
+  55:     -	        	    JPTBL_ENTRY MCALL_CONSTA        ; Fetch console port status
+  56:     -	        	    JPTBL_ENTRY MCALL_S1WCH         ; Write character to serial port 1
+  57:     -	        	    JPTBL_ENTRY MCALL_S1RCH         ; Read character from serial port 1
+  58:     -	        	    JPTBL_ENTRY MCALL_S1STA         ; Fetch serial port 1 status
+  59:     -	        	    JPTBL_ENTRY MCALL_S2WCH         ; Write character to serial port 2
+  60:     -	        	    JPTBL_ENTRY MCALL_S2RCH         ; Read character from serial port 2
+  61:     -	        	    JPTBL_ENTRY MCALL_S2STA         ; Fetch serial port 2 status
+  62:				; From utility.z80
+  63:     -	        	    JPTBL_ENTRY MCALL_CWNWLN        ; Write new line characters to console
+  64:     -	        	    JPTBL_ENTRY MCALL_CONWMS        ; Print null-terminated string to the console
+  65:     -	        	    JPTBL_ENTRY MCALL_CONWMN        ; Print message <n> in a list
+  66:     -	        	    JPTBL_ENTRY MCALL_SKPSPC        ; Step hl past spaces
+  67:     -	        	    JPTBL_ENTRY MCALL_TOUPCA        ; Convert character in A to upper case
+  68:     -	        	    JPTBL_ENTRY MCALL_TOLOCA        ; Convert character in A to lower case
+  69:     -	        	    JPTBL_ENTRY MCALL_CWVICH        ; Print only visible 7-bit characters
+  70:     -	        	    JPTBL_ENTRY MCALL_CWPSPC        ; Print a space
+  71:     -	        	    JPTBL_ENTRY MCALL_MTWDLI        ; Match word in a string against list of options
+  72:     -	        	    JPTBL_ENTRY MCALL_CWPHNB        ; Print least-significant nibble in A in hexadecimal
+  73:     -	        	    JPTBL_ENTRY MCALL_CWPHBY        ; Print A in hexadecimal
+  74:     -	        	    JPTBL_ENTRY MCALL_CWPHWD        ; Print HL in hexadecimal
+  75:     -	        	    JPTBL_ENTRY MCALL_CWPDBY        ; Print A in decimal. Leading zeros are suppressed.
+  76:     -	        	    JPTBL_ENTRY MCALL_CWPDWD        ; Print HL in decimal. Leading zeros are suppressed.
+  77:     -	        	    JPTBL_ENTRY MCALL_CWPDLO        ; Print DEHL in decimal. Leading zeros are suppressed
+  78:     -	        	    JPTBL_ENTRY MCALL_RDHXWD        ; Read a 16-bit hexadecimal number from a string
+  79:     -	        	    JPTBL_ENTRY MCALL_RDDUWD        ; Read a 16-bit unsigned decimal number from a string
+  80:     -	        	    JPTBL_ENTRY MCALL_RDDULO        ; Read a 32-bit unsigned decimal number from a string
+  81:				; From maths.z80
+  82:     -	        	    JPTBL_ENTRY MCALL_MADLBU        ; 32-bit / 8-bit unsigned divide
+  83:     -	        	    JPTBL_ENTRY MCALL_MADWBU        ; 16-bit / 8-bit unsigned divide
+  84:     -	        	    JPTBL_ENTRY MCALL_MADBBU        ; 8-bit / 8-bit unsigned divide
+  85:     -	        	    JPTBL_ENTRY MCALL_MAMWWU        ; 16-bit * 16-bit unsigned multiply
+  86:     -	        	    JPTBL_ENTRY MCALL_MAMLBU        ; 32-bit * 8-bit unsigned multiply
+  87:     -	        	    JPTBL_ENTRY MCALL_CRC16X        ; CRC-16 (XMODEM)
+  88:				; From time.z80
+  89:     -	        	    JPTBL_ENTRY MCALL_TIRD          ; Read current time and date
+  90:     -	        	    JPTBL_ENTRY MCALL_TIWR          ; Set time and date
+  91:     -	        	    JPTBL_ENTRY MCALL_TIITOS        ; Convert integer time to structure
+  92:     -	        	    JPTBL_ENTRY MCALL_TISTOI        ; Convert structure time to integer
+  93:     -	        	    JPTBL_ENTRY MCALL_CWPTM         ; Print time structure to console
+  94:				; From mmc.z80
+  95:     -	        	    JPTBL_ENTRY MCALL_MCPRER        ; Print memory card error text
+  96:				; From cache.z80
+  97:     -	        	    JPTBL_ENTRY MCALL_CACRS         ; CP/M read sector
+  98:     -	        	    JPTBL_ENTRY MCALL_CACWS         ; CP/M write sector
+  99:     -	        	    JPTBL_ENTRY MCALL_CARS          ; MMC read sector
+ 100:     -	        	    JPTBL_ENTRY MCALL_CAWS          ; MMC write sector
+ 101:     -	        	    JPTBL_ENTRY MCALL_CAFLUS        ; Flush cache (write dirty buffers)
+ 102:				; From memory.z80
+ 103:     -	        	    JPTBL_ENTRY MCALL_MPALL         ; Allocate new page
+ 104:     -	        	    JPTBL_ENTRY MCALL_MPFREE        ; Free allocated page
+ 105:     -	        	    JPTBL_ENTRY MCALL_MPSTAT        ; Allocation status
+ 106:				;
+ 107:     -	        	    JPTBL_END MCALL_JPTBL_NEXT
  108:				;
  109:				;
- 110:				; Machine state structure.
- 111:     -	        	                STRUCT
- 112:     -	        	                STR_BYTE MST_IEN        ; Non-zero if interrupts enabled
- 113:     -	        	                STR_BYTE MST_MMAP_EN    ; Non-zero if memory mapping enabled
- 114:     -	        	                STR_BYTE MST_MMAP0      ; Memory mapping registers
- 115:     -	        	                STR_BYTE MST_MMAP1
- 116:     -	        	                STR_BYTE MST_MMAP2
- 117:     -	        	                STR_BYTE MST_MMAP3
- 118:     -	        	                STR_WORD MST_SP
- 119:     -	        	                STR_WORD MST_PC
- 120:				; The sequence of the following entries must match those in the state save and
- 121:				; load routines.
- 122:     -	        	                STR_WORD MST_IY
- 123:     -	        	                STR_WORD MST_IX
- 124:     -	        	                STR_WORD MST_HL_P
- 125:     -	        	                STR_WORD MST_DE_P
- 126:     -	        	                STR_WORD MST_BC_P
- 127:     -	        	                STR_WORD MST_AF_P       ; Alternate ("prime") registers
- 128:     -	        	                STR_WORD MST_HL
- 129:     -	        	                STR_WORD MST_DE
- 130:     -	        	                STR_WORD MST_BC
- 131:     -	        	                STR_WORD MST_AF
- 132:				; End of sequence critical entries.
- 133:     -	        	                STR_BYTE MST_I
- 134:     -	        	                STR_BYTE MST_R
- 135:     -	        	                STR_END MST_SIZE
- 136:				;
- 137:				;
- 138:				;
- 139:				; *************
- 140:				; * Constants *
- 141:				; *************
+ 110:				;
+ 111:				; **************
+ 112:				; * Structures *
+ 113:				; **************
+ 114:				;
+ 115:				;
+ 116:				; Machine state structure.
+ 117:     -	        	                STRUCT
+ 118:     -	        	                STR_BYTE MST_IEN        ; Non-zero if interrupts enabled
+ 119:     -	        	                STR_BYTE MST_MMAP_EN    ; Non-zero if memory mapping enabled
+ 120:     -	        	                STR_BYTE MST_MMAP0      ; Memory mapping registers
+ 121:     -	        	                STR_BYTE MST_MMAP1
+ 122:     -	        	                STR_BYTE MST_MMAP2
+ 123:     -	        	                STR_BYTE MST_MMAP3
+ 124:     -	        	                STR_WORD MST_SP
+ 125:     -	        	                STR_WORD MST_PC
+ 126:				; The sequence of the following entries must match those in the state save and
+ 127:				; load routines.
+ 128:     -	        	                STR_WORD MST_IY
+ 129:     -	        	                STR_WORD MST_IX
+ 130:     -	        	                STR_WORD MST_HL_P
+ 131:     -	        	                STR_WORD MST_DE_P
+ 132:     -	        	                STR_WORD MST_BC_P
+ 133:     -	        	                STR_WORD MST_AF_P       ; Alternate ("prime") registers
+ 134:     -	        	                STR_WORD MST_HL
+ 135:     -	        	                STR_WORD MST_DE
+ 136:     -	        	                STR_WORD MST_BC
+ 137:     -	        	                STR_WORD MST_AF
+ 138:				; End of sequence critical entries.
+ 139:     -	        	                STR_BYTE MST_I
+ 140:     -	        	                STR_BYTE MST_R
+ 141:     -	        	                STR_END MST_SIZE
  142:				;
  143:				;
- 144:				; Trace mode states for trace_mode.
- 145:     -	        	                ENUM_START
- 146:     -	        	                ENUM TRM_NONE
- 147:     -	        	                ENUM TRM_SINGLE
- 148:     -	        	                ENUM TRM_TO_ADDR        ; Trace to address
- 149:     -	        	                ENUM TRM_XPT            ; Exception - start running normally
- 150:     -	        	                ENUM_END TRM_STATES     ; Number of states
- 151:				
+ 144:				;
+ 145:				; *************
+ 146:				; * Constants *
+ 147:				; *************
+ 148:				;
+ 149:				;
+ 150:				; Trace mode states for trace_mode.
+ 151:     -	        	                ENUM_START
+ 152:     -	        	                ENUM TRM_NONE
+ 153:     -	        	                ENUM TRM_SINGLE
+ 154:     -	        	                ENUM TRM_TO_ADDR        ; Trace to address
+ 155:     -	        	                ENUM TRM_XPT            ; Exception - start running normally
+ 156:     -	        	                ENUM_END TRM_STATES     ; Number of states
+ 157:				
 **** disass.z80 ****
   27:				                include "io_map.i"      ; I/O addresses mapping
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//io_map.i ****
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/io_map.i ****
    1:				; ***********************************
    2:				; * ZARC I/O Definitions            *
    3:				; * Written by: Merlin Skinner      *
@@ -508,7 +596,7 @@
  162:				
 **** disass.z80 ****
   28:				                include "io.i"          ; I/O routines
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//io.i ****
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/io.i ****
    1:				; ***********************************
    2:				; * ZARC Basic I/O Extern Symbols   *
    3:				; * Written by: Merlin Skinner      *
@@ -561,7 +649,7 @@
   50:				
 **** disass.z80 ****
   29:				                include "disass.i"      ; Z80 disassembler
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//disass.i ****
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/disass.i ****
    1:				; ***************************************
    2:				; * ZARC Monitor Disassembly Routines   *
    3:				; * Written by: Merlin Skinner          *
@@ -586,7 +674,7 @@
   26:				; Note: invalid instructions may exceed this length.
 **** disass.z80 ****
   30:				                include "utility.i"     ; Utility functions
-**** /home/merlin/Dropbox/ZARC_Z80_Box/github_sw/includes//utility.i ****
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/utility.i ****
    1:				; ***********************************
    2:				; * ZARC Monitor Utility Routines   *
    3:				; * Written by: Merlin Skinner      *
@@ -850,7 +938,7 @@
  245:  944+7	00E0' D604    	                sub 4
  246:  951+7+5	00E2' 3811    	                jr c, dic0f0h0_njrcc
  247:  958+11	00E4' F5      	                push af
- 248:  969+10	00E5' 214307  	                ld hl, jr_msg
+ 248:  969+10	00E5' 213D07  	                ld hl, jr_msg
  249:  979+17	00E8' CD6505  	                call di_outmsgspc   ; Output instruction
  250:  996+10	00EB' F1      	                pop af
  251: 1006+17	00EC' CD2705  	                call di_out_c
@@ -859,7 +947,7 @@
  254:				;
  255:				; If G less than four choose the Gth item in this list:
  256:				; NOP/EX AF,AF'/DJNZ V/JR V
- 257: 1050+10	00F5' 213206  	dic0f0h0_njrcc  ld hl, c0f0h0g_msg
+ 257: 1050+10	00F5' 212C06  	dic0f0h0_njrcc  ld hl, c0f0h0g_msg
  258: 1060+13	00F8' 3A0C00  	                ld a, (inst_g)
  259: 1073+17	00FB' CD3F05  	                call di_outmsgn     ; Output message <n>
  260: 1090+13	00FE' 3A0C00  	                ld a, (inst_g)
@@ -874,7 +962,7 @@
  269: 1138+4	010A' A7      	                and a
  270: 1142+7+5	010B' 2012    	                jr nz, dic0f0h1_add
  271:				; LD s(J),VV
- 272: 1149+10	010D' 214607  	                ld hl, ld_msg
+ 272: 1149+10	010D' 214007  	                ld hl, ld_msg
  273: 1159+17	0110' CD6505  	                call di_outmsgspc   ; Output instruction followed by a space
  274: 1176+13	0113' 3A0E00  	                ld a, (inst_j)
  275: 1189+17	0116' CD0E05  	                call di_out_s       ; Output "s" (bc, de, [HL, IX or IY] or sp)
@@ -882,7 +970,7 @@
  277: 1223+10	011C' C36704  	                jp di_out_vv        ; Output 16-bit value
  278:				;
  279:				; If K is one then let DIS equal ADD Y,s(J)
- 280: 1233+10	011F' 214907  	dic0f0h1_add    ld hl, add_msg
+ 280: 1233+10	011F' 214307  	dic0f0h1_add    ld hl, add_msg
  281: 1243+17	0122' CD6505  	                call di_outmsgspc   ; Output instruction followed by a space
  282: 1260+17	0125' CD1B05  	                call di_out_y       ; Output "Y" (HL, IX or IY)
  283: 1277+17	0128' CD3505  	                call di_comma_spc
@@ -892,13 +980,13 @@
  287:				; If H equals two then...
  288:				; Let DIS equal LD plus the Gth item in this list:
  289:				; (BC),A/A,(BC)/(DE),A/A,(DE)/(VV),Y/Y,(VV)/(VV),A/A,(VV).
- 290: 1317+10	0131' 214607  	dic0f0h2        ld hl, ld_msg
+ 290: 1317+10	0131' 214007  	dic0f0h2        ld hl, ld_msg
  291: 1327+17	0134' CD6505  	                call di_outmsgspc   ; Output instruction followed by a space
  292: 1344+13	0137' 3A0C00  	                ld a, (inst_g)
  293: 1357+7	013A' FE04    	                cp 4
  294: 1364+7+5	013C' 3006    	                jr nc, dic0f0h2_vv
  295:				; Registers only [ (BC),A/A,(BC)/(DE),A/A,(DE) ].
- 296: 1371+10	013E' 21A407  	                ld hl, ld_ptr_msg
+ 296: 1371+10	013E' 219E07  	                ld hl, ld_ptr_msg
  297: 1381+10	0141' C33F05  	                jp di_outmsgn       ; Output message <n>
  298:				;
  299:				; Deal with (VV),Y/Y,(VV)/(VV),A/A,(VV).
@@ -936,31 +1024,31 @@
  331: 1658+4	017F' A7      	                and a
  332: 1662+7+5	0180' 200C    	                jr nz, dic0f0h3_dec
  333:				; If K is zero then let DIS equal INC s(J)
- 334: 1669+10	0182' 214D07  	                ld hl, inc_msg
+ 334: 1669+10	0182' 214707  	                ld hl, inc_msg
  335: 1679+17	0185' CD6505  	                call di_outmsgspc   ; Output instruction followed by a space
  336: 1696+13	0188' 3A0E00  	                ld a, (inst_j)
  337: 1709+10	018B' C30E05  	                jp di_out_s         ; Output "s" (bc, de, [HL, IX or IY] or sp)
  338:				;
  339:				; If K is one then let DIS equal DEC s(J)
- 340: 1719+10	018E' 215107  	dic0f0h3_dec    ld hl, dec_msg
+ 340: 1719+10	018E' 214B07  	dic0f0h3_dec    ld hl, dec_msg
  341: 1729+17	0191' CD6505  	                call di_outmsgspc   ; Output instruction followed by a space
  342: 1746+13	0194' 3A0E00  	                ld a, (inst_j)
  343: 1759+10	0197' C30E05  	                jp di_out_s         ; Output "s" (bc, de, [HL, IX or IY] or sp)
  344:				;
  345:				; If H equals four then let DIS equal INC r(G)
- 346: 1769+10	019A' 214D07  	dic0f0h4        ld hl, inc_msg
+ 346: 1769+10	019A' 214707  	dic0f0h4        ld hl, inc_msg
  347: 1779+17	019D' CD6505  	                call di_outmsgspc   ; Output instruction followed by a space
  348: 1796+13	01A0' 3A0C00  	                ld a, (inst_g)
  349: 1809+10	01A3' C3C704  	                jp di_out_r         ; Output "r" (b, c, d, e, h, l, X or a)
  350:				;
  351:				; If H equals five then let DIS equal DEC r(G)
- 352: 1819+10	01A6' 215107  	dic0f0h5        ld hl, dec_msg
+ 352: 1819+10	01A6' 214B07  	dic0f0h5        ld hl, dec_msg
  353: 1829+17	01A9' CD6505  	                call di_outmsgspc   ; Output instruction followed by a space
  354: 1846+13	01AC' 3A0C00  	                ld a, (inst_g)
  355: 1859+10	01AF' C3C704  	                jp di_out_r         ; Output "r" (b, c, d, e, h, l, X or a)
  356:				;
  357:				; If H equals six then let DIS equal LD r(G),V
- 358: 1869+10	01B2' 214607  	dic0f0h6        ld hl, ld_msg
+ 358: 1869+10	01B2' 214007  	dic0f0h6        ld hl, ld_msg
  359: 1879+17	01B5' CD6505  	                call di_outmsgspc   ; Output instruction followed by a space
  360: 1896+13	01B8' 3A0C00  	                ld a, (inst_g)
  361: 1909+17	01BB' CDC704  	                call di_out_r       ; Output "r" (b, c, d, e, h, l, X or a)
@@ -969,7 +1057,7 @@
  364:				;
  365:				; If H equals seven then choose the Gth item from this list:
  366:				; RLCA/RRCA/RLA/RRA/DAA/CPL/SCF/CCF.
- 367: 1953+10	01C4' 214906  	dic0f0h7        ld hl, dic0f0h7_msg
+ 367: 1953+10	01C4' 214306  	dic0f0h7        ld hl, dic0f0h7_msg
  368: 1963+13	01C7' 3A0C00  	                ld a, (inst_g)
  369: 1976+10	01CA' C33F05  	                jp di_outmsgn       ; Output message <n>
  370:				;
@@ -978,11 +1066,11 @@
  373: 1990+7	01CE' FE76    	                cp 0x76
  374: 1997+7+5	01D0' 2006    	                jr nz, dic0f1_not_halt
  375:				; If the byte = 76 then let DIS = HALT.
- 376: 2004+10	01D2' 213E07  	                ld hl, halt_msg
+ 376: 2004+10	01D2' 213807  	                ld hl, halt_msg
  377: 2014+10	01D5' C36B05  	                jp di_outmsg        ; Output instruction
  378:				;
  379:				; If the byte <> 76 then let DIS equal LD r(G),r(H).
- 380: 2024+10	01D8' 214607  	dic0f1_not_halt ld hl, ld_msg
+ 380: 2024+10	01D8' 214007  	dic0f1_not_halt ld hl, ld_msg
  381: 2034+17	01DB' CD6505  	                call di_outmsgspc   ; Output instruction followed by a space
  382: 2051+13	01DE' 3A0C00  	                ld a, (inst_g)
  383: 2064+17	01E1' CDC704  	                call di_out_r       ; Output "r" (b, c, d, e, h, l, X or a)
@@ -1021,7 +1109,7 @@
  416: 2307+17	021C' CD0000  	                call panic          ; System panic
  417:				;
  418:				; If H equals 0 then let DIS equal RET c(G)
- 419: 2324+10	021F' 215907  	dic0f3h0        ld hl, ret_msg
+ 419: 2324+10	021F' 215307  	dic0f3h0        ld hl, ret_msg
  420: 2334+17	0222' CD6505  	                call di_outmsgspc   ; Output instruction
  421: 2351+13	0225' 3A0C00  	                ld a, (inst_g)
  422: 2364+10	0228' C32705  	                jp di_out_c
@@ -1031,14 +1119,14 @@
  426: 2387+4	022E' A7      	                and a
  427: 2391+7+5	022F' 200C    	                jr nz, dic0f3h1k1
  428:				; If K is zero then let DIS equal POP q(J)
- 429: 2398+10	0231' 215507  	                ld hl, pop_msg
+ 429: 2398+10	0231' 214F07  	                ld hl, pop_msg
  430: 2408+17	0234' CD6505  	                call di_outmsgspc   ; Output instruction
  431: 2425+13	0237' 3A0E00  	                ld a, (inst_j)
  432: 2438+10	023A' C30105  	                jp di_out_q         ; Output "s" (bc, de, [HL, IX or IY] or af)
  433:				;
  434:				; If K is one then choose the Jth item from this list:
  435:				; RET/EXX/JP (Y)/LD SP,Y.
- 436: 2448+10	023D' 216B06  	dic0f3h1k1      ld hl, dic0f3h1k1_msg
+ 436: 2448+10	023D' 216506  	dic0f3h1k1      ld hl, dic0f3h1k1_msg
  437: 2458+13	0240' 3A0E00  	                ld a, (inst_j)
  438: 2471+17	0243' CD3F05  	                call di_outmsgn     ; Output message <n>
  439: 2488+13	0246' 3A0E00  	                ld a, (inst_j)
@@ -1054,12 +1142,12 @@
  449: 2580+7	025A' 3E29    	                ld a, ')'
  450: 2587+10	025C' C37405  	                jp di_outchar
  451:				;LD SP,Y
- 452: 2597+10	025F' 216007  	dic0f3h1k1j3    ld hl, sp_msg
+ 452: 2597+10	025F' 215A07  	dic0f3h1k1j3    ld hl, sp_msg
  453: 2607+17	0262' CD6505  	                call di_outmsgspc   ; Output instruction
  454: 2624+10	0265' C31B05  	                jp di_out_y         ; Output "Y" (HL, IX or IY)
  455:				;
  456:				; If H equals two then let DIS equal JP c(G),VV
- 457: 2634+10	0268' 215D07  	dic0f3h2        ld hl, jp_msg
+ 457: 2634+10	0268' 215707  	dic0f3h2        ld hl, jp_msg
  458: 2644+17	026B' CD6505  	                call di_outmsgspc   ; Output instruction
  459: 2661+13	026E' 3A0C00  	                ld a, (inst_g)
  460: 2674+17	0271' CD2705  	                call di_out_c
@@ -1068,7 +1156,7 @@
  463:				;
  464:				; If H equals three then choose the Gth item from this list:
  465:				; JP VV/-/OUT (V),A/IN A,(V)/EX (SP),Y/EX DE,HL/DI/EI.
- 466: 2718+10	027A' 217B06  	dic0f3h3        ld hl, dic0f3h3_msg
+ 466: 2718+10	027A' 217506  	dic0f3h3        ld hl, dic0f3h3_msg
  467: 2728+13	027D' 3A0C00  	                ld a, (inst_g)
  468: 2741+17	0280' CD3F05  	                call di_outmsgn     ; Output message <n>
  469:				; Deal with operands where necessary.
@@ -1087,7 +1175,7 @@
  482:				;
  483:				; OUT (V),A
  484: 2844+17	0299' CD5C04  	dic0f3h3g2      call di_out_v       ; Output 8-bit value from instruction stream
- 485: 2861+10	029C' 211408  	                ld hl, cpcomma_a_msg    ; "), a"
+ 485: 2861+10	029C' 210E08  	                ld hl, cpcomma_a_msg    ; "), a"
  486: 2871+10	029F' C36B05  	                jp di_outmsg        ; Output instruction
  487:				; IN A,(V)
  488: 2881+17	02A2' CD5C04  	dic0f3h3g3      call di_out_v       ; Output 8-bit value from instruction stream
@@ -1097,7 +1185,7 @@
  492: 2915+10	02AA' C31B05  	dic0f3h3g4      jp di_out_y         ; Output "Y" (HL, IX or IY)
  493:				;
  494:				; If H equals four then let DIS equal CALL c(G),VV
- 495: 2925+10	02AD' 216407  	dic0f3h4        ld hl, call_msg
+ 495: 2925+10	02AD' 215E07  	dic0f3h4        ld hl, call_msg
  496: 2935+17	02B0' CD6505  	                call di_outmsgspc   ; Output instruction
  497: 2952+13	02B3' 3A0C00  	                ld a, (inst_g)
  498: 2965+17	02B6' CD2705  	                call di_out_c
@@ -1109,13 +1197,13 @@
  504: 3022+4	02C2' A7      	                and a
  505: 3026+7+5	02C3' 200C    	                jr nz, dic0f3h5k1
  506:				; If K is zero then let DIS equal PUSH q(J).
- 507: 3033+10	02C5' 216907  	                ld hl, push_msg
+ 507: 3033+10	02C5' 216307  	                ld hl, push_msg
  508: 3043+17	02C8' CD6505  	                call di_outmsgspc   ; Output instruction
  509: 3060+13	02CB' 3A0E00  	                ld a, (inst_j)
  510: 3073+10	02CE' C30105  	                jp di_out_q         ; Output "s" (bc, de, [HL, IX or IY] or af)
  511:				;
  512:				; If K is one then let DIS equal CALL VV.
- 513: 3083+10	02D1' 216407  	dic0f3h5k1      ld hl, call_msg
+ 513: 3083+10	02D1' 215E07  	dic0f3h5k1      ld hl, call_msg
  514: 3093+17	02D4' CD6505  	                call di_outmsgspc   ; Output instruction
  515: 3110+10	02D7' C36704  	                jp di_out_vv        ; Output 16-bit value
  516:				;
@@ -1128,7 +1216,7 @@
  523:				; If H equals seven then let DIS equal RST plus the Gth item
  524:				; in this list: 00/08/10/18/20/28/30/38.
  525: 3177+13	02E6' 3A0C00  	dic0f3h7        ld a, (inst_g)
- 526: 3190+10	02E9' 216E07  	                ld hl, rst_msg
+ 526: 3190+10	02E9' 216807  	                ld hl, rst_msg
  527: 3200+17	02EC' CD6505  	                call di_outmsgspc   ; Output instruction
  528: 3217+7	02EF' 3E56    	                ld a, 'V'           ; Flag 8-bit value follows
  529: 3224+17	02F1' CD7405  	                call di_outchar
@@ -1154,7 +1242,7 @@
  549:				;
  550:				; If F equals zero then choose the Gth item from this list:
  551:				; RLC/RRC/RL/RR/SLA/SRA/-/SRL and then add r(H).
- 552: 3359+10	0312' 21A906  	dic1f0          ld hl, dic1f0_msg
+ 552: 3359+10	0312' 21A306  	dic1f0          ld hl, dic1f0_msg
  553: 3369+13	0315' 3A0C00  	                ld a, (inst_g)
  554: 3382+17	0318' CD3F05  	                call di_outmsgn     ; Output message <n>
  555: 3399+17	031B' CD3A05  	                call di_spc         ; Write a space
@@ -1162,7 +1250,7 @@
  557: 3429+10	0321' C3C704  	                jp di_out_r         ; Output "r" (b, c, d, e, h, l, X or a)
  558:				;
  559:				; If F equals one then let DIS equal BIT n(G),r(H).
- 560: 3439+10	0324' 217207  	dic1f1          ld hl, bit_msg
+ 560: 3439+10	0324' 216C07  	dic1f1          ld hl, bit_msg
  561:				; Go here for bit, res and set instructions.
  562: 3449+17	0327' CD6505  	dic1_brs        call di_outmsgspc   ; Output instruction
  563: 3466+13	032A' 3A0C00  	                ld a, (inst_g)
@@ -1173,11 +1261,11 @@
  568: 3533+10	0338' C3C704  	                jp di_out_r         ; Output "r" (b, c, d, e, h, l, X or a)
  569:				;
  570:				; If F equals two then let DIS equal RES n(G),r(H).
- 571: 3543+10	033B' 217607  	dic1f2          ld hl, res_msg
+ 571: 3543+10	033B' 217007  	dic1f2          ld hl, res_msg
  572: 3553+12	033E' 18E7    	                jr dic1_brs
  573:				;
  574:				; If F equals three then let DIS equal SET n(G),r(H).
- 575: 3565+10	0340' 217A07  	dic1f3          ld hl, set_msg
+ 575: 3565+10	0340' 217407  	dic1f3          ld hl, set_msg
  576: 3575+12	0343' 18E2    	                jr dic1_brs
  577:				;
  578:				; Class is 2.
@@ -1214,18 +1302,18 @@
  609: 3761+17	0375' CD0000  	                call panic          ; System panic
  610:				;
  611:				; If H equals zero then let DIS equal IN r(G),(C).
- 612: 3778+10	0378' 217E07  	dic2f1h0        ld hl, in_msg
+ 612: 3778+10	0378' 217807  	dic2f1h0        ld hl, in_msg
  613: 3788+17	037B' CD6505  	                call di_outmsgspc   ; Output instruction
  614: 3805+13	037E' 3A0C00  	                ld a, (inst_g)
  615: 3818+17	0381' CDC704  	                call di_out_r       ; Output "r" (b, c, d, e, h, l, X or a)
  616: 3835+17	0384' CD3505  	                call di_comma_spc
- 617: 3852+10	0387' 219C07  	                ld hl, iocp_msg
+ 617: 3852+10	0387' 219607  	                ld hl, iocp_msg
  618: 3862+10	038A' C36B05  	                jp di_outmsg        ; Output (c)
  619:				;
  620:				;If H equals one then let DIS equal OUT (C),r(G).
- 621: 3872+10	038D' 218107  	dic2f1h1        ld hl, out_msg
+ 621: 3872+10	038D' 217B07  	dic2f1h1        ld hl, out_msg
  622: 3882+17	0390' CD6505  	                call di_outmsgspc   ; Output instruction
- 623: 3899+10	0393' 219C07  	                ld hl, iocp_msg
+ 623: 3899+10	0393' 219607  	                ld hl, iocp_msg
  624: 3909+17	0396' CD6B05  	                call di_outmsg      ; Output (c)
  625: 3926+17	0399' CD3505  	                call di_comma_spc
  626: 3943+13	039C' 3A0C00  	                ld a, (inst_g)
@@ -1241,21 +1329,21 @@
  636: 4001+17	03AB' CD0000  	                call panic          ; System panic
  637:				;
  638:				; If K equals zero then let DIS equal SBC HL,s(J).
- 639: 4018+10	03AE' 218507  	dic2f1h2k0      ld hl, sbc_msg
+ 639: 4018+10	03AE' 217F07  	dic2f1h2k0      ld hl, sbc_msg
  640:				; Go here for sbc and adc instructions.
  641: 4028+17	03B1' CD6505  	dic2f1h2_sa     call di_outmsgspc   ; Output instruction
- 642: 4045+10	03B4' 21A007  	                ld hl, hlc_msg
+ 642: 4045+10	03B4' 219A07  	                ld hl, hlc_msg
  643: 4055+17	03B7' CD6505  	                call di_outmsgspc   ; Output "hl, "
  644: 4072+13	03BA' 3A0E00  	                ld a, (inst_j)
  645: 4085+10	03BD' C30E05  	                jp di_out_s         ; Output "s" (bc, de, [HL, IX or IY] or sp)
  646:				;
  647:				; If K equals one then let DIS equal ADC HL,s(J).
- 648: 4095+10	03C0' 218D07  	dic2f1h2k1      ld hl, adc_msg
+ 648: 4095+10	03C0' 218707  	dic2f1h2k1      ld hl, adc_msg
  649: 4105+12	03C3' 18EC    	                jr dic2f1h2_sa
  650:				;
  651:				; If H equals three then...
  652:				; 16-bit indirect load instructions.
- 653: 4117+10	03C5' 214607  	dic2f1h3        ld hl, ld_msg
+ 653: 4117+10	03C5' 214007  	dic2f1h3        ld hl, ld_msg
  654: 4127+17	03C8' CD6505  	                call di_outmsgspc   ; Output instruction
  655: 4144+13	03CB' 3A0F00  	                ld a, (inst_k)
  656: 4157+4	03CE' A7      	                and a
@@ -1278,11 +1366,11 @@
  673: 4300+10	03EC' C34F04  	                jp di_out_pvv       ; Output 16-bit pointer (VV)
  674:				;
  675:				; If H equals four then let DIS equal NEG.
- 676: 4310+10	03EF' 218907  	dic2f1h4        ld hl, neg_msg
+ 676: 4310+10	03EF' 218307  	dic2f1h4        ld hl, neg_msg
  677: 4320+10	03F2' C36B05  	                jp di_outmsg        ; Output instruction
  678:				;
  679:				; If H equals five then...
- 680: 4330+10	03F5' 215907  	dic2f1h5        ld hl, ret_msg
+ 680: 4330+10	03F5' 215307  	dic2f1h5        ld hl, ret_msg
  681: 4340+17	03F8' CD6B05  	                call di_outmsg      ; Output instruction
  682: 4357+13	03FB' 3A0F00  	                ld a, (inst_k)
  683: 4370+4	03FE' A7      	                and a
@@ -1302,7 +1390,7 @@
  697:				;
  698:				; If H equals six then choose the Gth item from this list:
  699:				; IM 0/-/IM 1/IM 2/-/-/-/-.
- 700: 4443+10	0411' 219107  	dic2f1h6        ld hl, im_msg
+ 700: 4443+10	0411' 218B07  	dic2f1h6        ld hl, im_msg
  701: 4453+17	0414' CD6505  	                call di_outmsgspc   ; Output instruction
  702: 4470+13	0417' 3A0C00  	                ld a, (inst_g)
  703: 4483+4	041A' A7      	                and a
@@ -1320,17 +1408,17 @@
  715:				;
  716:				; If H equals seven then choose the Gth item from this list:
  717:				; LD I,A/LD R,A/LD A,I/LD A,R/RRD/RLD/-/-.
- 718: 4553+10	042E' 21C506  	dic2f1h7        ld hl, dic2f1h7_msg
+ 718: 4553+10	042E' 21BF06  	dic2f1h7        ld hl, dic2f1h7_msg
  719: 4563+13	0431' 3A0C00  	                ld a, (inst_g)
  720: 4576+10	0434' C33F05  	                jp di_outmsgn       ; Output message <n>
  721:				;
  722:				; If F equals two then choose the Hth item from this list:
  723:				; LD/CP/IN/OT/-/-/-/- and then add the Gth item from this list:
  724:				; -/-/-/-/I/D/IR/DR.
- 725: 4586+10	0437' 21F106  	dic2f2          ld hl, dic2f2_1_msg
+ 725: 4586+10	0437' 21EB06  	dic2f2          ld hl, dic2f2_1_msg
  726: 4596+13	043A' 3A0D00  	                ld a, (inst_h)
  727: 4609+17	043D' CD3F05  	                call di_outmsgn     ; Output message <n>
- 728: 4626+10	0440' 210507  	                ld hl, dic2f2_2_msg
+ 728: 4626+10	0440' 21FF06  	                ld hl, dic2f2_2_msg
  729: 4636+13	0443' 3A0C00  	                ld a, (inst_g)
  730: 4649+10	0446' C33F05  	                jp di_outmsgn       ; Output message <n>
  731:				;
@@ -1424,7 +1512,7 @@
  819:				; A - index
  820: 5274+11	04BE' E5      	di_out_xinst    push hl
  821:				; Write instruction name.
- 822: 5285+10	04BF' 211707  	                ld hl, xinst_codes_msg
+ 822: 5285+10	04BF' 211107  	                ld hl, xinst_codes_msg
  823: 5295+17	04C2' CD3F05  	                call di_outmsgn     ; Output message <n>
  824: 5312+10	04C5' E1      	                pop hl
  825: 5322+10	04C6' C9      	                ret
@@ -1437,7 +1525,7 @@
  832: 5339+7+5	04C9' 2809    	                jr z, di_out_x
  833: 5346+11	04CB' E5      	                push hl
  834:				; Write register name.
- 835: 5357+10	04CC' 21C407  	                ld hl, r_codes_msg
+ 835: 5357+10	04CC' 21BE07  	                ld hl, r_codes_msg
  836: 5367+17	04CF' CD3F05  	                call di_outmsgn     ; Output message <n>
  837: 5384+10	04D2' E1      	                pop hl
  838: 5394+10	04D3' C9      	                ret
@@ -1446,7 +1534,7 @@
  841:				; Write "X" [(HL), (IX+d) or (IY+d) according to index] to dis_buf.
  842: 5404+11	04D4' E5      	di_out_x        push hl
  843: 5415+13	04D5' 3A0A00  	                ld a, (index)
- 844: 5428+10	04D8' 210508  	                ld hl, phlixiy_msg
+ 844: 5428+10	04D8' 21FF07  	                ld hl, phlixiy_msg
  845: 5438+17	04DB' CD3F05  	                call di_outmsgn     ; Output message <n>
  846: 5455+10	04DE' E1      	                pop hl
  847: 5465+13	04DF' 3A0A00  	                ld a, (index)
@@ -1479,7 +1567,7 @@
  874: 5621+7+5	0503' 2816    	                jr z, di_out_y
  875: 5628+11	0505' E5      	                push hl
  876:				; Write register name.
- 877: 5639+10	0506' 21F207  	                ld hl, q_codes_msg
+ 877: 5639+10	0506' 21EC07  	                ld hl, q_codes_msg
  878: 5649+17	0509' CD3F05  	                call di_outmsgn     ; Output message <n>
  879: 5666+10	050C' E1      	                pop hl
  880: 5676+10	050D' C9      	                ret
@@ -1492,7 +1580,7 @@
  887: 5693+7+5	0510' 2809    	                jr z, di_out_y
  888: 5700+11	0512' E5      	                push hl
  889:				; Write register name.
- 890: 5711+10	0513' 21E807  	                ld hl, s_codes_msg
+ 890: 5711+10	0513' 21E207  	                ld hl, s_codes_msg
  891: 5721+17	0516' CD3F05  	                call di_outmsgn     ; Output message <n>
  892: 5738+10	0519' E1      	                pop hl
  893: 5748+10	051A' C9      	                ret
@@ -1501,7 +1589,7 @@
  896:				; Write "Y" (HL, IX or IY according to index) to dis_buf.
  897: 5758+11	051B' E5      	di_out_y        push hl
  898: 5769+13	051C' 3A0A00  	                ld a, (index)
- 899: 5782+10	051F' 21FC07  	                ld hl, hlixiy_msg
+ 899: 5782+10	051F' 21F607  	                ld hl, hlixiy_msg
  900: 5792+17	0522' CD3F05  	                call di_outmsgn     ; Output message <n>
  901: 5809+10	0525' E1      	                pop hl
  902: 5819+10	0526' C9      	                ret
@@ -1511,7 +1599,7 @@
  906:				; Call with:
  907:				; A - condition code
  908: 5829+11	0527' E5      	di_out_c        push hl
- 909: 5840+10	0528' 21D407  	                ld hl, con_codes_msg
+ 909: 5840+10	0528' 21CE07  	                ld hl, con_codes_msg
  910: 5850+17	052B' CD3F05  	                call di_outmsgn     ; Output message <n>
  911: 5867+10	052E' E1      	                pop hl
  912: 5877+10	052F' C9      	                ret
@@ -1667,7 +1755,7 @@
 1062: 6744+7	05D8' FE4F    	                cp 'O'
 1063: 6751+7+5	05DA' 2828    	                jr z, dipr_offset
 1064: 6758+7	05DC' FE2A    	                cp '*'
-1065: 6765+7+5	05DE' 283F    	                jr z, dipr_illegal
+1065: 6765+7+5	05DE' 283D    	                jr z, dipr_illegal
 1066: 6772+17	05E0' CD0000  	                call cwvich   ; Print only visible 7-bit characters
 1067: 6789+8+5	05E3' 10E9    	dipr_cont       djnz dipr_loop
 1068: 6797+10	05E5' E1      	dipr_done       pop hl
@@ -1676,7 +1764,7 @@
 1071: 6827+10	05E8' C9      	                ret
 1072:				;
 1073:				; "V" is replaced by the following 8-bit value in hex.
-1074: 6837+17	05E9' CD2706  	dipr_hex8       call hex_pref
+1074: 6837+17	05E9' CD2506  	dipr_hex8       call hex_pref
 1075: 6854+7	05EC' 7E      	                ld a, (hl)          ; Fetch value
 1076: 6861+6	05ED' 23      	                inc hl
 1077: 6867+4	05EE' 05      	                dec b
@@ -1684,7 +1772,7 @@
 1079: 6888+12	05F2' 18EF    	                jr dipr_cont
 1080:				;
 1081:				; "W" is replaced by the following 16-bit value in hex.
-1082: 6900+17	05F4' CD2706  	dipr_hex16      call hex_pref
+1082: 6900+17	05F4' CD2506  	dipr_hex16      call hex_pref
 1083: 6917+7	05F7' 5E      	                ld e, (hl)          ; Fetch LSB
 1084: 6924+6	05F8' 23      	                inc hl
 1085: 6930+4	05F9' 05      	                dec b
@@ -1708,23 +1796,23 @@
 1103: 7033+8	060F' ED44    	                neg                 ; Make value positive
 1104: 7041+11	0611' F5      	dipro_sign      push af             ; Save value
 1105: 7052+4	0612' 79      	                ld a, c
-1106: 7056+17	0613' CD0000  	                call conwch         ; Write sign to the console
-1107: 7073+17	0616' CD0000  	                call cwpspc         ; Print a space
-1108: 7090+10	0619' F1      	                pop af
-1109: 7100+17	061A' CD0000  	                call cwpdby         ; Print A in decimal. Leading zeros are suppressed.
-1110: 7117+12	061D' 18C4    	                jr dipr_cont
+1106: 7056+11	0613' D7      	                CON_WR_CHAR         ; Write sign to the console
+1107: 7067+17	0614' CD0000  	                call cwpspc         ; Print a space
+1108: 7084+10	0617' F1      	                pop af
+1109: 7094+17	0618' CD0000  	                call cwpdby         ; Print A in decimal. Leading zeros are suppressed.
+1110: 7111+12	061B' 18C6    	                jr dipr_cont
 1111:				;
 1112:				; "*" is replaced by the word "illegal", to indicate an illegal instruction.
-1113: 7129+10	061F' 219407  	dipr_illegal    ld hl, illegal_msg
-1114: 7139+17	0622' CD6B05  	                call di_outmsg      ; Output instruction
-1115: 7156+12	0625' 18BC    	                jr dipr_cont
+1113: 7123+10	061D' 218E07  	dipr_illegal    ld hl, illegal_msg
+1114: 7133+17	0620' CD6B05  	                call di_outmsg      ; Output instruction
+1115: 7150+12	0623' 18BE    	                jr dipr_cont
 1116:				;
 1117:				; Print hexadecimal prefix ("0x").
-1118: 7168+7	0627' 3E30    	hex_pref        ld a, '0'
-1119: 7175+17	0629' CD0000  	                call conwch         ; Write character in A to the console
-1120: 7192+7	062C' 3E78    	                ld a, 'x'
-1121: 7199+17	062E' CD0000  	                call conwch         ; Write character in A to the console
-1122: 7216+10	0631' C9      	                ret
+1118: 7162+7	0625' 3E30    	hex_pref        ld a, '0'
+1119: 7169+11	0627' D7      	                CON_WR_CHAR         ; Write character in A to the console
+1120: 7180+7	0628' 3E78    	                ld a, 'x'
+1121: 7187+11	062A' D7      	                CON_WR_CHAR         ; Write character in A to the console
+1122: 7198+10	062B' C9      	                ret
 1123:				;
 1124:				;
 1125:				;
@@ -1733,13 +1821,13 @@
 1128:				; *************
 1129:				;
 1130:				;
-1131:     -	0632' 6E6F707C	c0f0h0g_msg     byte "nop|ex af, af'|djnz|jr", 0
+1131:     -	062C' 6E6F707C	c0f0h0g_msg     byte "nop|ex af, af'|djnz|jr", 0
 	              65782061
 	              662C2061
 	              66277C64
 	              6A6E7A7C
 	              6A7200
-1132:     -	0649' 726C6361	dic0f0h7_msg    byte "rlca|rrca|rla|rra|daa|cpl|scf|ccf", 0
+1132:     -	0643' 726C6361	dic0f0h7_msg    byte "rlca|rrca|rla|rra|daa|cpl|scf|ccf", 0
 	              7C727263
 	              617C726C
 	              617C7272
@@ -1748,11 +1836,11 @@
 	              6C7C7363
 	              667C6363
 	              6600
-1133:     -	066B' 7265747C	dic0f3h1k1_msg  byte "ret|exx|jp |ld ", 0
+1133:     -	0665' 7265747C	dic0f3h1k1_msg  byte "ret|exx|jp |ld ", 0
 	              6578787C
 	              6A70207C
 	              6C642000
-1134:     -	067B' 6A70207C	dic0f3h3_msg    byte "jp |*|out (|in a, (|ex (sp), |ex de, hl|di|ei", 0
+1134:     -	0675' 6A70207C	dic0f3h3_msg    byte "jp |*|out (|in a, (|ex (sp), |ex de, hl|di|ei", 0
 	              2A7C6F75
 	              7420287C
 	              696E2061
@@ -1764,14 +1852,14 @@
 	              20686C7C
 	              64697C65
 	              6900
-1135:     -	06A9' 726C637C	dic1f0_msg      byte "rlc|rrc|rl|rr|sla|sra|*|srl", 0
+1135:     -	06A3' 726C637C	dic1f0_msg      byte "rlc|rrc|rl|rr|sla|sra|*|srl", 0
 	              7272637C
 	              726C7C72
 	              727C736C
 	              617C7372
 	              617C2A7C
 	              73726C00
-1136:     -	06C5' 6C642069	dic2f1h7_msg    byte "ld i, a|ld r, a|ld a, i|ld a, r|rrd|rld|*|*", 0
+1136:     -	06BF' 6C642069	dic2f1h7_msg    byte "ld i, a|ld r, a|ld a, i|ld a, r|rrd|rld|*|*", 0
 	              2C20617C
 	              6C642072
 	              2C20617C
@@ -1782,17 +1870,17 @@
 	              7272647C
 	              726C647C
 	              2A7C2A00
-1137:     -	06F1' 6C647C63	dic2f2_1_msg    byte "ld|cp|in|ot|*|*|*|*", 0
+1137:     -	06EB' 6C647C63	dic2f2_1_msg    byte "ld|cp|in|ot|*|*|*|*", 0
 	              707C696E
 	              7C6F747C
 	              2A7C2A7C
 	              2A7C2A00
-1138:     -	0705' 2A7C2A7C	dic2f2_2_msg    byte "*|*|*|*|i|d|ir|dr", 0
+1138:     -	06FF' 2A7C2A7C	dic2f2_2_msg    byte "*|*|*|*|i|d|ir|dr", 0
 	              2A7C2A7C
 	              697C647C
 	              69727C64
 	              7200
-1139:     -	0717' 61646420	xinst_codes_msg byte "add a,|adc a,|sub|sbc a,|and|xor|or|cp", 0
+1139:     -	0711' 61646420	xinst_codes_msg byte "add a,|adc a,|sub|sbc a,|and|xor|or|cp", 0
 	              612C7C61
 	              64632061
 	              2C7C7375
@@ -1802,36 +1890,36 @@
 	              7C786F72
 	              7C6F727C
 	              637000
-1140:     -	073E' 68616C74	halt_msg        byte "halt", 0
+1140:     -	0738' 68616C74	halt_msg        byte "halt", 0
 	              00
-1141:     -	0743' 6A7200  	jr_msg          byte "jr", 0
-1142:     -	0746' 6C6400  	ld_msg          byte "ld", 0
-1143:     -	0749' 61646400	add_msg         byte "add", 0
-1144:     -	074D' 696E6300	inc_msg         byte "inc", 0
-1145:     -	0751' 64656300	dec_msg         byte "dec", 0
-1146:     -	0755' 706F7000	pop_msg         byte "pop", 0
-1147:     -	0759' 72657400	ret_msg         byte "ret", 0
-1148:     -	075D' 6A7000  	jp_msg          byte "jp", 0
-1149:     -	0760' 73702C00	sp_msg          byte "sp,", 0
-1150:     -	0764' 63616C6C	call_msg        byte "call", 0
+1141:     -	073D' 6A7200  	jr_msg          byte "jr", 0
+1142:     -	0740' 6C6400  	ld_msg          byte "ld", 0
+1143:     -	0743' 61646400	add_msg         byte "add", 0
+1144:     -	0747' 696E6300	inc_msg         byte "inc", 0
+1145:     -	074B' 64656300	dec_msg         byte "dec", 0
+1146:     -	074F' 706F7000	pop_msg         byte "pop", 0
+1147:     -	0753' 72657400	ret_msg         byte "ret", 0
+1148:     -	0757' 6A7000  	jp_msg          byte "jp", 0
+1149:     -	075A' 73702C00	sp_msg          byte "sp,", 0
+1150:     -	075E' 63616C6C	call_msg        byte "call", 0
 	              00
-1151:     -	0769' 70757368	push_msg        byte "push", 0
+1151:     -	0763' 70757368	push_msg        byte "push", 0
 	              00
-1152:     -	076E' 72737400	rst_msg         byte "rst", 0
-1153:     -	0772' 62697400	bit_msg         byte "bit", 0
-1154:     -	0776' 72657300	res_msg         byte "res", 0
-1155:     -	077A' 73657400	set_msg         byte "set", 0
-1156:     -	077E' 696E00  	in_msg          byte "in", 0
-1157:     -	0781' 6F757400	out_msg         byte "out", 0
-1158:     -	0785' 73626300	sbc_msg         byte "sbc", 0
-1159:     -	0789' 6E656700	neg_msg         byte "neg", 0
-1160:     -	078D' 61646300	adc_msg         byte "adc", 0
-1161:     -	0791' 696D00  	im_msg          byte "im", 0
-1162:     -	0794' 696C6C65	illegal_msg     byte "illegal", 0
+1152:     -	0768' 72737400	rst_msg         byte "rst", 0
+1153:     -	076C' 62697400	bit_msg         byte "bit", 0
+1154:     -	0770' 72657300	res_msg         byte "res", 0
+1155:     -	0774' 73657400	set_msg         byte "set", 0
+1156:     -	0778' 696E00  	in_msg          byte "in", 0
+1157:     -	077B' 6F757400	out_msg         byte "out", 0
+1158:     -	077F' 73626300	sbc_msg         byte "sbc", 0
+1159:     -	0783' 6E656700	neg_msg         byte "neg", 0
+1160:     -	0787' 61646300	adc_msg         byte "adc", 0
+1161:     -	078B' 696D00  	im_msg          byte "im", 0
+1162:     -	078E' 696C6C65	illegal_msg     byte "illegal", 0
 	              67616C00
-1163:     -	079C' 28632900	iocp_msg        byte "(c)", 0
-1164:     -	07A0' 686C2C00	hlc_msg         byte "hl,", 0
-1165:     -	07A4' 28626329	ld_ptr_msg      byte "(bc), a|a, (bc)|(de), a|a, (de)", 0
+1163:     -	0796' 28632900	iocp_msg        byte "(c)", 0
+1164:     -	079A' 686C2C00	hlc_msg         byte "hl,", 0
+1165:     -	079E' 28626329	ld_ptr_msg      byte "(bc), a|a, (bc)|(de), a|a, (de)", 0
 	              2C20617C
 	              612C2028
 	              6263297C
@@ -1839,29 +1927,29 @@
 	              2C20617C
 	              612C2028
 	              64652900
-1166:     -	07C4' 627C637C	r_codes_msg     byte "b|c|d|e|h|l|x|a", 0       ; Note no. 6 is (HL), (IX+d) or (IY+d)
+1166:     -	07BE' 627C637C	r_codes_msg     byte "b|c|d|e|h|l|x|a", 0       ; Note no. 6 is (HL), (IX+d) or (IY+d)
 	              647C657C
 	              687C6C7C
 	              787C6100
-1167:     -	07D4' 6E7A7C7A	con_codes_msg   byte "nz|z|nc|c|po|pe|p|m", 0            
+1167:     -	07CE' 6E7A7C7A	con_codes_msg   byte "nz|z|nc|c|po|pe|p|m", 0            
 	              7C6E637C
 	              637C706F
 	              7C70657C
 	              707C6D00
-1168:     -	07E8' 62637C64	s_codes_msg     byte "bc|de||sp", 0             ; Note no. 2 is HL, IX or IY
+1168:     -	07E2' 62637C64	s_codes_msg     byte "bc|de||sp", 0             ; Note no. 2 is HL, IX or IY
 	              657C7C73
 	              7000
-1169:     -	07F2' 62637C64	q_codes_msg     byte "bc|de||af", 0             ; Note no. 2 is HL, IX or IY
+1169:     -	07EC' 62637C64	q_codes_msg     byte "bc|de||af", 0             ; Note no. 2 is HL, IX or IY
 	              657C7C61
 	              6600
-1170:     -	07FC' 686C7C69	hlixiy_msg      byte "hl|ix|iy", 0
+1170:     -	07F6' 686C7C69	hlixiy_msg      byte "hl|ix|iy", 0
 	              787C6979
 	              00
-1171:     -	0805' 28686C29	phlixiy_msg     byte "(hl)|(ix |(iy ", 0
+1171:     -	07FF' 28686C29	phlixiy_msg     byte "(hl)|(ix |(iy ", 0
 	              7C286978
 	              207C2869
 	              792000
-1172:     -	0814' 292C2061	cpcomma_a_msg   byte "), a", 0
+1172:     -	080E' 292C2061	cpcomma_a_msg   byte "), a", 0
 	              00
 1173:				;
 1174:				;
@@ -1896,11 +1984,11 @@ Statistics:
 
      4	passes
      0	jr promotions
-   410	symbols
-  2073	bytes
+   416	symbols
+  2067	bytes
 
-   117	macro calls
-  1320	macro bytes
+   122	macro calls
+  2391	macro bytes
      0	invented symbols
 
 
@@ -1957,7 +2045,9 @@ IOA_SPI_CSR    =20        32
 IOA_SPI_DATA   =21        33
 MCALL_CACRS    =E4        228
 MCALL_CACWS    =E7        231
-MCALL_CAFLUS   =EA        234
+MCALL_CAFLUS   =F0        240
+MCALL_CARS     =EA        234
+MCALL_CAWS     =ED        237
 MCALL_CONRCH   =72        114
 MCALL_CONSTA   =75        117
 MCALL_CONWCH   =6F        111
@@ -1974,7 +2064,7 @@ MCALL_CWPHWD   =AB        171
 MCALL_CWPSPC   =9F        159
 MCALL_CWPTM    =DE        222
 MCALL_CWVICH   =9C        156
-MCALL_JPTBL_NEXT=F6        246
+MCALL_JPTBL_NEXT=FC        252
 MCALL_MADBBU   =C6        198
 MCALL_MADLBU   =C0        192
 MCALL_MADWBU   =C3        195
@@ -1982,9 +2072,9 @@ MCALL_MAMLBU   =CC        204
 MCALL_MAMWWU   =C9        201
 MCALL_MCPRER   =E1        225
 MCALL_MON_ENTRY=69        105
-MCALL_MPALL    =ED        237
-MCALL_MPFREE   =F0        240
-MCALL_MPSTAT   =F3        243
+MCALL_MPALL    =F3        243
+MCALL_MPFREE   =F6        246
+MCALL_MPSTAT   =F9        249
 MCALL_MTWDLI   =A2        162
 MCALL_PANIC    =6C        108
 MCALL_RDDULO   =BD        189
@@ -2100,20 +2190,20 @@ Z80_RST20_VEC  =20        32
 Z80_RST28_VEC  =28        40
 Z80_RST30_VEC  =30        48
 Z80_RST38_VEC  =38        56
-adc_msg          78D'     1933
-add_msg          749'     1865
-bit_msg          772'     1906
-c0f0h0g_msg      632'     1586
-call_msg         764'     1892
+adc_msg          787'     1927
+add_msg          743'     1859
+bit_msg          76C'     1900
+c0f0h0g_msg      62C'     1580
+call_msg         75E'     1886
 class           09"       9
-con_codes_msg    7D4'     2004
+con_codes_msg    7CE'     1998
 conrch          00        0 (extern)
 consta          00        0 (extern)
 conwch          00        0 (extern)
 conwmn          00        0 (extern)
 conwms          00        0 (extern)
 coport          00        0 (extern)
-cpcomma_a_msg    814'     2068
+cpcomma_a_msg    80E'     2062
 cwnwln          00        0 (extern)
 cwpdby          00        0 (extern)
 cwpdlo          00        0 (extern)
@@ -2124,7 +2214,7 @@ cwphwd          00        0 (extern)
 cwpspc          00        0 (extern)
 cwvich          00        0 (extern)
 db_count        21"       33
-dec_msg          751'     1873
+dec_msg          74B'     1867
 di_class_one     2FD'     765
 di_class_two     345'     837
 di_class_zero   5B'       91
@@ -2170,7 +2260,7 @@ dic0f0h4         19A'     410
 dic0f0h5         1A6'     422
 dic0f0h6         1B2'     434
 dic0f0h7         1C4'     452
-dic0f0h7_msg     649'     1609
+dic0f0h7_msg     643'     1603
 dic0f1           1CD'     461
 dic0f1_not_halt  1D8'     472
 dic0f2           1ED'     493
@@ -2178,12 +2268,12 @@ dic0f3           1FC'     508
 dic0f3h0         21F'     543
 dic0f3h1         22B'     555
 dic0f3h1k1       23D'     573
-dic0f3h1k1_msg   66B'     1643
+dic0f3h1k1_msg   665'     1637
 dic0f3h1k1j2     252'     594
 dic0f3h1k1j3     25F'     607
 dic0f3h2         268'     616
 dic0f3h3         27A'     634
-dic0f3h3_msg     67B'     1659
+dic0f3h3_msg     675'     1653
 dic0f3h3g0       296'     662
 dic0f3h3g2       299'     665
 dic0f3h3g3       2A2'     674
@@ -2195,7 +2285,7 @@ dic0f3h6         2DA'     730
 dic0f3h7         2E6'     742
 dic1_brs         327'     807
 dic1f0           312'     786
-dic1f0_msg       6A9'     1705
+dic1f0_msg       6A3'     1699
 dic1f1           324'     804
 dic1f2           33B'     827
 dic1f3           340'     832
@@ -2217,10 +2307,10 @@ dic2f1h6         411'     1041
 dic2f1h6_im0     428'     1064
 dic2f1h6_im12    429'     1065
 dic2f1h7         42E'     1070
-dic2f1h7_msg     6C5'     1733
+dic2f1h7_msg     6BF'     1727
 dic2f2           437'     1079
-dic2f2_1_msg     6F1'     1777
-dic2f2_2_msg     705'     1797
+dic2f2_1_msg     6EB'     1771
+dic2f2_2_msg     6FF'     1791
 dif_toolong      499'     1177
 diox_have_off    4F8'     1272
 dip_by_done      5B7'     1463
@@ -2232,7 +2322,7 @@ dipr_cont        5E3'     1507
 dipr_done        5E5'     1509
 dipr_hex16       5F4'     1524
 dipr_hex8        5E9'     1513
-dipr_illegal     61F'     1567
+dipr_illegal     61D'     1565
 dipr_loop        5CE'     1486
 dipr_offset      604'     1540
 diprnt           591'     1425 (public)
@@ -2241,17 +2331,17 @@ diproc          00'       0 (public)
 dis_buf         11"       17
 disass         =01        1
 enum_counter   =02        2
-halt_msg         73E'     1854
-hex_pref         627'     1575
-hlc_msg          7A0'     1952
-hlixiy_msg       7FC'     2044
+halt_msg         738'     1848
+hex_pref         625'     1573
+hlc_msg          79A'     1946
+hlixiy_msg       7F6'     2038
 i2crd           00        0 (extern)
 i2cwr           00        0 (extern)
 idx_offset      10"       16
-illegal_msg      794'     1940
-im_msg           791'     1937
-in_msg           77E'     1918
-inc_msg          74D'     1869
+illegal_msg      78E'     1934
+im_msg           78B'     1931
+in_msg           778'     1912
+inc_msg          747'     1863
 index           0A"       10
 inst_f          0B"       11
 inst_g          0C"       12
@@ -2260,36 +2350,41 @@ inst_j          0E"       14
 inst_k          0F"       15
 instr_buf       04"       4
 instr_len       08"       8
-iocp_msg         79C'     1948
-jp_msg           75D'     1885
-jptbl_addr     =F6        246
-jr_msg           743'     1859
-ld_msg           746'     1862
-ld_ptr_msg       7A4'     1956
+iocp_msg         796'     1942
+jp_msg           757'     1879
+jptbl_addr     =FC        252
+jr_msg           73D'     1853
+ld_msg           740'     1856
+ld_ptr_msg       79E'     1950
+mcrun           00        0 (extern)
+mcspd           00        0 (extern)
+mdisrg          00        0 (extern)
 monitor        =01        1
+mscnt           00        0 (extern)
+mstate          00        0 (extern)
 mtwdli          00        0 (extern)
-neg_msg          789'     1929
+neg_msg          783'     1923
 oc_overflow      58E'     1422
 omn_done         55F'     1375
 omn_error        562'     1378
 omn_found        551'     1361
 omn_msg_lp       541'     1345
 omn_sk_lp        545'     1349
-out_msg          781'     1921
+out_msg          77B'     1915
 panic           00        0 (extern)
 pc              00"       0
-phlixiy_msg      805'     2053
-pop_msg          755'     1877
-push_msg         769'     1897
-q_codes_msg      7F2'     2034
-r_codes_msg      7C4'     1988
+phlixiy_msg      7FF'     2047
+pop_msg          74F'     1871
+push_msg         763'     1891
+q_codes_msg      7EC'     2028
+r_codes_msg      7BE'     1982
 rddulo          00        0 (extern)
 rdduwd          00        0 (extern)
 rdhxwd          00        0 (extern)
-res_msg          776'     1910
-ret_msg          759'     1881
+res_msg          770'     1904
+ret_msg          753'     1875
 rj_sexdn         4AC'     1196
-rst_msg          76E'     1902
+rst_msg          768'     1896
 rusby           00        0 (extern)
 ruswd           00        0 (extern)
 s1rch           00        0 (extern)
@@ -2298,17 +2393,16 @@ s1wch           00        0 (extern)
 s2rch           00        0 (extern)
 s2sta           00        0 (extern)
 s2wch           00        0 (extern)
-s_codes_msg      7E8'     2024
-sbc_msg          785'     1925
-set_msg          77A'     1914
+s_codes_msg      7E2'     2018
+sbc_msg          77F'     1919
+set_msg          774'     1908
 skpspc          00        0 (extern)
-sp_msg           760'     1888
+sp_msg           75A'     1882
 spiini          00        0 (extern)
 spiss           00        0 (extern)
 spitr           00        0 (extern)
 start_pc        02"       2
 str_offset     =20        32
-tikcnt          00        0 (extern)
 toloca          00        0 (extern)
 toupca          00        0 (extern)
 trarch          00        0 (extern)
@@ -2316,4 +2410,4 @@ trawch          00        0 (extern)
 trport          00        0 (extern)
 wusby           00        0 (extern)
 wuswd           00        0 (extern)
-xinst_codes_msg  717'     1815
+xinst_codes_msg  711'     1809

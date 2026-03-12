@@ -76,6 +76,57 @@ x               equ str_offset
                 endm
 ;
 ;
+; Allocate space. This is used to generate variable addresses, affectively
+; providing a new variables segment. Allocated size is kept track of separately
+; to the address as the latter may overflow in certain error cases.
+ALLOC           macro x
+                .aseg
+all_addr        set x
+all_size        set 0
+                endm
+;
+; Add a byte entry.
+ALL_BYTE        macro x
+x               equ all_addr
+all_addr        set all_addr + 1
+all_size        set all_size + 1
+                endm
+;
+; Add a word (16-bit) entry.
+ALL_WORD        macro x
+x               equ all_addr
+all_addr        set all_addr + 2
+all_size        set all_size + 2
+                endm
+;
+; Add a 3 byte (24-bit) entry.
+ALL_24BIT       macro x
+x               equ all_addr
+all_addr        set all_addr + 3
+all_size        set all_size + 3
+                endm
+;
+; Add a long (32-bit) entry.
+ALL_LONG        macro x
+x               equ all_addr
+all_addr        set all_addr + 4
+all_size        set all_size + 4
+                endm
+;
+; Add an arbitrary length entry.
+ALL_BLOCK       macro x, size   ; <name>, <size>
+x               equ all_addr
+all_addr        set all_addr + size
+all_size        set all_size + size
+                endm
+;
+; End of allocated space. Returns size of block.
+ALL_END         macro x
+x               equ all_size
+                .cseg
+                endm
+;
+;
 ; Calculate offsets into jump tables.
 ; The absolute segment is used so the offsets are not marked as relocatable. This
 ; avoids "Not relocatable" errors.
@@ -130,5 +181,17 @@ ALIGN_LONG      macro
                 if $ and 2
                     byte 0, 0
                 endif
+                endm
+;
+;
+; Write message to console (short for "call conwms").
+CON_WR_MSG      macro
+                rst 08
+                endm
+;
+;
+; Write character to console (short for "call conwch").
+CON_WR_CHAR     macro
+                rst 16
                 endm
 

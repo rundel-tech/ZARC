@@ -779,7 +779,7 @@ L022D:  LD      A,$7F           ; prepare a mask
 L0237:  LD      B,(HL)          ; (7) Note. Harmless Nonsensical Timing weight.
         SCF                     ; (4) Set Carry Flag.
 
-; Note. the branch to here takes either (12)(7)(4) cyles or (7)(4)(12) cycles.
+; Note. the branch to here takes either (12)(7)(4) cycles or (7)(4)(12) cycles.
 
 ;; OVER-NC
 L0239:  LD      H,A             ; (4)  set H to zero
@@ -4568,10 +4568,13 @@ L0F2B:  SET     6,(IY+$3B)      ; sv CDFLAG
 ;; PAUSE
 L0F32:  CALL    L0EA7           ; routine FIND-INT
         CALL    L02E7           ; routine SET-FAST
-        LD      H,B             ;
-        LD      L,C             ;
-        CALL    L022D           ; routine DISPLAY-P
-
+;        LD      H,B             ;
+;        LD      L,C             ;
+;        CALL    L022D           ; routine DISPLAY-P
+        ld d, b
+        ld e, c
+        call em_pause           ; Emulate pause on CP/M side
+;
         LD      (IY+$35),$FF    ; sv FRAMES_hi
 
         CALL    L0207           ; routine SLOW/FAST
@@ -10224,6 +10227,17 @@ em_scroll       push bc
                 pop bc
 ; Return to original code.
                 jp L0A5D                ; to RECLAIM-1
+;
+;
+; Pause for DE frames. This is approximated on the CP/M side.
+; DE - number of frames to pause (0 to 32767). 0 pauses indefinitely.
+em_pause        ld c, ETOC_PAUSE        ; Pause
+                call from_em            ; Return from emulator
+;
+; Execution continues here after CTOE_RET from the emulator code.
+                ld hl, 0
+                ld ($4034), hl          ; FRAMES would be zero after pause 
+                ret                     ; Return to ZX81 code
 ;
 ;
 ;

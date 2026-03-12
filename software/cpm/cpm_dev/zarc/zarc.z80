@@ -4,6 +4,10 @@
 ; * Merlin Skinner, 1/7/2021                            *
 ; *******************************************************
 ;
+; V1.0 - 1/7/2021, initial version.
+; V1.1 - 26/2/2026, updated to use latest shared libraries. Use BDOS for console
+;   I/O.
+;
 ; This programme is intended to run under CP/M 2.2 and provides utilities useful
 ; for that system. The first command line option determines which utilities is
 ; invoked. Current options are:
@@ -54,7 +58,8 @@
 ; *************
 ;
 ;
-; The CP/M transient area start address is set in the linker invokation (see makefile).
+; The CP/M transient area start address is set in the linker invocation (see
+; makefile).
                 cseg                    ; Code segment
 ;
 ; The default stack space is very small (8 deep), which would almost certainly
@@ -63,19 +68,10 @@
                 ld (bdos_sp), sp
                 ld sp, app_stack_top    ; Switch to our stack space
 ;
-; Determine CPU type.
-                call z80det             ; Detect Z80 (instead of 8080 / 8085)
-                jp nc, on_z80           ; Jump if we have a Z80
-;
-; 8080 / 8085 detected. Print message and exit. We can't use conwms as this
-; assumes a Z80.
-                ld de, no_z80_msg       ; "Z80 CPU required"
-                ld c, BDOS_PRINT_STRING ; Print String
-                call BDOS
-                jp 0                    ; Warm boot
+                call init               ; Common initialisation code
 ;
 ; The following code is not 8080 / 8085 safe.
-on_z80          ld hl, signon_msg
+                ld hl, signon_msg
                 call conwms             ; Print $-terminated string to the console
 ;
 ; Are we running on a ZARC system?
@@ -178,7 +174,7 @@ exit            ld sp, (bdos_sp)
 ; *************
 ;
 ;
-signon_msg      byte "*** ZARC Z80 Computer CP/M Utilities V1.0 ***", 0x0d, 0x0a, "$"
+signon_msg      byte "*** ZARC Z80 Computer CP/M Utilities V1.1 ***", 0x0d, 0x0a, "$"
 no_z80_msg      byte "Z80 CPU required", 0x0d, 0x0a, "$"
 op_err_msg      byte "Operand error. Try ""zarc help"".", 0x0d, 0x0a, "$"
 no_zarc_msg     byte "ZARC BIOS not detected.", 0x0d, 0x0a, "$"

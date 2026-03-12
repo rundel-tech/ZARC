@@ -27,9 +27,7 @@
 ;
 ;
 ; Variables
-                extern spoflg   ; Non-zero if in single port mode
-                extern zrcflg   ; Non-zero if on a ZARC system
-                extern brkflg   ; Non-zero if break character detected
+                extern flags    ; Flags. See FLG_xxx in stran.i
 ;
 ; Functions
                 public flush    ; Flush data port receive buffer
@@ -49,7 +47,8 @@
 ;
 ;
 ; Transmit a packet. The packet is assumed to be fully built, with all fields
-; populated except the CRC.
+; populated except the CRC. The FLG_TXB_VALID flag is set to indicate that the
+; transmit buffer contains valid data.
 ; Call with:
 ; IY - pointer to packet buffer
 txpkt           push bc
@@ -129,6 +128,10 @@ txp_send_loop   push bc                 ; Save byte counter
                 ld e, 0                 ; Pad byte
                 call tx_data_enc        ; Send 3 to 4 bytes encoded data
 ;
+; Flag tx_packet_buf contains valid data.
+                ld hl, flags
+                set FLG_TXB_VALID_BIT, (hl)
+;
                 pop hl
                 pop de
                 pop bc
@@ -142,7 +145,7 @@ tx_data_enc     push bc
                 ld a, c
                 srl a
                 srl a
-                or 0x40
+                add 0x3f
 ; A - <0, 1> <byte 0 bits 7 to 2>
                 call txdch
                 ld a, c
@@ -159,7 +162,7 @@ tx_data_enc     push bc
                 rrca
                 and 0x0f                ; Isolate byte 1 bits 7 to 4
                 or b
-                or 0x40
+                add 0x3f
 ; A - <0, 1> <byte 0 bits 1 to 0> <byte 1 bits 7 to 4>
                 call txdch
                 ld a, d
@@ -172,21 +175,23 @@ tx_data_enc     push bc
                 rlca
                 and 0x03                ; Isolate byte 2 bits 7 to 6
                 or b
-                or 0x40
+                add 0x3f
 ; A - <0, 1> <byte 1 bits 3 to 0> <byte 2 bits 7 to 6>
                 call txdch
                 ld a, e
                 and 0x3f                ; Isolate byte 2 bits 5 to 0
-                or 0x40
+                add 0x3f
 ; A - <0, 1> <byte 2 bits 5 to 0>
                 call txdch
                 pop bc
                 ret
 ;
 ;
-; Transmit a character to the data port. CP/M does not provide a method for reading
-; the PUNCH device port status, so this routine will wait if the transmitter is
-; busy.
+; Transmit a character to the data port. This routine will wait if the
+; transmitter is busy as it is not possible to determine status in all cases.
+; The routine will panic if auto-port is active as in that state the required
+; output port is not known. However, this should not be a problem as nothing
+; is sent until a packet is received, after which auto-port is disabled.
 ; Call with:
 ; A - character to send.
 txdch           push bc
@@ -194,8 +199,14 @@ txdch           push bc
                 push hl
 ;
                 ld c, a
-                ld hl, BIOS_PUNCH       ; Paper tape punch output
-                call cbios
+                ld hl, BIOS_PUNCH       ; Assume AUX: output
+                ld a, (flags)
+                bit FLG_AUTO_BIT, a
+                call nz, panic          ; Panic if auto-port is active
+                bit FLG_AUX_BIT, a
+                jr nz, txdch_go
+txdch_aux       ld hl, BIOS_CONOUT      ; CON: output
+txdch_go        call cbios
 ;
                 pop hl
                 pop de
@@ -221,12 +232,15 @@ rxpkt           push bc
 ;
 ; Await start of packet character.
 rxp_wait_start  ld sp, (ret_sp)         ; Restore saved stack pointer
-                call rxdch
-                ld b, a
-                ld a, (brkflg)          ; Check break flag
-                and a
-                jr nz, rxp_break
-                ld a, b
+; Reset counters (used for auto-port). As these are reset each character until
+; a "*" is received, there is no chance that they will overflow.
+                ld hl, 0
+                ld (con_in_count), hl
+                ld (aux_in_count), hl
+                call rxdch              ; Wait for a character
+                ld hl, flags
+                bit FLG_BREAK_BIT, (hl)
+                jp nz, rxp_break
                 cp "*"
                 jr nz, rxp_wait_start
 ;
@@ -307,7 +321,24 @@ rxp_have_len    push hl
                     ld a, "]"
                     call conwch             ; Write character to console
                 endif
-                xor a                   ; Success code
+;
+                ld hl, flags
+                bit FLG_AUTO_BIT, (hl)
+                jr z, rdc_exit_ok       ; Jump if not in auto-port mode
+; We are in auto-port mode and have successfully received a packet. Check
+; character counts to see where the packet came from.
+                ld hl, (con_in_count)   ; Characters received from CON:
+                ld de, (aux_in_count)   ; Characters received from AUX:
+                and a
+                sbc hl, de
+                ld hl, flags
+                res FLG_AUX_BIT, (hl)   ; Assume CON initially
+                jr nc, rxp_auto_done    ; If AUX > CON then use AUX
+; The packet came from AUX:
+                set FLG_AUX_BIT, (hl)
+rxp_auto_done   res FLG_AUTO_BIT, (hl)  ; Disable auto mode from now on
+;               
+rdc_exit_ok     xor a                   ; Success code
 ;
 ; Return with error code in A.
 rxp_exit        ld sp, (ret_sp)         ; Restore saved stack pointer
@@ -454,14 +485,14 @@ rde_exit        ld b, l
 ; A - bits 5 to 0 contain the 6 data bits recovered from this encoded character.
 rde_char        call rxdch
                 ld b, a
-                ld a, (brkflg)          ; Check break flag
-                and a
+                ld a, (flags)
+                and FLG_BREAK_MASK
                 jr nz, rdec_break
                 ld a, b
-                sub 0x40
-                jr c, rdec_enc          ; Error if < 0x40
+                sub 0x3f
+                jr c, rdec_enc          ; Error if < 0x3f
                 cp 0x40
-                jr nc, rdec_enc         ; Error if character was >= 0x80
+                jr nc, rdec_enc         ; Error if character was >= 0x7f
                 ret
 ;
 rdec_break      inc sp                  ; Discard rde_char return address
@@ -480,69 +511,74 @@ rdec_enc        inc sp                  ; Discard rde_char return address
 ; READER device port status, but we can do this using ZARC extensions if we are
 ; running on a ZARC system. This code also checks for break (^C) characters on
 ; the console port, whether this is the same as the data port or not. If a break
-; is detected, brkflg is set.
+; is detected, FLG_BREAK is set.
 ; Returns with:
 ; A - received character.
 rxdch           push bc
                 push de
                 push hl
 ;
-                ld a, (spoflg)          ; Non-zero if in single port mode
-                and a
-                jr nz, rdc_read         ; Read character or ^C
-; We are in two port mode. We should preferably check that a character is ready
-; before committing to a blocking read.
-                ld a, (zrcflg)          ; Non-zero if on a ZARC system
-                and a
-                jr z, rdc_read          ; Jump if non-ZARC as we can't help
-; We are in two port mode on ZARC. Wait until a character is ready, polling
-; for break as we do so. Note, the auxiliary input is called READER in CP/M 2.x.
+                ld hl, flags
+                bit FLG_AUTO_BIT, (hl)
+                jr nz, rdc_auto
+; Fixed port mode.
+                bit FLG_AUX_BIT, (hl)
+                jr z, rdc_read_con      ; Jump if using CON:
+;
+; Use AUX: port. We have to be a bit more careful here as we are looking for
+; data on AUX: while doing our best to check for breaks on CON:
+rdc_aux         bit FLG_AUXST_BIT, (hl)
+                jr z, rdc_read_aux      ; Jump if no AUXIST or AUXOST
+; We are using AUX: and status is available. Wait until a character is ready,
+; polling for break as we do so. Note, the auxiliary input is called READER in
+; CP/M 2.x.
 rdc_wait        ld hl, BIOS_AUXIST      ; Status of auxiliary input
                 call cbios
                 and a
-                jr nz, rdc_read         ; Jump if a character awaits
+                jr nz, rdc_read_aux     ; Jump if a character awaits
                 call rdc_con_break
                 jr c, rdc_break         ; Jump if break detected
                 jr rdc_wait
 ;
-; Read a character, waiting if required. In single port mode, it doesn't matter
-; that this blocks as the returned character will either be data or a break.
-rdc_read        ld hl, BIOS_READER      ; Reader input
+; Automatic port mode. Accept data from either port. This is only enabled for
+; systems that support AUX: status.
+rdc_auto        ld hl, BIOS_CONST       ; Status of CON: input
                 call cbios
-                ld (rdc_char), a        ; Save it for later
-                ifdef DEBUG
-                    push af
-                    ld a, "("
-                    call conwch             ; Write character to console
-                    pop af
-                    call cwphby             ; Print A in hexadecimal
-                    ld a, ")"
-                    call conwch             ; Write character to console
-                endif
-;
-; Perform break (^C) checks. How we do this depends on the mode.
-                ld a, (spoflg)
                 and a
-                jr nz, rdc_one_port
+                jr nz, rdc_read_con
+                ld hl, BIOS_AUXIST      ; Status of AUX: input
+                call cbios
+                and a
+                jr nz, rdc_read_aux
+                jr rdc_auto             ; Keep polling
 ;
-; In two port mode, we should check the console device for break characters.
-; This is somewhat redundant if on ZARC as we have checked previously, but
-; is harmless.
-                call rdc_con_break
-                jr c, rdc_break         ; Jump if break detected
-                jr rdc_break_done
+; Read a character from CON:, waiting if required.
+rdc_read_con    ld hl, BIOS_CONIN
+                call cbios
+; Perform break (^C) checks. How we do this depends on the mode.
+                cp BREAK_CHAR
+                jr z, rdc_break
+                ld hl, (con_in_count)   ; Maintain count for auto port
+                inc hl
+                ld (con_in_count), hl
+                jr rdc_exit
 ;
-; In single port mode, we just check the received character.
-rdc_one_port    ld a, (rdc_char)        ; Fetch received character
-rdc_chk_char    cp BREAK_CHAR
-                jr nz, rdc_break_done   ; Exit if not a break
+; Read a character from AUX:, waiting if required.
+rdc_read_aux    call rdc_con_break      ; Check for break from console
+                jr c, rdc_break
+                ld hl, BIOS_READER
+                call cbios
+                ld hl, (aux_in_count)   ; Maintain count for auto port
+                inc hl
+                ld (aux_in_count), hl
+                jr rdc_exit
 ;
 ; Break character detected.
-rdc_break       ld a, 0xff
-                ld (brkflg), a          ; Flag break detected
+rdc_break       ld hl, flags
+                set FLG_BREAK_BIT, (hl)
 ;
-rdc_break_done  ld a, (rdc_char)        ; Fetch received character
-                pop hl
+; Return with character in A.
+rdc_exit        pop hl
                 pop de
                 pop bc
                 ret
@@ -566,20 +602,20 @@ rdcb_break      scf                     ; Flag break detected
 ;
 ;
 ; Flush data port receive buffer. This works when the console port is the
-; data port (single port mode) and / or when running on a ZARC system. CP/M 2.2
-; does not provide a method for reading the READER device port status, so this
-; doesn't work on a non-ZARC system in dual port mode. This code keeps reading
-; and discarding data until no data is received for a reasonable period,
+; data port and / or when running on a CP/M 3.x or ZARC system. This code keeps
+; reading and discarding data until no data is received for a reasonable period,
 ; defined by FLUSH_TIMER. This behaviour allows for delays caused by additional
 ; upstream buffers, such as those in a RS-232 to USB adaptor.
-flush           ld a, (spoflg)          ; Non-zero if in single port mode
-                and a
-                jr nz, flu_doit         ; Jump if in single port mode
-                ld a, (zrcflg)          ; Non-zero if on a ZARC system
-                and a
-                ret z                   ; Return if not ZARC
+flush
+; If not FLG_AUTO and FLG_AUX and not FLG_AUXST then we are attempting to flush
+; without being able to check the status, which won't work. We don't need to
+; worry about auto-port mode as this is trapped elsewhere.
+                ld a, (flags)
+                and FLG_AUTO_MASK | FLG_AUX_MASK | FLG_AUXST_MASK
+                cp FLG_AUX_MASK
+                ret z
 ;
-flu_doit        push bc
+                push bc
                 push de
                 push hl
 ;
@@ -590,29 +626,26 @@ flu_doit        push bc
 ; before declaring the buffer empty. The actual time will depend on processor
 ; speed.
 flu_reset       ld bc, FLUSH_TIMER
-flu_loop        push bc
-;
 ; Check the port status. This will determine whether we use CONST or AUXIST
 ; to check whether or not there is a character to read.
-                ld hl, BIOS_CONST       ; Console status (single port mode)
-                ld a, (spoflg)          ; Non-zero if in single port mode
-                and a
-                jr nz, flu_check        ; Jump if in single port mode
-                ld hl, BIOS_AUXIST      ; Status of auxiliary input
-; Check the port status using the appropriate function.
-flu_check       call cbios
-                and a
-                jr z, flu_no_char       ; Exit if no character awaits
+flu_loop        ld a, (flags)
+                bit FLG_AUTO_BIT, a
+                jr nz, flu_auto
+; Not auto mode, so work out which port to do.
+                bit FLG_AUX_BIT, a
+                push af                 ; Save zero flag
+                call z, flu_con         ; Flush CON: if selected
+                pop af
+                call nz, flu_aux        ; Flush AUX: if selected
+                jr flu_pass_done
 ;
-; There is a character awaiting, so read it.
-                ld hl, BIOS_READER      ; Reader input
-                call cbios
-                pop bc                  ; Recover timer
-; The received character is discarded.
-                jr flu_reset            ; Reset timer and keep checking
+; Auto-port mode, so flush both.
+flu_auto        call flu_con            ; Flush CON:
+                call flu_aux            ; Flush AUX:
+flu_pass_done     
 ;
-flu_no_char     pop bc                  ; Recover timer
-                dec bc
+; Keep going unless timer has expired.
+                dec bc                  ; Adjust timer
                 ld a, b
                 or c
                 jr nz, flu_loop
@@ -621,6 +654,36 @@ flu_no_char     pop bc                  ; Recover timer
 flu_done        pop hl
                 pop de
                 pop bc
+                ret
+;
+; Read one character from CON: if there is one and modify timer in BC
+; appropriately. Used by flush only.
+flu_con         push bc
+                ld hl, BIOS_CONST       ; Console status
+; Check the port status using the appropriate function.
+                call cbios
+                pop bc
+                and a
+                ret z                   ; Exit if no character awaits
+; There is a character awaiting, so read it and return.
+                ld hl, BIOS_CONIN       ; Reader input
+                call cbios
+                ld bc, FLUSH_TIMER      ; Reset timer
+                ret
+;
+; Read one character from AUX: if there is one and modify timer in BC
+; appropriately. Used by flush only.
+flu_aux         push bc
+                ld hl, BIOS_AUXIST      ; Status of auxiliary input
+; Check the port status using the appropriate function.
+                call cbios
+                pop bc
+                and a
+                ret z                   ; Exit if no character awaits
+; There is a character awaiting, so read it and return.
+                ld hl, BIOS_READER      ; Reader input
+                call cbios
+                ld bc, FLUSH_TIMER      ; Reset timer
                 ret
 ;
 ;
@@ -643,7 +706,8 @@ flushing_msg    byte "Flushing serial port receive buffer", 0x0d, 0x0a, "$"
                 dseg                ; Data segment
 ;
 ret_sp          defs 2              ; Saved stack for error exits
-rdc_char        defs 1              ; Temporary character store for rxdch
+con_in_count    defs 2              ; Characters received from CON:
+aux_in_count    defs 2              ; Characters received from AUX:
 ;
                 end
 

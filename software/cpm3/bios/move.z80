@@ -1,0 +1,557 @@
+; *******************************************************
+; * CP/M 3 BIOS for ZARC Z80 Computer                   *
+; * Bank & move module                                  *
+; * Version: V1.0                                       *
+; * Merlin Skinner, 3/2/2023                            *
+; *******************************************************
+;
+; Modified from DRI's MOVE.ASM. Converted to Z80 mnemonics and much modified
+; for ZARC.
+;
+;
+                title "Bank & move module for CP/M 3 linked BIOS"
+;
+;
+;
+; ************
+; * Includes *
+; ************
+;
+                include "macros.i"
+                include "z80.i"
+                include "zarc.i"        ; Hardware definitions
+                include "monitor.i"
+                include "io_map.i"      ; I/O addresses mapping
+;                include "terminal.i"    ; Terminal constants
+;                include "io.i"          ; I/O routines
+;                include "utility.i"     ; Utility functions
+;                include "maths.i"       ; Mathematical functions
+;                include "interrupts.i"  ; Interrupts
+;                include "time.i"        ; Routines associated with time
+;                include "diags.i"       ; Diagnostics
+;                include "heap.i"
+                include "cpm.i"
+                include "cpm3.i"
+                include "disks.i"
+                include "mmc.i"
+                include "memory.i"      ; Memory page allocation
+                include "bios.i"
+;
+;
+;
+; *************
+; * Externals *
+; *************
+;
+;
+                public ?move,?xmove,?bank
+                extern @cbnk
+;
+                public mmmon            ; Select monitor memory map
+                extern bpanic           ; BIOS panic
+                extern bpar             ; BIOS parameter block (from monitor)
+;
+; Variables
+                public movxfl           ; Non-zero indicates inter-bank move
+                public supflg           ; Supervisor mode flag
+;
+; Stacks
+                extern cpmsp            ; CP/M environment stack pointer
+;
+;
+;
+; *************
+; * Constants *
+; *************
+;
+;
+; None
+;
+;
+;
+; *************
+; * Main Code *
+; *************
+;
+;
+
+                cseg    ; Use common bank
+;
+;
+; Set banks for MOVE. After XMOVE, the next call to MOVE will move data between
+; different memory banks. Call with:
+; C - source bank
+; B - destination bank
+; According to the CP/M Plus System Guide, the BDOS will only ever use this
+; function to move 128 or fewer bytes in one go; some BIOSes may not support
+; bigger moves between banks.
+; The BIOS XMOVE entry point goes here directly.
+?xmove:
+;                ret         ; Temporarily disable XMOVE for debugging
+                ld a, (bpar + BPS_OPTIONS)  ; See BIOS_OPT_xxx definitions.
+                and BIOS_OPT_DEBUG_MASK
+                jr z, xmove_no_debug
+;
+; Debugging messages. Write:
+; <XMove [source bank] [destination bank]>
+; The stack may have to be moved if it is not in the upper bank.
+                push de
+                push hl
+                ld e, 0
+                ld hl, MMAP_PAGE_SIZE - STACKS_SIZE
+                add hl, sp
+                jr c, xmd_stk_ok        ; Jump if stack is in upper bank
+; Move stack
+                inc e                   ; Flag stack has been moved
+                ld (cpmsp), sp
+                ld sp, MC_STK_TOP_P1    ; Use monitor call stack space
+xmd_stk_ok      call mmmon              ; Swap to monitor memory map
+; Monitor context selected.
+                call MCALL_CWNWLN       ; Write new line characters to console
+                ld hl, xmove_msg        ; "<XMove "
+                call MCALL_CONWMS       ; Print message
+                ld a, c                 ; Source
+                call MCALL_CWPHBY       ; Print A in hexadecimal
+                ld a, " "
+                call MCALL_CONWCH       ; Write character to the console
+                ld a, b                 ; Destination
+                call MCALL_CWPHBY       ; Print A in hexadecimal
+                ld a, ">"
+                call MCALL_CONWCH       ; Write character to the console
+; Switch back to the CP/M context.
+                ld a, (@cbnk)
+                call ?bank              ; Set bank without changing @cbnk
+; Return to original stack if required.
+                ld a, e
+                and a
+                jr z, xmd_stk_dn        ; Jump if we didn't move the stack
+                ld sp, (cpmsp)          ; CP/M environment stack pointer
+xmd_stk_dn      pop hl
+                pop de
+;
+xmove_no_debug  ld a, c                 ; Source bank
+                cp MMAP_CP3_BANKS
+                call nc, bpanic         ; Panic if bank is illegal
+                ld (mov_src_bank), a
+;
+                ld a, b                 ; Destination bank
+                cp MMAP_CP3_BANKS
+                call nc, bpanic         ; Panic if bank is illegal
+                ld (mov_dest_bank), a
+;
+; Flag inter-bank move to ?move code.
+                ld a, 0xff
+                ld (movxfl), a
+;
+                ret
+;
+;
+; Move a block of memory
+; Move BC bytes of memory, from the address in DE to the address in HL (the
+; other way round from the Z80's LDIR instruction). If ?XMOVE has been called
+; since the last call to ?MOVE, an interbank move must be performed. Any move
+; that involves bank switching requires that the stack is in the common area.
+; Call with:
+; HL - destination address
+; DE - source address
+; BC - count
+; Returns with:
+; HL and DE must point to next bytes following move operation.
+; The BIOS MOVE entry point goes here directly.
+?move:          ld a, (bpar + BPS_OPTIONS)  ; See BIOS_OPT_xxx definitions.
+                and BIOS_OPT_DEBUG_MASK
+                jr z, move_no_debug
+;
+; Debugging messages.
+; The stack may have to be moved if it is not in the upper bank.
+                push hl
+                xor a
+                ld (mv_stk_flg), a
+                ld hl, MMAP_PAGE_SIZE - STACKS_SIZE
+                add hl, sp
+                jr c, mv_stk_ok         ; Jump if stack is in upper bank
+; Move stack
+                inc a                   ; Flag stack has been moved
+                ld (mv_stk_flg), a
+                ld (cpmsp), sp
+                ld sp, MC_STK_TOP_P1    ; Use monitor call stack space
+mv_stk_ok       call mmmon              ; Swap to monitor memory map
+; Monitor context selected.
+                call MCALL_CWNWLN       ; Write new line characters to console
+                ld hl, move_msg         ; "<Move "
+                call MCALL_CONWMS       ; Print message
+                ld h, b
+                ld l, c
+                call MCALL_CWPHWD       ; Print HL in hexadecimal
+                ld hl, from_msg         ; " bytes from "
+                call MCALL_CONWMS       ; Print message
+                ld h, d
+                ld l, e
+                call MCALL_CWPHWD       ; Print HL in hexadecimal
+                ld hl, to_msg           ; " to "
+                call MCALL_CONWMS       ; Print message
+                pop hl
+                push hl
+                call MCALL_CWPHWD       ; Print HL in hexadecimal
+                ld a, ">"
+                call MCALL_CONWCH       ; Write character to the console
+                call MCALL_CWNWLN       ; Write new line characters to console
+                pop hl
+; Switch back to the CP/M context.
+                ld a, (@cbnk)
+                call ?bank              ; Set bank without changing @cbnk
+; Return to original stack if required.
+                ld a, (mv_stk_flg)
+                and a
+                jr z, mv_stk_dn         ; Jump if we didn't move the stack
+                ld sp, (cpmsp)          ; CP/M environment stack pointer
+mv_stk_dn
+;
+move_no_debug   push bc                 ; Save count
+;
+; If xmove hasn't been called since the last move, we just do a copy within
+; the current bank.
+                ld a, (movxfl)
+                and a
+                jr z, mov_curr_bank
+;
+; xmove has been called so we have to cope with inter-bank moves. If source and
+; destination banks are the same, we can simply use LDIR.
+                ld a, (mov_src_bank)
+                ld c, a
+                ld a, (mov_dest_bank)
+                cp c
+                jr nz, mov_inter_bank
+;
+; No copying between banks required.
+                ld a, (@cbnk)
+                cp c
+                jr nz, mov_diff_bank    ; Jump if bank is not current
+;
+; This is the simplest case: move within the currently selected bank. No bank
+; switching is required at all.
+mov_curr_bank   pop bc
+                ex de, hl
+                ldir
+                ex de, hl
+                jp mov_exit
+;
+; Though the source and destination are in the same bank, it is not the
+; currently selected one.
+mov_diff_bank   ld a, (mov_src_bank)    ; Source (and destination) bank
+                call ?bank              ; Set bank without changing @cbnk
+                pop bc
+                ex de, hl
+                ldir
+                ex de, hl
+; Restore the previous CP/M bank.
+                ld a, (@cbnk)
+                call ?bank              ; Set bank without changing @cbnk
+                jp mov_exit
+;
+; Source and destination are in different banks. ZARC banks 1 (0x4000 to 7fff)
+; and 2 (0x8000 to 0xbfff) are temporarily used to make the source and
+; destination respectively accessible.
+mov_inter_bank  pop bc
+                ld (mov_count), bc
+                ld (mov_src_addr), de   ; Save source address
+                ld (mov_dest_addr), hl  ; Save destination address
+;
+; Loop for each page. Most copies should be completed in a single pass, but any
+; crossing of a 16 KB page boundary will require another pass.
+movi_loop
+; Set destination (ZARC bank 2)
+                ld hl, (mov_dest_addr)
+                ld a, (mov_dest_bank)
+                call find_page          ; Find page and offset
+; A - memory page
+; HL - address offset within page
+                out IOA_MMAP_2          ; Set destination bank
+                ld a, h
+                add high MMAP_BANK2_START   ; Add ZARC bank base address
+                ld h, a
+                push hl                 ; Save address within page
+; Calculate space remaining in this 16 KB page.
+                ex de, hl
+                ld hl, MMAP_BANK2_START + MMAP_PAGE_SIZE
+                and a
+                sbc hl, de
+                ld (mov_ldir_size), hl
+;
+; Set source (ZARC bank 1)
+                ld hl, (mov_src_addr)
+                ld a, (mov_src_bank)
+                call find_page          ; Find page and offset
+; A - memory page
+; HL - address offset within page
+                out IOA_MMAP_1          ; Set source bank
+                ld a, h
+                add high MMAP_BANK1_START   ; Add ZARC bank base address
+                ld h, a
+                push hl                 ; Save address within page
+; Calculate space remaining in this 16 KB page.
+                ex de, hl
+                ld hl, MMAP_BANK1_START + MMAP_PAGE_SIZE
+                and a
+                sbc hl, de
+; HL - space available
+; Update mov_ldir_size if this result is smaller than the stored one.
+                ex de, hl
+                ld hl, (mov_ldir_size)
+                and a
+                sbc hl, de
+                jr c, movi_no_update1
+                ld (mov_ldir_size), de  ; Reduce limit if required
+movi_no_update1
+;
+; mov_ldir_size represents the maximum size we can transfer without crossing
+; a page boundary.
+                ld de, (mov_count)
+                ld hl, (mov_ldir_size)
+                and a
+                sbc hl, de
+                jr c, movi_no_update2
+                ld (mov_ldir_size), de  ; Reduce limit if required
+movi_no_update2
+;
+; Copy a block, up to 16 KB in size.
+                pop hl                  ; Source offset
+                pop de                  ; Destination offset
+                ld bc, (mov_ldir_size)
+                ldir
+;
+; Update pointers with amount copied.
+                ld bc, (mov_ldir_size)
+                ld hl, (mov_src_addr)
+                add hl, bc
+                ld (mov_src_addr), hl
+                ld hl, (mov_dest_addr)
+                add hl, bc
+                ld (mov_dest_addr), hl
+; Reduce length by amount copied.
+                ld hl, (mov_count)
+                and a
+                sbc hl, bc
+                ld (mov_count), hl
+                call c, bpanic          ; Panic if we copied too much
+                jr nz, movi_loop
+;
+; Restore the previous CP/M bank.
+                ld a, (@cbnk)
+                call ?bank              ; Set bank without changing @cbnk
+; Set HL and DE to point to next bytes as required.
+                ld de, (mov_src_addr)
+                ld hl, (mov_dest_addr)
+;
+mov_exit        xor a                   ; Flag no inter-bank move next time
+                ld (movxfl), a
+;
+                ret
+;
+;
+; Find ZARC memory page associated with the given address in a CP/M bank. Call
+; with:
+; A - CP/M bank
+; HL - address
+; Returns with:
+; A - memory page
+; HL - address offset within page
+find_page       push bc
+;
+                cp MMAP_CP3_BANKS
+                call nc, bpanic         ; Panic if bank is illegal
+                ld c, a                 ; Save bank
+; If the address is in the common area, the common page is returned. Otherwise,
+; the required page is 3 x CP/M bank + ZARC bank number.
+                ld a, h
+                and 0xc0                ; Isolate MS two bits of address
+                cp 0xc0
+                jr nz, fp_not_comm
+; The address is in the common area. COM_PG is created because LINK.COM can't
+; cope with three symbols added together. zmac manages this with extensions that
+; LINK doesn't understand.
+COM_PG          equ BPS_PAGES + MMAP_CP3_COMM_PG
+                ld a, (bpar + COM_PG)
+                ld b, a                 ; Save required page
+                jr fp_find_offset
+;
+; The address is not in the common area, so we have to find the correct page.
+; The index to the page table is 3 * CP/M bank + ZARC bank (16 KB page)
+; C - CP/M bank
+; HL - address
+; A - MS two bits of address (determines ZARC bank)
+fp_not_comm     push de
+                push hl
+; Find ZARC bank number.
+                rlca
+                rlca
+; As we are not in the common area, the result should be 0 to 2.
+                cp 3
+                call nc, bpanic         ; Panic if bank is illegal
+; Find address in pages table.
+                ld hl, bpar + BPS_PAGES ; List of pages
+                ld d, 0
+                ld e, a
+                add hl, de              ; Add ZARC bank
+                ld a, c                 ; CP/M bank
+                add a                   ; x 2
+                add c                   ; x 3
+                ld e, a
+                add hl, de              ; Add CP/M bank offset
+                ld b, (hl)              ; Fetch page
+                pop hl
+                pop de
+;
+; B - page
+; C - CP/M bank
+; HL - address
+fp_find_offset  ld a, h
+                and 0x3f                ; Zero ZARC bank bits
+                ld h, a
+                ld a, b                 ; Move page to A
+                pop bc
+                ret
+;
+;
+; Select memory bank
+; Set the current CP/M bank to the number in A. Bank 1 is the bank in which user
+; programs run (the TPA); Bank 0 and any other banks are used by CP/M for disk
+; buffers or as a RAMdisc. You must preserve or restore all registers other
+; than A upon exit. The stack must be in the common area to avoid losing the
+; return address and consequently a crash.
+; Supervisor access (super bit) is set according to supflg. Note that bank 3
+; always has this bit set so the BIOS can access I/O.
+; Call with:
+; A - Mem Bank or 0xff to reapply the current bank (used by "super").
+; Note: SELMEM / BNKSEL (?bnksl) BIOS entry point goes here after saving bank in
+; @cbnk.
+?bank:          push bc
+                push de
+                push hl
+                ld c, a                 ; Save bank
+;
+                cp 0xff
+                jr nz, bnk_normal       ; Jump if normal bank selection
+; This is a call to reapply the current bank. Used by SUPER (BIOS extension
+; function).
+                ld a, (@cbnk)
+                ld c, a
+                jr bnk_skstkck          ; Skip stack check
+;
+; Check that that stack is in the common area.
+bnk_normal      ld hl, MMAP_PAGE_SIZE - STACKS_SIZE
+                add hl, sp
+                call nc, bpanic
+;
+bnk_skstkck     ld a, (bpar + BPS_OPTIONS)  ; See BIOS_OPT_xxx definitions.
+                and BIOS_OPT_DEBUG_MASK
+                jr z, bank_no_debug
+;
+; Debugging messages. The stack may have to be moved if it is not in the upper
+; bank. This can only be if we are reapplying the current stack, called by
+; SUPER.
+                ld b, 0
+                ld hl, MMAP_PAGE_SIZE - STACKS_SIZE
+                add hl, sp
+                jr c, bnkd_stk_ok       ; Jump if stack is in upper bank
+; Move stack
+                inc b                   ; Flag stack has been moved
+                ld (cpmsp), sp
+                ld sp, MC_STK_TOP_P1    ; Use monitor call stack space
+bnkd_stk_ok     call mmmon              ; Swap to monitor memory map
+; Monitor context selected.
+                ld hl, bnksel_msg       ; "<BnkSel "
+                call MCALL_CONWMS       ; Print message
+                ld a, c                 ; Source
+                call MCALL_CWPHBY       ; Print A in hexadecimal
+                ld a, ">"
+                call MCALL_CONWCH       ; Write character to the console
+                call MCALL_CWNWLN       ; Write new line characters to console
+; This routine changes the bank, so no need to return to the CP/M map explicitly
+; here. Return to original stack if required.
+                ld a, b
+                and a
+                jr z, bnkd_stk_dn       ; Jump if we didn't move the stack
+                ld sp, (cpmsp)          ; CP/M environment stack pointer
+bnkd_stk_dn
+;
+bank_no_debug   ld a, c
+                cp MMAP_CP3_BANKS
+                call nc, bpanic         ; Panic if bank is illegal
+;
+; Calculate address in list of allocated pages.
+                add a                   ; x 2
+                add c                   ; x 3
+                ld hl, bpar + BPS_PAGES
+                ld d, 0
+                ld e, a
+                add hl, de
+;
+; Set map accordingly. The common area (0xc000 to 0xffff) is unaffected.
+                ld a, (supflg)          ; Supervisor mode (0 or MMAP_SUPER_MASK)
+                ld e, a
+                and not (MMAP_SUPER_MASK)
+                call nz, bpanic         ; Panic if value is illegal
+; E - supervisor mode flag
+                ld a, (hl)
+                or e
+                out IOA_MMAP_0
+                inc hl
+                ld a, (hl)
+                or e
+                out IOA_MMAP_1
+                inc hl
+                ld a, (hl)
+                or e
+                out IOA_MMAP_2
+;
+                pop hl
+                pop de
+                pop bc
+;
+                ret
+;
+;
+; Set monitor memory map. Ensure stack is in bank 3 to avoid trouble.
+; Set bank 0 (0x0000 to 0x3fff) read-only with I/O access.
+mmmon           ld a, MMAP_MON_B0_PAGE + MMAP_PROT_MASK + MMAP_SUPER_MASK
+                out (IOA_MMAP_0), a
+; Bank 1 (0x4000 to 0x7fff) writeable (monitor's variables).
+                ld a, MMAP_MON_B1_PAGE
+                out (IOA_MMAP_1), a
+; Bank 2 (0x8000 to 0xbfff) not used, but may be set as required.
+; Bank 3 (0xc000 to 0xffff) unchanged.
+                ret
+;
+;
+;
+; *************
+; * Constants *
+; *************
+;
+;
+move_msg        byte "<Move ", 0
+xmove_msg       byte "<XMove ", 0
+bnksel_msg      byte "<BnkSel ", 0
+from_msg        byte " bytes from ", 0
+to_msg          byte " to ", 0
+;
+;
+;
+; *************
+; * Variables *
+; *************
+;
+;
+mov_src_bank    defs 1              ; MOVE source bank
+mov_dest_bank   defs 1              ; MOVE destination bank
+movxfl          byte 0              ; Non-zero indicates inter-bank move
+mov_count       defs 2              ; MOVE byte count
+mov_src_addr    defs 2              ; Save source address
+mov_dest_addr   defs 2              ; Save destination address
+mov_ldir_size   defs 2              ; Calculated LDIR block size
+supflg          byte 0              ; Supervisor mode (0 or MMAP_SUPER_MASK)
+mv_stk_flg      defs 1              ; Move has moved stack
+;
+                end
+

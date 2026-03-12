@@ -18,7 +18,8 @@
                 STR_BYTE MMC_CRC    ; CRC and stop bit
                 STR_END MMC_SIZE
 
-; SPI error codes. This should be maintained in sync with err_msgs in mmc_card.z80.
+; SPI-related error codes. This should be maintained in sync with err_msgs in
+; mmc_card.z80.
                 ENUM_START
                 ENUM SPI_ERR_OK         ; No error
                 ENUM SPI_ERR_BUSY       ; Master interface stuck busy
@@ -35,4 +36,6 @@
                 ENUM SPI_ERR_TIMEOUT    ; Busy timeout
                 ENUM SPI_ERR_WRITE      ; Write error
                 ENUM SPI_ERR_UNKN       ; Unknown error
+                ENUM SPI_ERR_PART       ; Sector is outside the partition
                 ENUM_END SPI_ERR_NUM    ; Number of errors
+

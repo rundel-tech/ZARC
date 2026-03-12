@@ -1,0 +1,229 @@
+; ***********************************************************
+; * CPMLDR BIOS for ZARC Z80 Computer (Common Bank Code)    *
+; * Version: V1.0                                           *
+; * Merlin Skinner, 12/12/2022                              *
+; ***********************************************************
+;
+; The CMPLDR BIOS requires a few routines and variables that are in the CP/M
+; common bank (0xc000 to 0xffff, or ZARC bank 3). This file contains these
+; resources.
+;
+; V1.0 - initial version.
+                title ZARC CP/M BIOS Common Bank Code
+;
+;
+;
+; ************
+; * Includes *
+; ************
+;
+                include "macros.i"
+                include "z80.i"
+                include "zarc.i"        ; Hardware definitions
+                include "monitor.i"
+                include "io_map.i"      ; I/O addresses mapping
+                include "terminal.i"    ; Terminal constants
+                include "io.i"          ; I/O routines
+                include "utility.i"     ; Utility functions
+                include "maths.i"       ; Mathematical functions
+                include "interrupts.i"  ; Interrupts
+                include "time.i"        ; Routines associated with time
+                include "diags.i"       ; Diagnostics
+                include "heap.i"
+                include "cpm.i"
+                include "cpm3.i"
+                include "disks.i"
+                include "mmc.i"
+                include "memory.i"      ; Memory page allocation
+                include "ldrbios.i"     ; Project include file
+;
+;
+;
+; *************
+; * Externals *
+; *************
+;
+;
+; None
+;
+;
+;
+; *************
+; * Constants *
+; *************
+;
+;
+; None
+;
+;
+;
+; *************
+; * Main Code *
+; *************
+;
+                aseg
+;
+                org CPMLDR_B_C_START
+;
+; Jump table.
+; Entries here must match the jump table in cpm.i.
+                jp comm_panic           ; Unrecoverable error halt
+                jp comm_init            ; Initialise variables
+                jp mon_call             ; Call monitor function
+;
+; Start of BIOS parameters from monitor. The following entries must match the
+; structure definition in cpm3.i, and must immediately follow the routine jump
+; table. From the ldrbios code, the address are, for example:
+; CCALL_JPTBL_NEXT + BPS_OPTIONS
+bios_params
+bios_options    defs 1                  ; Options. See BIOS_OPT_xxx definitions
+mem_pages       defs MMAP_CP3_PAGES     ; Pages numbers allocated
+cpm_part_entry  defs 2                  ; Pointer to partition table entry
+                assert ($ - bios_params) = BPS_SIZE
+;
+; Other variables follow
+sec_buffer      defs MMC_SECTOR_SIZE    ; Sector buffer
+; Verify the equate is as expected so the CPMLDR BIOS can find it
+                assert sec_buffer = COM_SEC_BUFFER
+;
+;
+; Jump to the monitor's "panic" code to return to the debugger in case of a
+; serious error. Go here with a call instruction as this leaves the caller address
+; on the stack, which may be useful when debugging.
+comm_panic      ld (cpm_sp), sp
+                ld sp, mc_stk_top_p1    ; Use monitor call stack space
+                call mmap_monitor       ; Swap to monitor memory map
+; Monitor context selected.
+panic_loop      call MCALL_PANIC        ; System error monitor entry
+; Just in case someone attempts to continue execution from the monitor.
+                jr panic_loop
+;
+;
+; IX - pointer to BIOS parameters structure
+; IX is set by the monitor and points to a parameter structure in the monitor's
+; variables space (page 0x3e). IX should not be affected by DRI's CPMLDR as
+; this is 8080 code.
+comm_init       ld (cpm_sp), sp         ; Save background stack pointer
+                ld sp, mc_stk_top_p1    ; Use monitor call stack space
+                call mmap_monitor       ; Swap to monitor memory map
+;
+; Monitor context selected. Copy parameter structure to the BIOS variables area
+; so we can access it when the monitor is paged out.
+                push ix
+                pop hl                  ; Source address from monitor
+
+                ld de, bios_params   ; Destination
+                ld bc, BPS_SIZE
+                ldir
+;
+; Verify that the partition is large enough for what we plan to do. Subtracting
+; the minimum required size from the actual partition size should not cause a
+; carry. IX is preserved for the main CP/M 3 BIOS.
+                push ix
+                ld ix, (cpm_part_entry)
+; IX - pointer to partition table entry structure
+                ld e, (ix + DPART_SIZE_SECS)
+                ld d, (ix + DPART_SIZE_SECS + 1)
+                ld c, (ix + DPART_SIZE_SECS + 2)
+                ld b, (ix + DPART_SIZE_SECS + 3)
+; BCDE - partition size in MMC sectors
+                ld a, e
+                sub low CPM_MIN_PRT_SIZE_MS
+                ld a, d
+                sbc high CPM_MIN_PRT_SIZE_MS
+                ld a, c
+                sbc 0
+                ld a, b
+                sbc 0
+                call c, comm_panic
+; The partition is large enough.
+                pop ix
+;
+; Switch back to the CP/M context.
+                call mmap_cpm           ; Swap to CP/M memory map
+                ld sp, (cpm_sp)
+                ret
+;
+;
+; This routine allows CP/M applications to call some monitor functions. Any
+; function that accesses memory must be used with caution as ZARC banks 0 and 1
+; will be changed to select the monitor's environment. Call with:
+; DE - pointer to monitor function
+; Alternate registers - parameters for the function to be called.
+; Returns with results in alternate register set.
+mon_call        ld (cpm_sp), sp
+                ld sp, mc_stk_top_p1    ; Use monitor call stack space
+; Set the routine address.
+                ld a, e                 ; Set LSB
+                ld (mc_call_instr + 1), a
+                ld a, d                 ; Set MSB
+                ld (mc_call_instr + 2), a
+                call mmap_monitor       ; Swap to monitor memory map
+; Monitor context selected. Make the call.
+                ex af, af'
+                exx
+mc_call_instr   call 0                  ; Address will be inserted
+                ex af, af'
+                exx
+; Switch back to the CP/M context.
+                call mmap_cpm           ; Swap to CP/M memory map
+                ld sp, (cpm_sp)
+                ret
+;
+;
+;
+; ***************
+; * Subroutines *
+; ***************
+;
+;
+; Set monitor memory map. Ensure stack is in ZARC bank 3 (CP/M common bank)
+; to avoid trouble.
+; Set bank 0 (0x0000 to 0x3fff) read-only with I/O access.
+mmap_monitor    ld a, MMAP_MON_B0_PAGE + MMAP_PROT_MASK + MMAP_SUPER_MASK
+                out (IOA_MMAP_0), a
+; Bank 1 (0x4000 to 0x7fff) writeable (monitor's variables).
+                ld a, MMAP_MON_B1_PAGE
+                out (IOA_MMAP_1), a
+; Bank 2 (0x8000 to 0xbfff) not used, but may be set as required.
+; Bank 3 (0xc000 to 0xffff) (CP/M common bank) unchanged.
+                ret
+;
+;
+; Set CP/M bank 0 memory map. Ensure stack is in ZARC bank 3 (CP/M common bank)
+; to avoid trouble.
+; Set bank 0 to 2 to the allocated pages.
+mmap_cpm        push hl
+                ld hl, mem_pages        ; Point to allocated page numbers
+                ld a, (hl)
+                out (IOA_MMAP_0), a     ; Bank 0 (0x0000 to 0x3fff)
+                inc hl
+                ld a, (hl)
+                out (IOA_MMAP_1), a     ; Bank 1 (0x4000 to 0x7fff)
+                inc hl
+                ld a, (hl)
+                out (IOA_MMAP_2), a     ; Bank 2 (0x8000 to 0xbfff)
+; Bank 3 (0xc000 to 0xffff) (CP/M common bank) unchanged.
+                pop hl
+                ret
+;
+;
+;
+; *************
+; * Variables *
+; *************
+;
+;
+; Private monitor variables.
+; Note: linker "-c" option is used, so no data is initialised here.
+                dseg                ; Data segment
+;
+cpm_sp          defs 2              ; CP/M environment stack pointer
+;
+                defs STACKS_SIZE    ; Monitor call stack
+mc_stk_top_p1                       ; Stack top + 1
+;
+                assert $ <= INT_VEC_TABLE   ; Don't overwrite interrupt vectors
+;
+                end
+

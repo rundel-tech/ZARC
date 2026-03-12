@@ -1,0 +1,518 @@
+; *******************************************************
+; * CP/M 3 BIOS for ZARC Z80 Computer                   *
+; * Character I/O module                                *
+; * Version: V1.0                                       *
+; * Merlin Skinner, 6/2/2023                            *
+; *******************************************************
+;
+; Modified from DRI's CHARIO.ASM. Converted to Z80 mnemonics and much modified
+; for ZARC.
+;
+; Console escape codes are are translated so as to provide the appearance of a
+; simple terminal to applications. Translation is useful because few terminal
+; emulators support ADM-3A, and some CP/M programs cannot support VT-100
+; sequences. Codes based on the VT-52 were chosen for output as it offers
+; relatively simple control codes and is the basis for a variety of later CP/M
+; machines such as the Amstrad PCW range and Spectrum +3. An external VT-100 /
+; ANSI terminal or terminal emulator can then be used with a wide range of CP/M
+; software.
+;
+; Input escape codes are translated to single characters where appropriate. This
+; is the approach taken by later CP/M machines such as the Amstrad PCW range and
+; Spectrum +3.
+;
+; Translation may be disabled by starting CP/M from the monitor with the
+; "rawcon" option.
+;
+; One option to shrink the common area usage of this code would be to move
+; some of it into the banked area. This would appear to mean bank 0 due to
+; CPMLDR not having a bank switching mechanism. One target might be control
+; sequence translation. 
+;
+                title "Character I/O handler for ZARC"
+;
+;
+;
+; ************
+; * Includes *
+; ************
+;
+                include "macros.i"
+                include "z80.i"
+                include "zarc.i"        ; Hardware definitions
+                include "monitor.i"
+                include "io_map.i"      ; I/O addresses mapping
+                include "terminal.i"    ; Terminal constants
+;                include "io.i"          ; I/O routines
+;                include "utility.i"     ; Utility functions
+;                include "maths.i"       ; Mathematical functions
+;                include "interrupts.i"  ; Interrupts
+                include "time.i"        ; Routines associated with time
+;                include "diags.i"       ; Diagnostics
+;                include "heap.i"
+                include "cpm.i"
+                include "cpm3.i"
+;                include "disks.i"
+                include "mmc.i"
+                include "memory.i"      ; Memory page allocation
+                include "bios.i"
+                include "contran.i"     ; Console translation
+;
+;
+;
+; *************
+; * Externals *
+; *************
+;
+;
+                public ?cinit,?ci,?co,?cist,?cost
+                public @ctbl
+;
+                extern bpanic           ; BIOS panic
+                extern bpar             ; BIOS parameter block (from monitor)
+                extern mmmon            ; Select monitor memory map
+                extern intsv            ; Set interrupt vector
+                extern intdis           ; Disable interrupt and keep count
+                extern inten            ; Enable interrupts if safe
+; Variables
+                extern itdsct           ; DI nest count
+                extern intbsp           ; Background stack pointer (ints)
+                extern cittmr           ; Console input translation timer
+; To / from contran.z80
+                extern ctinit           ; Initialise console translation
+                extern citr             ; Console translate input
+                public ciraw            ; Console input raw read
+                extern cistm            ; Console input translation state
+                extern cotr             ; Console translate output
+                public coraw            ; Console output raw write
+;
+;
+;
+; *************
+; * Constants *
+; *************
+;
+;
+max$devices     equ 2                   ; Number of devices (up to 16)
+;
+;
+;
+; *************
+; * Main Code *
+; *************
+;
+;
+                cseg                    ; Use common segment
+;
+; BIOS function 21: DEVINI
+; CP/M 3 System Guide: "?CINIT is called for each of the 16 character devices,
+; and initialises the devices. Register C contains the device number. The ?CINIT
+; routine initialises the physical character device specified in register C to
+; the baud rate contained in the appropriate entry of the CHRTBL. You only need
+; to supply this routine if I/O redirection has been implemented. It is
+; referenced only by the DEVICE utility supplied with CP/M 3."
+; BIOSKRNL.ASM calls this once per device. For ZARC, the Baud rate is fixed in
+; firmware so there is not much to do here.
+?cinit:         ld a, c
+                and a
+                jr z, init_ser1         ; Console port
+                dec a
+                jr z, init_ser2         ; Auxiliary port
+                ret                     ; Return if no such device
+;
+;
+; Initialise serial port 1 (console port).
+init_ser1       xor a
+; Setup console translation.
+                call ctinit             ; Initialise console translation
+;
+; Setup interrupts.
+                ld a, INT_SER1_TX_VEC   ; Vector number
+                ld de, ser1w_serv       ; Address of service routine
+                call intsv              ; Set interrupt vector
+;
+                ld a, INT_SER1_RX_VEC   ; Vector number
+                ld de, ser1r_serv       ; Address of service routine
+                call intsv              ; Set interrupt vector
+;
+                ret
+;
+;
+; Initialise serial port 2 (auxiliary port).
+init_ser2
+; Setup interrupts.
+                ld a, INT_SER2_TX_VEC   ; Vector number
+                ld de, ser2w_serv       ; Address of service routine
+                call intsv              ; Set interrupt vector
+;
+                ld a, INT_SER2_RX_VEC   ; Vector number
+                ld de, ser2r_serv       ; Address of service routine
+                call intsv              ; Set interrupt vector
+;
+                ret
+;
+;
+; *** Character Input ***
+;
+; CP/M 3 System Guide: "?CI is called with a device number in register B. It
+; should wait for the next available input character, then return the character
+; in register A. The character should be in 8-bit ASCII with no parity."
+?ci:            ld a, b
+                and a
+                jr z, ci_ser1           ; Console port
+                dec a
+                jp z, ci_ser2           ; Auxiliary port
+                ld a, 0x1a              ; Return a ctl-Z for no device
+                ret                     ; Return if no such device
+;
+;
+; Fetch character from serial port 1
+ci_ser1         ld a, (bpar + BPS_OPTIONS)  ; See BIOS_OPT_xxx definitions
+                and BIOS_OPT_RAWCON_MASK
+                jp nz, ciraw            ; Skip translation if disabled
+;
+                jp citr                 ; Console translate input
+
+;
+;
+; Console input with no terminal translation.
+; Input character. This will wait if no character is available. Interrupts must
+; be enabled for this to work.
+ciraw           ld a, (itdsct)          ; DI nest count
+                and a
+                call nz, bpanic         ; Panic if count != 0
+;
+; The objective of this code is to have the machine halted until we can complete
+; the operation. A simple wait loop would be simpler, but would give no indication
+; that the machine is stalled.
+; We can enable and disable interrupts directly here because we know the DI nest
+; count is zero.
+                di
+s1rch_loop      in a, (IOA_SER1_CSR)     ; Read status
+                and a, SER_CSR_RX_EMPTY_MASK
+                jr z, s1rch_in_ei        ; Jump if the FIFO is not empty
+; There is nothing to read in the FIFO. Enable the receiver interrupt before
+; halting so we exit from the halt state when a character arrives. The interrupt
+; service routine simply disables the interrupt, but will also release us from the
+; halt state.
+                in (IOA_INT_EN)
+                or INT_SER1_RX_MASK
+                out (IOA_INT_EN)
+; Interrupts are only enabled for the halt, so the rest is atomic.
+                ei
+                halt                    ; Halt until the next interrupt
+                di
+                jr s1rch_loop
+;
+s1rch_in_ei     ei
+s1rch_in        in (IOA_SER1_DATA)
+                ret
+;
+;
+; Fetch character from serial port 2. This will wait if no character is
+; available. Interrupts must be enabled for this to work.
+ci_ser2         ld a, (itdsct)          ; DI nest count
+                and a
+                call nz, bpanic         ; Panic if count != 0
+;
+; The objective of this code is to have the machine halted until we can complete
+; the operation. A simple wait loop would be simpler, but would give no indication
+; that the machine is stalled.
+; We can enable and disable interrupts directly here because we know the DI nest
+; count is zero.
+                di
+s2rch_loop      in a, (IOA_SER2_CSR)     ; Read status
+                and a, SER_CSR_RX_EMPTY_MASK
+                jr z, s2rch_in_ei        ; Jump if the FIFO is not empty
+; There is nothing to read in the FIFO. Enable the receiver interrupt before
+; halting so we exit from the halt state when a character arrives. The interrupt
+; service routine simply disables the interrupt, but will also release us from the
+; halt state.
+                in (IOA_INT_EN)
+                or INT_SER2_RX_MASK
+                out (IOA_INT_EN)
+; Interrupts are only enabled for the halt, so the rest is atomic.
+                ei
+                halt                    ; Halt until the next interrupt
+                di
+                jr s2rch_loop
+;
+s2rch_in_ei     ei
+s2rch_in        in (IOA_SER2_DATA)
+                ret
+;
+;
+; *** Character Input Status ***
+;
+; CP/M 3 System Guide: "?CIST is called with a device number in register B. It
+; should return with register A set to zero if the device specified has no
+; input character ready; and should return with A set to OFFH if the device
+; specified has an input character ready to be read."
+?cist:          ld a, b
+                and a
+                jr z, cist_ser1         ; Console port
+                dec a
+                jr z, cist_ser2         ; auxiliary port
+                xor a                   ; Return null status for no device
+                ret                     ; Return if no such device
+;
+;
+; Check input status of serial port 1
+cist_ser1       ld a, (cistm)           ; Console input translation state
+                cp CITST_REPLAY
+                jr nz, const_raw        ; Jump if not replaying
+; Console translation is enabled and we have received an escape sequence that
+; we didn't recognise. There are characters to return, so we need to reflect
+; this in the return code.
+                ld a, 0xff
+                ret
+;
+const_raw       in a, (IOA_SER1_CSR)    ; Read status
+                and a, SER_CSR_RX_EMPTY_MASK
+                jr z, ttyist_char       ; Jump if the FIFO is not empty
+                xor a
+                ret
+ttyist_char     ld a, 0xff              ; Flag character available
+                ret
+;
+;
+; Check input status of serial port 2
+cist_ser2       in a, (IOA_SER2_CSR)    ; Read status
+                and a, SER_CSR_RX_EMPTY_MASK
+                jr z, ptrist_char       ; Jump if the FIFO is not empty
+                xor a
+                ret
+ptrist_char     ld a, 0xff              ; Flag character available
+                ret
+;
+;
+; *** Character Output ***
+;
+; CP/M 3 System Guide: "?CO is called with a device number in register B and a
+; character in register C. It should wait until the device is ready to accept
+; another character and then send the character. The character is in 8-bit ASCII
+; with no parity."
+?co:            ld a, b
+                and a
+                jr z, co_ser1           ; Console port
+                dec a
+                jp z, co_ser2           ; auxiliary port
+                ret                     ; Return if no such device
+;
+co_ser1         ld a, (bpar + BPS_OPTIONS)  ; See BIOS_OPT_xxx definitions
+                and BIOS_OPT_RAWCON_MASK
+                jp nz, coraw            ; Skip translation if disabled
+;
+                jp cotr                 ; Translate character
+;
+; Console output with no terminal translation. Call with:
+; C - character
+coraw           ld a, (itdsct)          ; DI nest count
+                and a
+                call nz, bpanic         ; Panic if count != 0
+;
+; The objective of this code is to have the machine halted until we can complete
+; the operation. A simple wait loop would be simpler, but would give no indication
+; that the machine is stalled.
+; We can enable and disable interrupts directly here because we know the DI nest
+; count is zero.
+                di
+s1wch_loop      in a, (IOA_SER1_CSR)    ; Read status
+                and a, SER_CSR_TX_FULL_MASK
+                jr z, s1wch_out_ei      ; Jump if there is space in the FIFO
+; There is no space in the FIFO. Enable the transmitter interrupt before halting
+; so we exit from the halt state when the buffer has some space. The interrupt
+; service routine simply disables the interrupt, but will also release us from the
+; halt state.
+                in (IOA_INT_EN)
+                or INT_SER1_TX_MASK
+                out (IOA_INT_EN)
+; Interrupts are only enabled for the halt, so the rest is atomic.
+                ei
+                halt                    ; Halt until the next interrupt
+                di
+                jr s1wch_loop
+;
+s1wch_out_ei    ei
+s1wch_out       ld a, c
+                out (IOA_SER1_DATA), a
+                ret
+;
+;
+; auxiliary port. Call with:
+; C - character
+co_ser2         ld a, (itdsct)          ; DI nest count
+                and a
+                call nz, bpanic         ; Panic if count != 0
+;
+; The objective of this code is to have the machine halted until we can complete
+; the operation. A simple wait loop would be simpler, but would give no indication
+; that the machine is stalled.
+; We can enable and disable interrupts directly here because we know the DI nest
+; count is zero.
+                di
+s2wch_loop      in a, (IOA_SER2_CSR)    ; Read status
+                and a, SER_CSR_TX_FULL_MASK
+                jr z, s2wch_out_ei      ; Jump if there is space in the FIFO
+; There is no space in the FIFO. Enable the transmitter interrupt before halting
+; so we exit from the halt state when the buffer has some space. The interrupt
+; service routine simply disables the interrupt, but will also release us from the
+; halt state.
+                in (IOA_INT_EN)
+                or INT_SER2_TX_MASK
+                out (IOA_INT_EN)
+; Interrupts are only enabled for the halt, so the rest is atomic.
+                ei
+                halt                    ; Halt until the next interrupt
+                di
+                jr s2wch_loop
+;
+s2wch_out_ei    ei
+s2wch_out       ld a, c
+                out (IOA_SER2_DATA), a
+                ret
+;
+;
+; *** Character Output Status ***
+;
+; CP/M 3 System Guide: "?COST is called with a device number in register B. It
+; should return with register A set to zero if the device specified cannot
+; accept a character immediately, and should return with A set to OFFH if the
+; device is ready to accept a character."
+?cost:          ld a, b
+                and a
+                jr z, cost_ser1         ; Console port
+                dec a
+                jr z, cost_ser2         ; auxiliary port
+                xor a                   ; Return null status for no device
+                ret                     ; Return if no such device
+;
+;
+; Check output status of serial port 1
+cost_ser1       in a, (IOA_SER1_CSR)    ; Read status
+                and a, SER_CSR_TX_FULL_MASK
+                jr z, ttyost_char       ; Jump if there is space in the FIFO
+                xor a
+                ret
+ttyost_char     ld a, 0xff              ; Flag ready
+                ret
+;
+;
+; Check output status of serial port 2
+cost_ser2       in a, (IOA_SER2_CSR)    ; Read status
+                and a, SER_CSR_TX_FULL_MASK
+                jr z, ptpost_char       ; Jump if there is space in the FIFO
+                xor a
+                ret
+ptpost_char     ld a, 0xff              ; Flag ready
+                ret
+;
+;
+;
+; **************
+; * Interrupts *
+; **************
+;
+;
+; Serial port 1 write interrupt service routine. This simply disables the
+; interrupt, but as it is an interrupt it will also release the I/O code from its
+; halt state.
+ser1w_serv      ld (intbsp), sp         ; Swap to interrupt stack
+                ld sp, INT_STK_TOP_P1
+;
+                push af
+; Disable this interrupt to prevent us from locking up, forever servicing this
+; interrupt.
+                in (IOA_INT_EN)
+                and not (INT_SER1_TX_MASK)
+                out (IOA_INT_EN)
+                pop af
+;
+                ld sp, (intbsp)         ; Restore SP
+                ei
+                reti
+;
+;
+; Serial port 1 read interrupt service routine. This simply disables the
+; interrupt, but as it is an interrupt it will also release the I/O code from its
+; halt state.
+ser1r_serv      ld (intbsp), sp         ; Swap to interrupt stack
+                ld sp, INT_STK_TOP_P1
+;
+                push af
+; Disable this interrupt to prevent us from locking up, forever servicing this
+; interrupt.
+                in (IOA_INT_EN)
+                and not (INT_SER1_RX_MASK)
+                out (IOA_INT_EN)
+                pop af
+;
+                ld sp, (intbsp)         ; Restore SP
+                ei
+                reti
+;
+;
+; Serial port 2 write interrupt service routine. This simply disables the
+; interrupt, but as it is an interrupt it will also release the I/O code from its
+; halt state.
+ser2w_serv      ld (intbsp), sp         ; Swap to interrupt stack
+                ld sp, INT_STK_TOP_P1
+;
+                push af
+; Disable this interrupt to prevent us from locking up, forever servicing this
+; interrupt.
+                in (IOA_INT_EN)
+                and not (INT_SER2_TX_MASK)
+                out (IOA_INT_EN)
+                pop af
+;
+                ld sp, (intbsp)         ; Restore SP
+                ei
+                reti
+;
+;
+; Serial port 2 read interrupt service routine. This simply disables the
+; interrupt, but as it is an interrupt it will also release the I/O code from its
+; halt state.
+ser2r_serv      ld (intbsp), sp         ; Swap to interrupt stack
+                ld sp, INT_STK_TOP_P1
+;
+                push af
+; Disable this interrupt to prevent us from locking up, forever servicing this
+; interrupt.
+                in (IOA_INT_EN)
+                and not (INT_SER2_RX_MASK)
+                out (IOA_INT_EN)
+                pop af
+;
+                ld sp, (intbsp)         ; Restore SP
+                ei
+                reti
+;
+;
+;
+; *************
+; * Constants *
+; *************
+;
+;
+; Character device table CHRTBL (@CTBL). This is the table returned by a call
+; to the BIOS entry point DEVTBL.
+@ctbl           byte "CON   "	; device 0, console serial port (ZARC port 1)
+                byte mb$in$out+mb$serial
+                byte baud$9600
+                byte "AUX   "	; device 1, auxiliary serial port (ZARC port 2)
+                byte mb$in$out+mb$serial
+                byte baud$9600
+                byte 0			; table terminator
+;
+;
+;
+; *************
+; * Variables *
+; *************
+;
+;
+; None
+;
+                end

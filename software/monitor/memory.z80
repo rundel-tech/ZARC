@@ -22,6 +22,7 @@ memory          equ 1                   ; Flag module for includes
                 include "macros.i"
                 include "z80.i"
                 include "io_map.i"      ; I/O addresses mapping
+                include "io.i"          ; I/O routines
                 include "zarc.i"        ; Hardware definitions
                 include "monitor.i"
                 include "utility.i"     ; Utility functions
@@ -94,9 +95,9 @@ mpi_loop        set 7, (hl)             ; Mark page as free
 ;
 ;
 ; Report page allocation status to the console. The report is of the form:
-;   <page no.> - <name>
-; for each page. Unallocated pages are not listed.
-; <name> is the four character name in page_map.
+;   <page no.>: <name>, <page no.>: <name>, ...
+; with eight pages per line for each page. <name> is the four character name in
+; page_map. Unallocated pages are shown as "----".
 ; The last line is a summary:
 ;   <n> pages free.
 mprpt           push bc
@@ -104,24 +105,32 @@ mprpt           push bc
                 push hl
 ;
                 ld hl, rpt_title_msg    ; "Page Allocation Status:"
-                call conwms             ; Print message
+                CON_WR_MSG             ; Print message
+;
 ; Loop through each page entry.
                 ld hl, page_map         ; Point to first entry
                 ld b, 0                 ; Page number
                 ld c, 0                 ; Number of pages used
+                ld d, 8                 ; Pages per line
 ;
-rpt_page_loop   bit 7, (hl)
-                jr nz, rpt_page_done    ; Jump if unallocated
-; Page is in use.
-                ld a, b
-                call cwpdby             ; Print page number in decimal
+; B - page number
+; C - number of pages used
+; D - entries per line counter
+; HL - pointer to page information
+rpt_pg_loop     ld a, b
+                call cwphby             ; Print page number in hexadecimal
+                ld a, ":"
+                CON_WR_CHAR             ; Write character to console
                 push hl
-                ld hl, rpt_sep_msg      ; " - "
-                call conwms             ; Print message
-                pop hl
-                push hl
-; Print the name.
-                push bc
+;
+                bit 7, (hl)
+                jr z, rpt_pg            ; Jump if allocated
+; Free page.
+                ld hl, rpt_unu_msg      ; "----"
+                CON_WR_MSG             ; Print message
+                jr rpt_nm_done
+; Page is in use. Print the name.
+rpt_pg          push bc
                 ld b, MPA_NAME_LEN
 rpt_pr_name_lp  ld a, (hl)
                 push bc                 ; Save counters
@@ -130,26 +139,38 @@ rpt_pr_name_lp  ld a, (hl)
                 pop bc                  ; Restore counters
                 inc hl
                 djnz rpt_pr_name_lp
-                call cwnwln             ; Write new line characters to console
                 pop bc
-                pop hl
                 inc c                   ; Count pages in use
-rpt_page_done   inc hl                  ; Point to next entry
+; Page done. Write separator characters unless this is the end of the line.
+rpt_nm_done     pop hl
+                inc hl                  ; Point to next entry
                 inc hl
                 inc hl
                 inc hl
+; Write separator or new line as required.
+                dec d
+                jr z, rpt_pg_lnend
+; Not the end of a line. Write separators.
+                ld a, ","
+                CON_WR_CHAR             ; Write character to console
+                ld a, " "
+                CON_WR_CHAR             ; Write character to console
+                jr rpt_pg_done
+rpt_pg_lnend    call cwnwln             ; Write new line characters to console
+                ld d, 8                 ; Reset pages per line counter
+;
 ; Loop if there are more page entries
-                inc b
+rpt_pg_done     inc b
                 ld a, b
                 cp MMAP_PAGES
-                jr c, rpt_page_loop
+                jr c, rpt_pg_loop
 ;
 ; Print number of free pages.
                 ld a, MMAP_PAGES        ; Calculate free pages
                 sub c
                 call cwpdby             ; Print number in decimal
                 ld hl, rpt_free_msg     ; " pages free."
-                call conwms             ; Print message
+                CON_WR_MSG             ; Print message
 ;
                 pop hl
                 pop de
@@ -354,7 +375,7 @@ entry_addr      push bc
 mon_pgm_name    byte "MONP"
 mon_data_name   byte "MOND"
 rpt_title_msg   byte "Page Allocation Status:", 0x0d, 0x0a, 0
-rpt_sep_msg     byte " - ", 0
+rpt_unu_msg     byte "----", 0
 rpt_free_msg    byte " pages free.", 0x0d, 0x0a, 0
 ;
 ;

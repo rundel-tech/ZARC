@@ -5,20 +5,27 @@
 # Note - make requires that indentation be tabs, not spaces. Beware!
 # Indented comments are displayed when make is invoked.
 
-.PHONY = clean
+# Target name
+TARGET := FSCK
+# Find target lower-case file name.
+TARGET_LC := $(strip $(shell echo $(TARGET) | tr A-Z a-z))
+# Local object files required
+OBJS := $(TARGET_LC).rel
+# Shared object files required. Note that btime will be overwritten by anything
+# stored at FSTFRE (from cpm_top.rel), but this is OK.
+SOBJS := ../shared/cpm_utility.rel ../shared/cpm_top.rel
 
-# Make sure shared files are up to date.
-#DUMMY := $(shell make --directory=../shared)
-#$(info Shared files build: $(DUMMY))
 
-SRCS := $(wildcard *.z80)
-OBJS := $(SRCS:%.z80=%.rel)
-#SOBJS := $(wildcard ../shared/*.rel)
-$(info OBJS is $(OBJS))
-#$(info SOBJS is $(SOBJS))
+#SRCS := $(wildcard *.z80)
+SRCS := $(OBJS:%.rel=%.z80)
+LSTS := $(SRCS:%.z80=%.lst)
+SSRCS := $(SOBJS:%.rel=%.z80)
+#$(info SRCS is $(SRCS))
+#$(info SSRCS is $(SSRCS))
 
+# Default rule (make uses the first target in the makefile by default).
 # Run linker if any of the objects or shared objects have been updated.
-FSCK.COM: $(OBJS) shared
+$(TARGET).COM: $(OBJS) $(SOBJS)
 # -O = output format
 # -o = output file
 # -s = symbol file
@@ -26,17 +33,19 @@ FSCK.COM: $(OBJS) shared
 # -P = code segment address
 # -D = data segment address
 # -c = suppress data segment (prevents generation of huge .bin files).
-# Note - can't use $(OBJS) to specify .rel files as the order is important.
-# fsck.rel must be first. top.rel must be last, as it is used to indicate the
-# last location in use.
-	ld80 -O bin -o fsck.tmp -s fsck.sym -m -P 0100 -c fsck.rel ../shared/cpm_utility.rel ../shared/cpm_top.rel
+# Note - the sequence of the .rel files is important. TARGET_LC.rel must be
+# first and top.rel (if used) must be last, as it is used to indicate the last
+# location in use.
+	@btime btime cseg 0x24	# Generate btime.rel with current date and time
+	@rm btime.z80		# Remove file to prevent confusion with %.z80 rule
+	ld80 -O bin -o $(TARGET_LC).tmp -s $(TARGET_LC).sym -m -P 0100 -c $(OBJS) btime.rel $(SOBJS)
 # Remove initial bytes (I can't find neater way of doing this).
-	dd bs=4096 skip=256 iflag=skip_bytes < fsck.tmp > FSCK.COM
-	rm fsck.tmp
+	dd bs=4096 skip=256 iflag=skip_bytes < $(TARGET_LC).tmp > $(TARGET).COM
+	@rm btime.rel		# Remove to prevent unnecessary re-linking
+	@rm $(TARGET_LC).tmp
 	# File size in bytes:
 	stat -c "%s" $@
 
-#all: ${OBJS}
 
 %.rel: %.z80 $(ZARC_INCLUDE)/*.i *.i
 	# Assembling $< to produce $@
@@ -46,9 +55,8 @@ FSCK.COM: $(OBJS) shared
 	zmac --od . --oo rel,lst -I $(ZARC_INCLUDE) $<
 
 
-# Build shared libraries
-.PHONY: shared
-shared:
+$(SOBJS): $(SSRCS) $(ZARC_INCLUDE)/*.i
+	# Updating shared objects
 	$(MAKE) --directory=../shared
 
 
@@ -56,9 +64,9 @@ shared:
 clean:
 	# Cleaning up...
 # "-f" flag prevents the process stopping if a file is missing.
-	rm -f *.rel
-	rm -f *.hex
-	rm -f *.sym
-	rm -f *.lst
-	rm -f *.COM
+	rm -f ${OBJS}
+	rm -f ${LSTS}
+	rm -f $(TARGET).COM
+	rm -f $(TARGET_LC).sym
+	rm -f btime.lst
 

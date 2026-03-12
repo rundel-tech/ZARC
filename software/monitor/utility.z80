@@ -72,7 +72,7 @@ utility         equ 1                   ; Flag module for includes
 ;
 ; Write new line characters to console.
 cwnwln          ld a, ascii_cr
-                call conwch
+                CON_WR_CHAR
                 ld a, ascii_lf
                 jp conwch
 ;
@@ -85,7 +85,7 @@ cwnwln          ld a, ascii_cr
 conwms          ld a, (hl)
                 and a
                 ret z                   ; Return if terminator found
-                call conwch             ; Write character to console
+                CON_WR_CHAR             ; Write character to console
                 inc hl                  ; Increment character pointer
                 jr conwms               ; Transmit next character
 ;
@@ -122,7 +122,7 @@ pmn_found       ld a, (hl)
                 jr z, pmn_done          ; Exit if terminator found
                 cp c
                 jr z, pmn_done          ; Exit if separator found
-                call conwch             ; Write character to console
+                CON_WR_CHAR             ; Write character to console
                 inc hl                  ; Increment character pointer
                 jr pmn_found            ; Transmit next character
 ; Successful completion.
@@ -200,7 +200,7 @@ cwphby          push af
                 jp cwphnb               ; Print LSN
 ;
 ;
-; Print HL in hexadecimal. Leading zeros are suppressed.
+; Print HL in hexadecimal.
 cwphwd          ld a,h
                 call cwphby             ; Print MSB
                 ld a,l
@@ -255,7 +255,7 @@ pdw_digloop     inc a
                 dec e                   ; Restore flag
                 ret
 pdw_prdig       ld e, 0xff              ; Flag non-zero found
-                call conwch
+                CON_WR_CHAR
                 ret
 ;
 ;
@@ -364,7 +364,7 @@ pdl_digloop     inc (hl)                ; Update ASCII digit
 ;
 pdl_prdig       ld (hl), 0xff           ; Flag non-zero found
                 ld a, c
-                call conwch
+                CON_WR_CHAR
                 ret
 ;
 ;

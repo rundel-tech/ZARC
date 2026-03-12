@@ -27,13 +27,20 @@
                 extern cacrs        ; Read CP/M sector
                 extern cacws        ; Write CP/M sector
 ; Variables
-; (None)
+; Counters
+                extern cntrs        ; Read MMC sector counter
+                extern cntws        ; Write MMC sector counter
+                extern cntcrs       ; Read CP/M sector counter
+                extern cntcws       ; Write CP/M sector counter
                 endif
             endif
 ;
 ;
-MCCA_BUFFERS                equ 16      ; Number of cached sector buffers
-MCCA_DIRT_THRES             equ MCCA_BUFFERS / 2    ; Target no. of dirty buffers
+MCCA_PAGES          equ 8               ; RAM (16 KB) pages used for cache
+MCCA_BUFS_PER_PAGE  equ MMAP_PAGE_SIZE / MMC_SECTOR_SIZE
+MCCA_BUFFERS        equ MCCA_PAGES * MCCA_BUFS_PER_PAGE ; No. of sector buffers
+MCCA_DIRT_THRES     equ MCCA_BUFFERS / 2    ; Target no. of dirty buffers
+MMAP_CP3_BANKS      equ 4               ; Number of CP/M 3 banks
 ;
 ;
 ; Sector cache structure. This contains the data associated with a single cached
@@ -42,8 +49,13 @@ MCCA_DIRT_THRES             equ MCCA_BUFFERS / 2    ; Target no. of dirty buffer
                 STR_BYTE MCCAS_STATUS       ; Status byte
                 STR_24BIT MCCAS_SECTOR      ; 24-bit sector number
                 STR_WORD MCCAS_CSUM         ; Checksum of data
-                STR_BLOCK MCCAS_DATA, MMC_SECTOR_SIZE   ; Cached data
+                STR_WORD MCCAS_ADDR         ; Address of data *1
+                STR_BYTE MCCAS_PAGE         ; Page containing data
                 STR_END MCCAS_SIZE
+;
+; *1 Address is in the range 0x8000 to 0xbfff to allow direct use when the page
+; in MCCAS_PAGE is mapped to bank 2.
+;
 ;
 ; MCCAS_STATUS byte is defined as follows:
 ; Bits 0 to 3 - set if the corresponding CP/M sector in this MMC sector is dirty.

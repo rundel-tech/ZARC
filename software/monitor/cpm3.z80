@@ -1,0 +1,239 @@
+; *******************************************************
+; * CP/M 3 Launcher and Support for ZARC Z80 Computer   *
+; * Written by: Merlin Skinner                          *
+; * Date Started: 21/11/2020                            *
+; *******************************************************
+;
+; Configures the system and loads CPMLDR.COM from the MMC. The first partition
+; of an appropriate type is made available to the CP/M 3 sub-system by means of
+; sector read and write functions. These are located in cache.z80 (cars and
+; caws). There operate with MMC (512-byte) sectors, unlike CP/M 2.2.
+;
+;
+monitor         equ 1                   ; Flag part of monitor build
+cpm3            equ 1                   ; Flag module for includes
+;
+;
+;
+; ************
+; * Includes *
+; ************
+;
+                include "macros.i"
+                include "z80.i"
+                include "zarc.i"        ; Hardware definitions
+                include "monitor.i"
+                include "io_map.i"      ; I/O addresses mapping
+                include "mmc.i"         ; Memory card
+                include "disks.i"       ; Disk parameters
+                include "interrupts.i"  ; Interrupts
+                include "cache.i"       ; MMC sector cache
+                include "utility.i"     ; Utility functions
+                include "time.i"        ; Routines associated with time
+                include "cpm.i"         ; CP/M support
+                include "cpm3.i"        ; CP/M 3 support
+                include "maths.i"       ; Mathematical functions
+                include "memory.i"      ; Memory page allocation
+;
+;
+;
+; *************
+; * Externals *
+; *************
+;
+; Routines
+                public cp3ini           ; Load and start CP/M 3
+;
+; Variables
+;                public cp3pgs           ; CP/M page allocations
+;
+;
+;
+; *************
+; * Constants *
+; *************
+;
+;
+CPMLDR_SECTS    equ CPMLDR_MAX_SIZE / MMC_SECTOR_SIZE
+;
+;
+;
+; *************
+; * Main Code *
+; *************
+;
+                cseg                    ; Code segment
+;
+;
+; Load and start CP/M. No registers are saved. No return is anticipated unless an
+; error occurs.
+; A - options. See BIOS_OPT_xxx definitions in cpm.i.
+cp3ini          ld (options), a
+                ld hl, no_noints_msg    ; "noints not supported"
+                and BIOS_OPT_NOINTS_MASK
+                jp nz, in_error
+                ld a, (mcstat)          ; Fetch card state (MMC_STAT_xxx)
+                cp MMC_STAT_INIT
+                jr z, in_mmc_ok
+; MMC not initialised.
+                ld hl, no_mmc_msg       ; "MMC not initialised"
+                jp in_error
+;
+in_mmc_ok       call cpprt              ; Find CP/M partition
+                ret c                   ; Give up on error
+                ld (cpm_part_entry), ix
+;
+; Allocate memory pages.
+                ld hl, cp3pgs           ; Store for page numbers
+                ld a, MMAP_CP3_PAGES    ; Number of pages required
+                call cpmem              ; Use CP/M 2.2 routine
+                ret c                   ; Give up on error
+; Set the supervisor bit for the common bank so the BIOS can access I/O.
+                ld hl, cp3pgs + MMAP_CP3_COMM_PG
+                set MMAP_SUPER_BIT, (hl)
+; CP/M puts the banked part of the BIOS into the upper part of bank 0 (transient
+; programmes run in bank 1). We need to allow I/O access for the banked BIOS
+; too.
+                ld hl, cp3pgs + MMAP_CP3_BK0_ST + 2 ; 0x8000 to 0xbfff
+                set MMAP_SUPER_BIT, (hl)
+;
+; Load CPMLDR into memory at 0x100 in the initial CP/M space (CP/M bank 0).
+; Map the relevant page. The maximum size allocated to CPMLDR is 10 KB, which
+; fits within a single 16 KB page.
+                assert (CPMLDR_MAX_SIZE + TPA_START) <= MMAP_PAGE_SIZE
+                ld a, (cp3pgs + MMAP_CP3_BK0_ST)
+                out (IOA_MMAP_3), a     ; Map C000 - FFFF to the relevant page
+;
+                ld b, CPMLDR_SECTS      ; Sector count
+                ld ix, (cpm_part_entry) ; Point to partition table entry
+                ld c, 0                 ; Starting sector
+                ld de, CPMLDR_START_SEC
+                ld hl, MMAP_BANK3_START + TPA_START ; Destination address
+in_load_loop    push bc
+                push de
+; CDE - MMC (512 byte) sector number (offset into partition)
+; HL - destination address
+; IX - pointer to partition table entry structure
+                call cars               ; Read MMC sector
+; A - zero (OK) or error code (SPI_ERR_xxx)
+; HL - updated pointer to buffer (points to location after last written)
+                pop de
+                pop bc
+                and a
+; Print memory card error text and return on error.
+                jp nz, mcprer
+; Increment sector.
+                inc de
+                ld a, d
+                or e
+                jr nz, in_ldlp_nc
+                inc c                   ; Increment if carry occurred
+in_ldlp_nc      djnz in_load_loop
+;
+; Calculate and display CRC if debugging is enabled.
+                ld a, (options)         ; See BIOS_OPT_xxx definitions.
+                and BIOS_OPT_DEBUG_MASK
+                jr z, in_debug_done
+;
+; Debugging messages.
+                ld hl, ldr_crc_msg      ; "CPMLDR CRC: "
+                CON_WR_MSG             ; Print message
+; Generate CRC.
+                ld de, MMAP_BANK3_START + TPA_START ; Start of CPMLDR
+                ld bc, CPMLDR_MAX_SIZE  ; Length
+                ld hl, 0                ; Initial CRC
+in_crc_loop     ld a, (de)
+                call crc16x             ; CRC-16 (XMODEM)
+                inc de
+                dec bc
+                ld a, b
+                or c
+                jr nz, in_crc_loop
+; HL - required CRC.
+                call cwphwd             ; Print HL in hexadecimal
+                call cwnwln             ; Write new line characters to console
+;
+; Check that this looks like a CPMLDR. The first instruction is a ld sp, xxxx,
+; so we can check for this.
+in_debug_done   ld hl, MMAP_BANK3_START + TPA_START ; Start of CPMLDR
+                ld a, (hl)
+                cp 0x31                 ; ld sp, xxxx
+                jp nz, in_no_ldr        ; Jump if not plausible
+;
+; Given that CPMLDR is essentially a self-contained CP/M programme, we should
+; switch to the CP/M context before running it. The monitor's context switching
+; mechanism is used. Set the machine state accordingly. The memory map is set
+; to CP/M bank 0 complete with the common area.
+                ld ix, mstate           ; Machine state structure
+                ld (ix + MST_IEN), 0    ; Interrupts disabled
+                ld (ix + MST_MMAP_EN), 1    ; Memory mapping enabled
+                ld a, (cp3pgs + MMAP_CP3_BK0_ST)
+                ld (ix + MST_MMAP0), a  ; Memory mapping registers
+                ld a, (cp3pgs + MMAP_CP3_BK0_ST + 1)
+                ld (ix + MST_MMAP1), a
+                ld a, (cp3pgs + MMAP_CP3_BK0_ST + 2)
+                ld (ix + MST_MMAP2), a
+                ld a, (cp3pgs + MMAP_CP3_COMM_PG)
+                ld (ix + MST_MMAP3), a
+; Set stack just below the interrupt vector table.
+                ld (ix + MST_SP), low INT_VEC_TABLE
+                ld (ix + MST_SP + 1), high INT_VEC_TABLE
+                ld (ix + MST_PC), low TPA_START
+                ld (ix + MST_PC + 1), high TPA_START
+; Set pointer to parameters in IX.
+                ld hl, bios_params      ; Point to structure
+                ld (ix + MST_IX), l
+                ld (ix + MST_IX + 1), h
+;
+                ld a, TRM_NONE          ; Flag normal run (not trace)
+                jp mcrun                ; Switch to user context
+;
+; No plausible CPMLDR loaded.
+in_no_ldr       ld hl, no_ldr_msg      ; "CPMLDR not loaded"
+;
+; Go here to exit.
+; HL - pointer to error message.
+in_error        CON_WR_MSG             ; Print message
+                call cwnwln             ; Write new line characters to console
+                ret
+;
+;
+;
+; ***************
+; * Subroutines *
+; ***************
+;
+;
+; None.
+;
+;
+;
+; *************
+; * Constants *
+; *************
+;
+;
+no_mmc_msg      byte "MMC not initialised", 0
+no_ldr_msg      byte "No valid CPMLDR", 0
+ldr_crc_msg     byte "CPMLDR CRC: ", 0
+no_noints_msg   byte "noints not supported", 0
+;
+;
+;
+; *************
+; * Variables *
+; *************
+;
+;
+; Note: linker "-c" option is used, so no data is initialised here.
+                dseg                ; Data segment
+;
+; BIOS parameters structure. This must match the definition in cpm3.i
+bios_params
+options         defs 1              ; See BIOS_OPT_xxx definitions.
+cp3pgs          defs MMAP_CP3_PAGES ; Pages numbers allocated
+cpm_part_entry  defs 2              ; Pointer to partition table entry
+                assert ($ - bios_params) = BPS_SIZE
+;
+                end
+

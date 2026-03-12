@@ -1,0 +1,22 @@
+#!/bin/bash
+# Script to generate the current date and time as a string in a REL file in the
+# current directory. This is only useful for Z80 projects using zmac.
+# Operands are:
+# filename
+# segment - cseg | dseg
+# terminator.
+# Examples:
+# btime btime dseg 0        # Generate btime.rel with null terminator
+# btime btime cseg 0x24     # Generate btime.rel with "$" terminator
+# Merlin, 19/8/2024
+
+# Create a minimal .z80 file
+echo '    public btime' >$1.z80
+echo '    '$2 >>$1.z80
+echo -n 'btime byte "build: ' >>$1.z80
+echo -n `date +"%a %d/%m/%y %H:%M:%S"` >>$1.z80
+echo -n '", ' >>$1.z80
+echo $3 >>$1.z80
+# Assemble it into a REL file
+zmac --od . --oo rel,lst "$1.z80"
+

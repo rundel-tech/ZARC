@@ -1,0 +1,175 @@
+; *******************************************************
+; * CP/M 3 BIOS for ZARC Z80 Computer                   *
+; * ZARC Extensions                                     *
+; * Version: V1.0                                       *
+; * Merlin Skinner, 10/12/2023                          *
+; *******************************************************
+;
+; ZARC-specific extensions to the BIOS. These implement the same functions
+; as the CP/M 2.2 BIOS extensions.
+;
+; One option to shrink the common area usage of this code would be to move
+; some of it into the banked area. This would appear to mean bank 0 due to
+; CPMLDR not having a bank switching mechanism. At present, there does not
+; seem to be sufficient code to make this worthwhile.
+;
+;
+;
+; ************
+; * Includes *
+; ************
+;
+                include "macros.i"
+                include "z80.i"
+                include "zarc.i"        ; Hardware definitions
+                include "monitor.i"
+                include "io_map.i"      ; I/O addresses mapping
+;                include "terminal.i"    ; Terminal constants
+;                include "io.i"          ; I/O routines
+;                include "utility.i"     ; Utility functions
+;                include "maths.i"       ; Mathematical functions
+;                include "interrupts.i"  ; Interrupts
+                include "time.i"        ; Routines associated with time
+;                include "diags.i"       ; Diagnostics
+;                include "heap.i"
+                include "cpm.i"
+                include "cpm3.i"
+;                include "disks.i"
+                include "mmc.i"
+                include "memory.i"      ; Memory page allocation
+                include "bios.i"
+;
+;
+;
+; *************
+; * Externals *
+; *************
+;
+;
+                extern ?bank            ; select CPU bank
+;
+                extern bpanic           ; BIOS panic
+                extern bpar             ; BIOS parameter block (from monitor)
+                extern mmmon            ; Select monitor memory map
+;
+                public strtup           ; ZARC CP/M startup (not used)
+                public mcall            ; Call monitor function
+                public super            ; Set supervisor state
+;
+; Variables
+                extern @cbnk,?bnksl     ; Current bank and bank select
+                extern cpmsp            ; CP/M environment stack pointer
+                extern supflg           ; Supervisor mode flag
+;
+;
+;
+; *************
+; * Constants *
+; *************
+;
+;
+; None
+;
+;
+;
+; *************
+; * Main Code *
+; *************
+;
+;
+                cseg                    ; Use common segment
+;
+; ZARC CP/M startup (not used). This entry point is for the CP/M 2.2 BIOS only.
+strtup          call bpanic             ; Panic if called
+;
+;
+; This routine allows CP/M applications to call some monitor functions. Any
+; function that accesses memory must be used with caution as banks 0 and 1 will
+; be changed to select the monitor's environment. Call with:
+; DE - pointer to monitor function
+; Alternate registers - parameters for the function to be called.
+; Returns with results in alternate register set.
+mcall           ld (cpmsp), sp
+                ld sp, MC_STK_TOP_P1    ; Use monitor call stack space
+; Set the routine address.
+                ld a, e                 ; Set LSB
+                ld (mc_call_instr + 1), a
+                ld a, d                 ; Set MSB
+                ld (mc_call_instr + 2), a
+                call mmmon              ; Swap to monitor memory map
+; Monitor context selected. Make the call.
+                ex af, af'
+                exx
+mc_call_instr   call 0                  ; Address will be inserted
+                ex af, af'
+                exx
+; Switch back to the CP/M context.
+                ld a, (@cbnk)
+                call ?bank              ; Set bank without changing @cbnk
+                ld sp, (cpmsp)
+                ret
+;
+;
+; CP/M programmes should call this to enable or disable supervisor access
+; for banks 0 to 2. Bank 3 (0xc000 to 0xffff) is left unchanged as the BIOS
+; always requires supervisor mode in order to function. Without supervisor
+; mode, any attempt to access I/O will result in a NMI and subsequent return
+; to the monitor. Call with:
+; A - non-zero to enable supervisor mode, zero to disable.
+; Stack location is not critical as the page numbers are not changed.
+super           push bc
+                push de
+                push hl
+;
+                ld e, 0
+                and a
+                jr z, sup_set_flg       ; Jump if disable requested
+                ld e, MMAP_SUPER_MASK
+sup_set_flg     ld a, e
+                ld (supflg), a
+;
+; Apply the new map state.
+                ld a, 0xff
+                call ?bank              ; Set bank without changing @cbnk
+;
+                pop hl
+                pop de
+                pop bc
+                ret
+;
+;
+;
+
+
+
+;
+;
+;
+;
+; ***************
+; * Subroutines *
+; ***************
+;
+;
+
+;
+;
+;
+; *************
+; * Constants *
+; *************
+;
+;
+;rtc_err_msg     byte "RTC error ", 0
+;
+;
+;
+; *************
+; * Variables *
+; *************
+;
+;
+;tikdiv          defs 1              ; Tick divider
+;
+                end
+

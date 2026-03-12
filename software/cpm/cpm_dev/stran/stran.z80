@@ -1,13 +1,17 @@
 ; *******************************************************
 ; * Serial File Transfer for ZARC Z80 Computer (STran)  *
-; * Version: V1.0                                       *
+; * Version: V1.1                                       *
 ; * Merlin Skinner, 20/3/2021                           *
 ; *******************************************************
 ;
-; This program is intended to run under CP/M 2.2. It communicates with a Python
-; program running on a Linux (or potentially Windows) system to transfer files
-; between the two environments. This code (the CP/M) end functions as a server,
-; responding to commands from the Linux end.
+; V1.0 - 20/3/2021, initial version.
+; V2.0 - 4/9/2024, added support for CP/M 3.x, automatic port selection, CP/M to
+; PC transfers and skipping unnecessary transfers.
+;
+; This program is intended to run under CP/M 2.x or CP/M 3.x. It communicates
+; with a Python program running on a Linux (or potentially Windows) system to
+; transfer files between the two environments. This code (the CP/M) end
+; functions as a server, responding to commands from the PC end.
 ;
 ; There are other programs that perform similar tasks, such as kermit.
 ; Unfortunately, these turn out to be somewhat cumbersome to use, with several
@@ -18,13 +22,20 @@
 ; are used for serial I/O, which should make this portable.
 ;
 ; A break (^C) character may be used to force return to CP/M. Note that this
-; will not be recognised immediately when using separate serial lines for
-; console and data. This is because CP/M does not provide a method for detecting
-; whether or not a character has been received for anything but the console
-; port. Hence the system will likely be stuck waiting for a character to arrive
-; on the data (READER) port before a break check can be made.
+; will not always be recognised immediately when using separate serial lines for
+; console and data. This is because CP/M 2.x does not provide a method for
+; detecting whether or not a character has been received for anything but the
+; console port. Hence the system will likely be stuck waiting for a character to
+; arrive on the data (RDR:) port before a break check can be made. CP/M 3.x
+; and ZARC both support AUXIST and AUXOST and so do not suffer from this
+; irritation.
 ;
-; See STran_Manual.odt for more information.
+; This code assumes that the AUX: port is not mapped to the same physical
+; device as CON:. If it is, the ^C checks will "steal" characters from the
+; incoming data stream and prevent stran from working. There is no reliable
+; way of telling whether or not this is the case, at least in CP/M 2.x.
+;
+; See STran_Manual.pdf for more information.
 ;
                 title Serial File Transfer for ZARC Z80 Computer (STran)
 ;
@@ -45,19 +56,13 @@
 ;
 ;
 ;
-; None.
-;
-;
-;
 ; *************
 ; * Externals *
 ; *************
 ;
 ;
 ; Variables
-                public spoflg   ; Non-zero if in single port mode
-                public zrcflg   ; Non-zero if on a ZARC system
-                public brkflg   ; Non-zero if break character detected
+                public flags    ; Flags. See FLG_xxx in stran.i
 ;
 ; From io.z80
                 extern flush    ; Flush data port receive buffer
@@ -66,6 +71,8 @@
                 extern txdch    ; Transmit a character to the data port
                 extern rxdch    ; Read a character from the data port
 ;
+                extern btime    ; Build time string
+;
 ;
 ;
 ; *************
@@ -73,201 +80,282 @@
 ; *************
 ;
 ;
-; The CP/M transient area start address is set in the linker invokation (see makefile).
+; The CP/M transient area start address is set in the linker invocation (see
+; makefile).
                 cseg                    ; Code segment
 ;
 ; The default stack space is very small (8 deep), which would almost certainly
-; cause issues, particularly with interrupts running.
+; cause issues, particularly with interrupts running. The initial code should
+; not assume a Z80 so we can exit cleanly if this is run on something else.
                 ld (bdos_sp), sp
                 ld sp, app_stack_top    ; Switch to our stack space
 ;
-                ld hl, signon_msg
+                call init               ; Common initialisation code
+;
+; Set console output via BIOS so data transfer via the console isn't
+; interrupted.
+                ld a, CONMOD_BIOS
+                call conmod
+;
+; Sign on.
+on_z80          ld hl, signon_msg
                 call conwms             ; Print $-terminated string to console
+;
+; Clear variables area
+                ld hl, clr_start        ; Start address
+                ld b, clr_end - clr_start
+                xor a
+clr_loop        ld (hl), a
+                inc hl
+                djnz clr_loop
 ;
 ; Are we running on a ZARC system?
                 call zrcdet
 ; Carry set if ZARC BIOS not found.
-                ccf
-                rla
-                and 1
-                ld (zrcflg), a          ; 0x01 if ZARC, zero otherwise
+                jr c, zarc_done
+                ld hl, flags
+                set FLG_ZARC_BIT, (hl)
+; ZARC BIOS supports AUXIST and AUXOST even on CP/M 2.x.
+                set FLG_AUXST_BIT, (hl) ; Flag AUXIST and AUXOST are available
+                set FLG_AUTO_BIT, (hl)  ; Flag auto-port mode (potentially)
+zarc_done
 ;
 ; Examine the command tail, looking for operands. This is stored in the default
-; buffer. "The first byte at 0080H contains the length of the command tall, while
-; the command tail itself begins at 0081H. The command tail is terminated by a
-; byte containing a binary zero value." (http://www.cpm.z80.de/manuals/cpm22-m.pdf
-; appendix H).
+; buffer. "The first byte at 0080H contains the length of the command tall,
+; while the command tail itself begins at 0081H. The command tail is terminated
+; by a byte containing a binary zero value."
+; (http://www.cpm.z80.de/manuals/cpm22-m.pdf appendix H).
                 ld hl, DEF_BUFFER + 1
-; No operands (yet).
+;
+; Check for options. These may begin with "[", "/" or "$", to match all
+; conventions I have found used with CP/M.
+                ld de, clopt_list       ; Null-terminated list of options
+                call clopts             ; Read command line options
+                jr c, op_error          ; Error on bad options
+                ld (clopt_flags), a
+;
+; HL - points to first character after options and any trailing spaces.
 ; The terminator should follow.
-op_check_term   call skpspc
                 ld a, (hl)
-                and a
                 ifdef DEBUG
-                    ; Ignore operands so we can run under ddtz27 or similar.
-                    jr operands_ok
+                    ld a, 0   ; ***TEMP*** - useful when debugging
                 endif
-                jr z, operands_ok
+                and a
+                jr z, clopt_term
 ;
 ; Go here if we don't like the operands supplied.
 op_error        ld hl, op_err_msg
+                jp msg_exit
+;
+; Command line terminator found. Show build information if requested, then exit.
+clopt_term      ld a, (clopt_flags)
+                bit CLOPT_BUILD_BIT, a
+                jr z, no_build
+                ld hl, btime            ; Build time string
                 call conwms             ; Print $-terminated string to console
+                call cwnwln             ; Write new line characters to console
                 jp exit
 ;
-; Operand processing complete. Now determine how we check for ^C. There are
-; three possibilities:
-; 1 - data port and console are the same. In this case, checking is
-;   straightforward.
-; 2 - data port is different to the console port and we are running on a
-;   conventional CP/M system. In this case, there is no way of checking whether
-;   or not a character is available before calling the read routine. In this
-;   case, stran will effectively lock up until a character arrives on the data
-;   port.
-; 3 - data port is different to the console port and we are running on a ZARC
-;   system. In this case, we can use AUXIST function to check the status of the
-;   auxiliary input (called READER in CP/M 2.x) to avoid locking up.
-;
-; The BDOS_GET_IO_BYTE function is not used as this is incompatible with CP/M
-; and MP/M.
-operands_ok     ld a, (IOBYTE)
-                ld b, a
-                and IOB_CON_MASK | IOB_RDR_MASK | IOB_PUN_MASK
-                jr z, ports_one         ; Jump if PUNCH, READER & CONSOLE are TTY
-; In batch mode, The current READER is console input (and he current LIST is
-; console output). This forces single port mode.
-                ld a, b
-                and IOB_CON_MASK
-                cp 2
-                jr z, ports_one         ; Jump if in batch mode
-; Dual port mode.
-                ld hl, two_port_msg
-                call conwms             ; Print $-terminated string to console
-                xor a
-                ld (spoflg), a          ; Flag dual port operation
-                ld a, (zrcflg)          ; 0x01 if ZARC, zero otherwise
+; Determine whether we should use CP/M 2.x or 3.x rules.
+no_build        ld c, BDOS_VERSION      ; Return BDOS Version Number
+                call cbdos              ; Call BDOS with some registers saved
+; Returns B=H=system type, A=L=version number.
+                ld a, h                 ; MSN=CPU type, LSN=CP/M type
                 and a
-                jr nz, ports_done
-; Dual port mode and not on ZARC.
-                ld hl, break_awk_msg
-                call conwms             ; Print $-terminated string to console
-                jr ports_done
+                jr nz, os_error
+; Match version against those supported. It is likely that others are OK too,
+; but I can't test all combinations.
+                ld a, l                 ; OS Version number
+                cp 0x20
+                jr z, cver_cpm2
+                cp 0x21
+                jr z, cver_cpm2
+                cp 0x22
+                jr z, cver_cpm2
+                cp 0x30
+                jr z, cver_cpm3
+                cp 0x31
+                jr z, cver_cpm3
 ;
-ports_one       ld hl, one_port_msg
-                call conwms             ; Print $-terminated string to console
-                ld a, 0xff
-                ld (spoflg), a          ; Flag single port operation
+; Go here if we don't like or can't recognise the operating system we are
+; running on.
+os_error        ld hl, unsupp_os_msg
+                jp msg_exit
 ;
+; We are running on CP/M 2.x.
+cver_cpm2       jr cver_done
+;
+; We are running on CP/M 3.x.
+cver_cpm3       ld hl, flags
+                set FLG_CPM3_BIT, (hl)  ; We are on CP/M 3.x
+                set FLG_AUXST_BIT, (hl) ; Flag AUXIST and AUXOST are available
+                set FLG_AUTO_BIT, (hl)  ; Flag auto-port mode (potentially)
+;
+cver_done
+;
+; /C and /A options are mutually exclusive.
+                ld hl, clopt_flags
+                ld de, flags            ; Pre-load pointer for later
+                ld a, (hl)
+                and CLOPT_CON_MASK | CLOPT_AUX_MASK
+                cp CLOPT_CON_MASK | CLOPT_AUX_MASK
+                jp z, op_error          ; Operand error if both specified
+; Options are valid.
+                and a
+                jr nz, prt_fixed        ; Jump if /C or /A
+;
+; No port specified. We can do automatic port selection if AUX: status is
+; available.
+                ex de, hl
+                bit FLG_AUXST_BIT, (hl)
+                ex de, hl
+                jr nz, prt_done         ; Jump if OK
+; No auto-port mode.
+                ld hl, no_auto_msg      ; "Automatic port selection ..."
+                jp msg_exit
+;
+; Port is specified. Set flags appropriately.
+prt_fixed       bit CLOPT_CON_BIT, (hl)
+                ex de, hl
+                jr nz, prt_fix_con      ; Jump on /C
+                set FLG_AUX_BIT, (hl)   ; Must be /A then
+prt_fix_con     res FLG_AUTO_BIT, (hl)  ; Ensure auto-port is disabled
+;
+; Warn about ^C behaviour if on AUX:. If running on CP/M 2.x and not on ZARC,
+; AUXIST and AUXOST are not available. This means that if we are transferring
+; data on the AUX: port, there is no way of checking whether or not a character
+; is available before calling the read routine. In this case, stran will
+; effectively lock up until a character arrives on the data port. ^C will not
+; work until a character arrives on the AUX port, thereby unlocking the system.
+;
+; A further complication is that we could be using the AUX: port, but this could
+; be mapped to CON:. On CP/M 2.x we can tell by examining IOBYTE, but this is
+; apparently not always implemented. Determining port mapping on other versions
+; of CP/M is probably more complicated. 
+                bit FLG_AUX_BIT, (hl)
+                jr z, prt_done          ; No warning if not AUX:
+; Using AUX:
+                bit FLG_AUXST_BIT, (hl)
+                jr nz, prt_done         ; No warning if status available
+; We are using AUX: on a system where AUXIST and AUXOST are not supported.
+                ld hl, aux_warn_msg     ; "AUX: port status not supported ..."
+                call conwms             ; Print $-terminated string to console
+prt_done
 ;
 ; Initialisation.
 ports_done      call flush              ; Flush data port receive buffer
-                xor a
-                ld (brkflg), a          ; No break detected yet
+
+; Report on which port or ports we are expecting data.
+                ld hl, ports1_msg       ; "Expecting data on "
+                call conwms             ; Print $-terminated string to console
+                ld hl, flags            ; Point to flags
+                bit FLG_AUTO_BIT, (hl)
+                jr z, prtr_not_auto
+; Auto mode.
+                ld hl, auto_msg         ; "CON: or AUX: (RDR: / PUN:)"
+                call conwms             ; Print $-terminated string to console
+                jr prtr_done
+; Not auto.
+prtr_not_auto   bit FLG_AUX_BIT, (hl)
+                jr z, prtr_con
+; AUX:
+                ld hl, aux_msg          ; "AUX: (RDR: / PUN:)"
+                call conwms             ; Print $-terminated string to console
+                jr prtr_done
+; CON:
+prtr_con        ld hl, con_msg          ; "CON:"
+                call conwms             ; Print $-terminated string to console
+;
+prtr_done       call cwnwln             ; Write new line characters to console
+;
+                ld hl, ctrl_c_msg       ; "Press ^C to exit"
+                call conwms             ; Print $-terminated string to console
+;
                 ld ix, fcbr
                 call finit              ; Initialise FCBR structure
 ;
+; Wait for reset. This will reset the PSN, thereby synchronising the two
+; systems. At this stage, packets with any PSN are accepted.
+                ld iy, rx_packet_buf
+;
+                ld hl, wait_rst_msg     ; "Waiting for reset"
+                call conwms             ; Print $-terminated string to console
+;
+                ld hl, rst_type_tbl
+                jp rxpkt_vec            ; Fetch packet and jump to table entry
+;
+; Note: handles rxpkt_vec break_exit and cmd_reset (the normal path) internally.
+rst_type_tbl    byte PKTYP_RESET        ; Reset
+                word cmd_reset
+                byte PKTYP_EXIT         ; Normal exit
+                word cmd_exit
+                byte 0                  ; End of table
+;
+; Reset. This will abort any current transfer. It will set the PSN to 1, thereby
+; synchronising the PC and CP/M systems.
+cmd_reset       call send_ack           ; Acknowledge received packet
+                ld hl, 1
+                ld (psn), hl            ; Set next PSN in file transfer
+;
+;
 ; *** Main Loop ***
-; For most of the time the following register value is maintained:
+; For most of the time the following register values are maintained:
 ; IX - FCB and record buffer structure
 ; IY - received packet buffer (rx_packet_buf)
-main_loop       ld iy, rx_packet_buf
+; The stack is reset to clean up after the Tx / Rx common code jumps directly
+; here.
+main_loop       ld sp, app_stack_top    ; Reset stack
 ;
                 ld hl, waiting_msg      ; "Waiting for command"
                 call conwms             ; Print $-terminated string to console
 ;
-                call rxpkt              ; Receive a packet
-; A - 0x00 if OK or RXERR_...
-                ifdef DEBUG
-                    push af
-                    ld a, "R"
-                    call conwch             ; Write character to console
-                    pop af
-                    push af
-                    call cwphby             ; Print A in hexadecimal
-                    pop af
-                endif
-                cp RXERR_BREAK
-                jp z, break_exit
-                and a
-                jr nz, main_loop        ; Ignore packets with CRC or encoding errors
+                ld hl, ml_type_tbl
+                jp rxpkt_vec            ; Fetch packet and jump to table entry
 ;
-                call disp_rx_header     ; Display header of received packet
-;
-                ld a, (iy + PKT_TYPE)   ; Fetch packet type
-                cp PKTYP_EXIT
-                jp z, cmd_exit          ; Normal exit
-                cp PKTYP_TX
-                jp z, cmd_tx            ; Transmit file (PC to CP/M)
-                cp PKTYP_RX
-                jp z, cmd_rx            ; Receive file (CP/M to PC)
-                cp PKTYP_DIR
-                jp z, cmd_dir           ; Read directory
-                cp PKTYP_ABORT
-                jp z, cmd_abort         ; Abort transfer
-
-;
-; A packet of any other type was not expected at this point.
-                ld hl, unexp_pkt_msg    ; "Unexpected packet type"
-                call conwms             ; Print $-terminated string to console
-                jp main_loop
-;
-; Abort transfer. In this case, no transfer is under way, so we can acknowledge it
-; with a NAK.
-cmd_abort       ld a, NAK_NO_TRAN       ; Abort when no transfer is underway
-                call send_nak           ; Negative acknowledge received packet
-                jp main_loop
+ml_type_tbl     byte PKTYP_RESET        ; Reset
+                word cmd_reset
+                byte PKTYP_EXIT         ; Normal exit
+                word cmd_exit
+                byte PKTYP_TX           ; Transmit file (PC to CP/M)
+                word cmd_tx
+                byte PKTYP_RX           ; Receive file (CP/M to PC)
+                word cmd_rx
+                byte PKTYP_DIR          ; Read directory
+                word cmd_dir
+                byte 0                  ; End of table
 ;
 ;
 ; *** Transmit file (PC to CP/M) ***
 cmd_tx          ld hl, tx_msg           ; "Transmit file (PC to CP/M): "
                 call conwms             ; Print $-terminated string to console
 ;
-; Check parameters
-                ld hl, 0
-                call chk_psn            ; Check PSN = 0
-                jp c, main_loop         ; Ignore command if not
-                call chk_fn_length      ; Check data length is appropriate
-                jp c, main_loop         ; Ignore command if not
+                call ctrx_common        ; Tx / Rx common code
+; Returns with reason code in A only if a transfer is required.
+                ld c, a
 ;
-                call disp_cmd_fn        ; Display filename
+; Transmit file code. Indicate that a transfer is required by sending a normal
+; ACK packet.
+                call fmake              ; Create new file and report errors
+; A - BDOS error code if carry = 1
+; Carry flag is set if BDOS reported an error.
+; C - Reason code
+; Report error if this failed.
+                ld a, NAK_RW_ERR        ; BDOS file read / write error
+                jp c, nonrec_error
 ;
-; Find start of data field in the command packet.
-                push iy
-                pop hl
-                ld bc, PKT_DATA
-                add hl, bc
-; HL - pointer to filename
-; IX - FCB and record buffer structure
-                call sfmake             ; Setup FCB and create file
-; Carry set on error.
-                ld a, NAK_OPEN          ; Set NAK error code
-                jp c, nonrec_error      ; Not a recoverable error
-; File is open.
-                call send_ack           ; Acknowledge received packet
+                ld a, c
+                call send_ack_byte      ; Send ACK with data byte
 ;
-; Initialisation.
-                ld hl, 1
-                ld (psn), hl            ; Set next PSN in file transfer
+tx_loop         ld hl, tx_type_tbl
+                jp rxpkt_vec            ; Fetch packet and jump to table entry
 ;
-tx_loop         call rxpkt              ; Receive a packet
-; A - 0x00 if OK or RXERR_...
-                cp RXERR_BREAK
-                jp z, break_exit
-                and a
-                jr nz, tx_loop          ; Ignore packets with CRC or encoding errors
-;
-                call disp_rx_header     ; Display header of received packet
-                ld a, (iy + PKT_TYPE)   ; Fetch packet type
-                cp PKTYP_END
-                jp z, tx_end            ; Normal end of transfer
-                cp PKTYP_ABORT
-                jp z, tx_abort          ; Abort transfer
-                cp PKTYP_TX
-                jp z, tx_data           ; Data packet
-;
-; A packet of any other type was not expected at this point.
-                ld hl, unexp_pkt_msg    ; "Unexpected packet type"
-                call conwms             ; Print $-terminated string to console
-                jp tx_loop
+tx_type_tbl     byte PKTYP_RESET        ; Reset
+                word tx_reset
+                byte PKTYP_END          ; Normal end of transfer
+                word tx_end
+                byte PKTYP_DATA         ; Data packet
+                word tx_data
+                byte 0                  ; End of table
 ;
 ; Normal end of transfer. fclose writes any remaining data in the record buffer
 ; after padding with EOF characters.
@@ -280,31 +368,23 @@ tx_end          call fclose             ; Close file
                 call conwms             ; Print $-terminated string to console
                 jp main_loop
 ;
-; Abort transfer. The file is deleted. BDOS errors are ignored, as there is little
-; useful recovery action beyond reporting it.
-tx_abort        call fclose             ; Close file
+; A reset has been received. Abort the transfer. The file is deleted. BDOS
+; errors are ignored, as there is little useful recovery action beyond reporting
+; it. Also used by receive code.
+tx_reset        call fclose             ; Close file
                 call fdel               ; Delete potentially incomplete file
-                call send_ack           ; Acknowledge received packet
-                ld hl, tran_abort_msg   ; "Transfer aborted"
+                jr trx_reset_msg                
+;
+; Entry point for cmd_rx
+rx_reset        call fclose             ; Close file
+;
+;Entry point for cmd_dir
+trx_reset_msg   ld hl, tran_abort_msg   ; "Transfer aborted"
                 call conwms             ; Print $-terminated string to console
-                jp main_loop
+                jp cmd_reset            ; Continue reset processing
 ;
-; Data packet received. Verify PSN.
-tx_data         ld hl, (psn)
-                call chk_psn            ; Check PSN
-                jp nc, tx_psn_ok
-;
-; Data packet has unexpected PSN.
-                ld a, NAK_PSN           ; Unexpected PSN
-                call send_nak           ; Negative acknowledge received packet
-                jp tx_loop              ; Await another packet
-;
-; PSN matches. Write received data.
-; Find start of data field in the command packet.
-tx_psn_ok       push iy
-                pop hl
-                ld bc, PKT_DATA
-                add hl, bc
+; Write received data.
+tx_data         ld hl, rx_packet_buf + PKT_DATA ;Point to received data
                 ld c, (iy + PKT_LENGTH) ; Fetch data length
                 ld b, (iy + PKT_LENGTH + 1)
 ; BC - received data count
@@ -323,10 +403,6 @@ tx_byte_loop    ld a, b
 ;
 ; All received data has been stored, either on disk or in file_rec_buff.
 tx_bytes_done   call send_ack           ; Acknowledge received packet
-; Increment PSN.
-                ld hl, (psn)
-                inc hl
-                ld (psn), hl
                 jp tx_loop              ; Await another packet
 ;
 ;
@@ -334,57 +410,388 @@ tx_bytes_done   call send_ack           ; Acknowledge received packet
 cmd_rx          ld hl, rx_msg           ; "Receive file (CP/M to PC): "
                 call conwms             ; Print $-terminated string to console
 ;
+                call ctrx_common        ; Tx / Rx common code
+; Returns with reason code in A only if a transfer is required.
+                ld c, a
+;
+; Receive file code. Indicate that a transfer is required by sending a normal
+; ACK packet.
+; C - reason code (TRA_...)
+                call fopen              ; Open the file and report errors
+; A - BDOS error code if carry = 1
+; Carry flag is set if BDOS reported an error.
+; C - Reason code
+; Report error if this failed.
+                ld a, NAK_RW_ERR        ; BDOS file read / write error
+                jp c, nonrec_error
+;
+                ld a, c
+                call send_ack_byte      ; Send ACK with data byte
+;
+rx_loop         ld hl, rx_type_tbl
+                jp rxpkt_vec            ; Fetch packet and jump to table entry
+;
+rx_type_tbl     byte PKTYP_RESET        ; Reset
+                word rx_reset
+                byte PKTYP_DREQ         ; Data request
+                word rx_dreq
+                byte 0                  ; End of table
+;
+; Data request received. Build a packet to send to the PC. Find start of data
+; field in the command packet.
+rx_dreq         ld hl, tx_packet_buf + PKT_DATA ;Point to data
+                ld bc, 0                ; Bytes read
+; BC - data count
+; HL - data pointer
+rx_byte_loop    call frdby              ; Read byte from file
+; A - BDOS error code if carry = 1 (e.g. BDOS_READ_SEQ_EOF) or byte if
+; carry = 0
+                jp c, rx_frdby_err      ; Finish on error
+                ld (hl), a              ; Store byte from file
+                inc hl
+                inc bc
+; Loop unless packet is full.
+                ld a, high BLKLEN
+                cp b
+                jr nz, rx_byte_loop
+                ld a, low BLKLEN
+                cp c
+                jr nz, rx_byte_loop
+                jr rx_send_data
+;
+; BDOS error reported. An EOF is acceptable, but anything else is trouble.
+rx_frdby_err    cp BDOS_READ_SEQ_EOF
+                jr z, rx_eof            ; Jump on EOF
+; Else fail with BDOS error.
+                ld a, NAK_RW_ERR        ; BDOS file read / write error
+                jp nonrec_error
+;
+; End of file encountered. We should send the data if it isn't empty.
+rx_eof          ld a, b
+                or c
+                jr nz, rx_send_data
+;
+; No more data to send.
+                call send_end           ; Send an END packet
+                call fclose             ; Close file
+; Report error if this failed.
+                ld a, NAK_RW_ERR        ; BDOS file read / write error
+                jp c, nonrec_error
+                ld hl, tran_compl_msg   ; "Transfer complete"
+                call conwms             ; Print $-terminated string to console
+                jp main_loop
+;
+; Send data packet.
+rx_send_data    ld l, (iy + PKT_PSN)    ; Fetch PSN of received packet
+                ld h, (iy + PKT_PSN + 1)
+                push iy                 ; Save pointer to rx_packet_buf
+                ld iy, tx_packet_buf
+                ld (iy + PKT_TYPE), PKTYP_DATA  ; File data block
+                ld (iy + PKT_PSN), l    ; PSN
+                ld (iy + PKT_PSN + 1), h
+                ld (iy + PKT_LENGTH), c ; Store data length
+                ld (iy + PKT_LENGTH + 1), b
+                call txpkt
+                pop iy
+;
+                call inc_psn            ; Increment PSN.
+;
+                jp rx_loop
+;
+;
+; File tx and rx common code. Both commands go here. Note that this routine only
+; returns if a transfer is required. It jumps directly otherwise, so it is
+; critical that the stack is reset to avoid issues. Only IX and IY are
+; preserved. Returns with:
+; A - transfer reason code
 ; Check parameters
-                ld hl, 0
-                call chk_psn            ; Check PSN = 0
-                jp c, main_loop         ; Ignore command if not
-                call chk_fn_length      ; Check data length is appropriate
-                jp c, main_loop         ; Ignore command if not
-
+ctrx_common     call chk_fd_length      ; Check packet data length
+                jp c, main_loop         ; Ignore command if bad
+;
+                call disp_cmd_fn        ; Display filename
+;
+; Find start of data field in the command packet.
+                ld hl, rx_packet_buf + PKT_DATA
+; HL - pointer to filename
+; IX - FCB and record buffer structure
+                call sfbfcb             ; Setup FCB
+; Carry set on error. This will be reported as a file open error.
+                ld a, NAK_OPEN          ; Set NAK error code
+                jp c, nonrec_error      ; Not a recoverable error
+;
+; Check the /f (force transfer) flag. If set, we will skip the file comparisons.
+                ld a, (clopt_flags)
+                and  CLOPT_FORCE_MASK
+                ld a, TRA_FORCED        ; Reason code
+                ret nz                  ; Always transfer when forced
+;
+                call get_file_len       ; How many records are in the file?
+                ld a, TRA_BAD_LEN       ; Reason code
+                ret c                   ; Do transfer on error
+; The file exists, and R0 and R1 fields in FCBR structure indicate the number
+; of records.
+                call cmp_file_len
+                ld a, TRA_LEN_MISMATCH  ; Reason code
+                ret c                   ; Do transfer if lengths do not match
+;
+                call calc_file_sums     ; Calculate CRC and Adler-32
+                ld a, TRA_SUMS_ERROR    ; Reason code
+                ret c                   ; Do transfer on error
+; DE - CRC
+; D'E'H'L' - Adler-32
+;
+; Compare with those sent from the PC.
+; CRC
+                ld a, (iy + PKT_DATA + FDESC_CRC16 + 0)
+                cp e
+                ld a, TRA_CRC_MISMATCH  ; Reason code
+                ret nz                  ; Return on mismatch
+                ld a, (iy + PKT_DATA + FDESC_CRC16 + 1)
+                cp d
+                ld a, TRA_CRC_MISMATCH  ; Reason code
+                ret nz                  ; Return on mismatch
+; Adler-32
+                exx
+                ld a, (iy + PKT_DATA + FDESC_ADLER + 0)
+                cp l
+                ld a, TRA_ADL_MISMATCH  ; Reason code
+                ret nz                  ; Return on mismatch
+                ld a, (iy + PKT_DATA + FDESC_ADLER + 1)
+                cp h
+                ld a, TRA_ADL_MISMATCH  ; Reason code
+                ret nz                  ; Return on mismatch
+                ld a, (iy + PKT_DATA + FDESC_ADLER + 2)
+                cp e
+                ld a, TRA_ADL_MISMATCH  ; Reason code
+                ret nz                  ; Return on mismatch
+                ld a, (iy + PKT_DATA + FDESC_ADLER + 3)
+                cp d
+                ld a, TRA_ADL_MISMATCH  ; Reason code
+                ret nz                  ; Return on mismatch
+;
+; If we make it here, the record counts, CRC and Adler-32 all match. We can
+; be confident that the CP/M and PC files match so there is no reason to
+; transfer anything.
+                ld a, TRA_IDENTICAL     ; Abort transfer as files already match
+                call send_ack_byte      ; Send ACK with data byte
+                ld hl, files_match_msg  ; "Transfer skipped - files match"
+                ld a, (clopt_flags)
+                and CLOPT_VERBOSE_MASK
+                call nz, conwms         ; Print $-terminated string to console
                 jp main_loop
 ;
 ;
 ; *** Read directory ***
-cmd_dir         ld hl, dir_msg          ; "Read CP/M directory: "
+; This uses the same packet protocol as the RX command, but sends directory
+; data instead.
+cmd_dir         ld hl, dir_msg          ; "Read CP/M directory"
                 call conwms             ; Print $-terminated string to console
 ;
-; Check parameters
-                ld hl, 0
-                call chk_psn            ; Check PSN = 0
-                jp c, main_loop         ; Ignore command if not
 ; Data should be just the drive letter.
                 ld a, (iy + PKT_LENGTH)
                 cp 1                    ; Drive letter only
-                jr nz, cd_drv_len_err
+                jp nz, cd_drv_err
                 ld a, (iy + PKT_LENGTH + 1)
                 and a
-                jr z, cd_drv_len_ok
-; Length is not as expected.
-cd_drv_len_err  ; ld hl, bad_drive_msg   ; "Bad drive letter"
-                ; call conwms             ; Print $-terminated string to console
+                jp nz, cd_drv_err
 ;
-cd_drv_len_ok
+; Setup FCBR from data in packet. Set all values to zero.
+                push ix
+                pop hl
+                ld b, FCB_SIZE
+                xor a
+cd_clear_loop   ld (hl), a
+                inc hl
+                djnz cd_clear_loop
+;
+                push ix
+                pop hl
+; HL - FCB pointer
+;
+; Drive letter.
+                ld a, (iy + PKT_DATA)   ; Fetch drive letter
+                cp "A"
+                jp c, cd_drv_err        ; Error if < "A"
+                cp "A" + NUM_DISKS_MAX
+                jp nc, cd_drv_err       ; Error if > "P"
+                sub "A" - 1             ; Make range 1 to 16
+                ld (hl), a
+                inc hl
+;
+; Filename and extension are set to all "?" so all files are reported.
+                ld b, FILENAME_SIZE + FILEEXT_SIZE
+                ld a, "?"
+cd_fne_loop     ld (hl), a
+                inc hl
+                djnz cd_fne_loop
+; Note: EX is zero, so we should see just one entry per file.
+;
+                call send_ack           ; Send ACK
+;
+                ld a, BDOS_SEARCH_FIRST ; BDOS function for first call
+                ld (dir_bdos_func), a
+;
+                ld hl, flags
+                res FLG_DIR_END_BIT, (hl)   ; No end yet
+;
+dir_loop        ld hl, dir_type_tbl
+                jp rxpkt_vec            ; Fetch packet and jump to table entry
+;
+dir_type_tbl    byte PKTYP_RESET        ; Reset
+                word trx_reset_msg
+                byte PKTYP_DREQ         ; Data request
+                word dir_dreq
+                byte 0                  ; End of table
+;
+; Data request received. Build a packet to send to the PC. Find start of data
+; field in the command packet.
+dir_dreq        ld hl, tx_packet_buf + PKT_DATA ;Point to data
+                ld de, BLKLEN           ; Space left in packet
+;
+; Fill the packet with up to pkt_entries filenames. First allocate space.
+; DE - space left
+; HL - pointer to data area in transmit packet
+dir_entry_loop  ex de, hl
+                ld bc, DIR_ENTRY_SIZE
+                and a
+                sbc hl, bc
+                jr c, dir_pkt_full      ; Jump if not enough space
+                ex de, hl
+;
+; There is space.
+                push de
+                push hl
+; First check that we haven't already seen the last entry.
+                ld hl, flags
+                bit FLG_DIR_END_BIT, (hl)
+                jr nz, dir_end          ; Exit if no more entries
+;
+; Set DMA address to default buffer.
+                ld de, DEF_BUFFER
+                ld c, BDOS_SET_DMA_ADDR ; Set DMA Address
+                call cbdos
+;
+                push ix
+                pop de                  ; Point to FCB
+                ld a, (dir_bdos_func)   ; Fetch BDOS function number
+                ld c, a
+                call cbdos
+                cp 0xff
+                jr z, dir_end           ; Jump if entry not found
+; Find address of entry.
+; A = 0-3 if successful. The directory entry is to be found at DMA + A * 32.
+                add a, a
+                add a, a
+                add a, a
+                add a, a
+                add a, a
+                ld e, a
+                ld d, 0
+                ld hl, DEF_BUFFER
+                add hl, de
+; HL - pointer to directory entry
+                inc hl                  ; Skip drive number
+;
+; Display filename if in verbose mode
+                ld a, (clopt_flags)
+                and CLOPT_VERBOSE_MASK
+                jr z, dir_disp_done
+;
+                push hl
+                call disp_fn            ; Display filename and extension
+                call cwnwln             ; Write new line characters to console
+                pop hl
+;
+; Copy the filename to the transmit packet.
+dir_disp_done   pop de                  ; Restore pointer to data area
+; DE - pointer to data area in transmit packet
+; HL - pointer to filename in FCB
+                ld bc, DIR_ENTRY_SIZE
+                ldir
+                ex de, hl               ; Move next pkt address to HL
+                pop de                  ; Restore space left in packet
+;
+; Use search next function for all further calls.
+                ld a, BDOS_SEARCH_NEXT  ; BDOS function for first call
+                ld (dir_bdos_func), a
+                jr dir_entry_loop
+;
+; There are no more directory entries. We should send the packet if it isn't
+; empty.
+dir_end         inc sp                  ; Discard data address
+                inc sp
+                pop hl                  ; Restore space left in packet
+;
+; Free the last entry as this was not successful.
+                ld bc, DIR_ENTRY_SIZE
+                add hl, bc              ; Reverse the last subtract
+                ex de, hl
+;
+                ld hl, flags
+                set FLG_DIR_END_BIT, (hl)   ; Flag end reached
+;
+                ld a, d
+                cp high BLKLEN
+                jr nz, dir_send_data
+                ld a, e
+                cp low BLKLEN
+                jr nz, dir_send_data
+;
+                call send_end           ; Send an END packet
+;
+                ld hl, tran_compl_msg   ; "Transfer complete"
+                call conwms             ; Print $-terminated string to console
+                jp main_loop
+;
+; We can't fit another entry in the packet.
+; BC - DIR_ENTRY_SIZE
+; DE - pointer to data area in transmit packet
+; HL - space left
+dir_pkt_full    add hl, bc              ; Reverse the last subtract
+                ex de, hl
+;
+; Send data packet.
+; DE - space left
+dir_send_data   ld hl, BLKLEN
+; Find packet size = BLKLEN - space left
+                and a
+                sbc hl, de
+                ex de, hl
+; DE - packet size
+                ld l, (iy + PKT_PSN)    ; Fetch PSN of received packet
+                ld h, (iy + PKT_PSN + 1)
+                push iy                 ; Save pointer to rx_packet_buf
+                ld iy, tx_packet_buf
+                ld (iy + PKT_TYPE), PKTYP_DATA  ; File data block
+                ld (iy + PKT_PSN), l    ; PSN
+                ld (iy + PKT_PSN + 1), h
+                ld (iy + PKT_LENGTH), e ; Store data length
+                ld (iy + PKT_LENGTH + 1), d
+                call txpkt
+                pop iy
+;
+                call inc_psn            ; Increment PSN.
+;
+                jp dir_loop
+;
+; Drive letter out of range.
+cd_drv_err      ld hl, bad_drive_msg    ; "Bad drive letter"
+                call conwms             ; Print $-terminated string to console
+                ld a, NAK_BAD_DRIVE     ; Bad drive letter
+                call send_nak
                 jp main_loop
 ;
 ;
-
-
-
-
 ; *** Exit command ***
 ; Normal termination as a result of an exit command packet. Send an "ACK" before
 ; returning to CP/M.
 cmd_exit        call send_ack           ; Acknowledge received packet
-;
-                ld hl, exit_msg         ; "Session complete"
-                call conwms             ; Print $-terminated string to console
                 jp exit
 ;
 ;
 ; Console break detected, so exit.
 break_exit      ld hl, break_msg        ; "Exiting due to ^C"
-                call conwms             ; Print $-terminated string to console
-                jp exit
+                jp msg_exit
 ;
 ;
 ; Go here if a non-recoverable error occurs. Send a NAK packet and return to the
@@ -395,12 +802,12 @@ nonrec_error    call send_nak           ; Negative acknowledge received packet
                 jp main_loop
 ;
 ;
-; Return to CP/M.
-; Close any open file.
-exit            call fclose             ; Close file
-; Ignore any errors in this case as there is no sensible action we can take.
+; Print message pointed to by HL, then exit.
+msg_exit        call conwms             ; Print $-terminated string to console
 ;
-; Return
+; Return to CP/M.
+exit            ld hl, exit_msg         ; "Returning to CP/M."
+                call conwms             ; Print $-terminated string to console
                 ld sp, (bdos_sp)
                 ret                     ; Return to BDOS
 ;               jp 0                    ; Warm boot
@@ -412,8 +819,256 @@ exit            call fclose             ; Close file
 ; ***************
 ;
 ;
+; Jump here to receive a packet and vector to the appropriate routine.
+; Enter with:
+; IY - pointer to packet buffer
+; HL - pointer to null terminated table of packet types (PKTYP_xxx) and
+; routines.
+; Jumps directly to break_exit and cmd_reset, which fix the stack
+; appropriately.
+rxpkt_vec       push hl
+;
+rpv_loop        call rxpkt              ; Receive a packet
+; A - 0x00 if OK or RXERR_...
+                ifdef DEBUG
+                    push af
+                    ld a, "R"
+                    call conwch         ; Write character to console
+                    pop af
+                    push af
+                    call cwphby         ; Print A in hexadecimal
+                    pop af
+                endif
+                cp RXERR_BREAK
+                jp z, break_exit
+                and a
+                jr nz, rpv_loop         ; Ignore packets with CRC or encoding errors
+;
+                ld a, (clopt_flags)
+                and CLOPT_VERBOSE_MASK
+                call nz, disp_rx_header ; Display header of received packet
+;
+; Accept a reset regardless of sequence.
+                ld a, (iy + PKT_TYPE)   ; Fetch packet type
+                cp PKTYP_RESET
+                jp z, rpv_search        ; Reset transfer system
+;
+; For any other packet type, ignore if out of sequence or re-transmit as
+; required.
+                call chk_psn            ; Check PSN
+                jr c, rpv_loop
+;
+rpv_search      ld c, (iy + PKT_TYPE)   ; Fetch packet type
+                pop hl                  ; Fetch pointer to table
+                push hl                 ; Keep a copy on the stack
+;
+; Search table for packet type.
+rpv_tbl_loop    ld a, (hl)
+                inc hl
+                and a
+                jr z, rpv_tbl_end       ; Jump if terminator found
+                cp c
+                jr z, rpv_tbl_match
+                inc hl                  ; Skip vector
+                inc hl
+                jr rpv_tbl_loop
+;
+; Found matching entry. Jump to it.
+rpv_tbl_match   ld e, (hl)
+                inc hl
+                ld d, (hl)
+                ex de, hl
+                inc sp                  ; Discard table address
+                inc sp
+                jp (hl)
+;
+; Go here if no match was found.
+rpv_tbl_end     ld hl, unexp_pkt_msg    ; "Unexpected packet type"
+                call conwms             ; Print $-terminated string to console
+; Send NAK.
+                ld a, NAK_CMD           ; Set NAK error code
+                call send_nak           ; Negative acknowledge received packet
+                jp rpv_loop
+;
+;
+; Find the number of records in a file. The file should not be open. Call with:
+; IX - pointer to FCBR structure
+; Returns with:
+; R0 and R1 fields in FCBR structure - number of records if carry = 0
+; Carry flag is set if BDOS reported an error (such as the file doesn't exist)
+; or the file is >= 8 MB long. This would be too much for a serial transfer
+; anyway.
+; IX is preserved.
+get_file_len    push bc
+                push de
+;
+; Does the file exist? The only way to tell seems to be to try opening it.
+                call fopen
+                jr c, gfl_error         ; Error if file doesn't exist
+; Closing immediately is inefficient but does ensure consistent state on exit.
+                call fclose
+;
+; Check file lengths. With BDOS_GET_FILE_SIZE on CP/M 2.2, there is no way of
+; telling the difference between a file that doesn't exist and one with zero
+; length. However, we already know that the file exists.
+                push ix
+                pop de
+                ld c, BDOS_GET_FILE_SIZE    ; Compute file size
+                call cbdos
+; Note: CP/M 2.2 returns no error code (though CP/M 3.x does). 
+                ld hl, flags
+                bit FLG_CPM3_BIT, (hl)
+                jr z, gfl_sk_len_tst    ; Skip test on CP/M 2.x
+                cp 0xff
+                jr z, gfl_error         ; Jump on error
+; Examine length. If the high record byte r2 is 01, the file contains the
+; maximum record count 65536. Otherwise, bytes r0 and r1 constitute a 16-bit
+; value which is the file size.
+gfl_sk_len_tst  ld a, (ix + FCB_RECORD + 2) ; R2
+                and a
+; Jump if overly long (>= 8 MB), which would be too much for a serial transfer
+; anyway.
+                jr nz, gfl_error
+; Call is clear, indicating all is well.
+;
+; Return with carry set on error.
+gfl_exit        pop de
+                pop bc
+                ret
+;
+; Something went wrong.
+gfl_error       scf                     ; Flag error
+                jr gfl_exit
+;
+;
+; Compare PC and CP/M file lengths. Call with:
+; IX - pointer to FCBR structure (contains number of records in R0 and R1)
+; IY - pointer to packet buffer
+; Returns with:
+; Carry flag is set if the lengths do not match. It will also be set if the
+; PC file is overly long (> 2 GB).
+; IX and IY are preserved.
+cmp_file_len    push bc
+                push de
+                push hl
+;
+; Fetch PC file length (in bytes).
+                ld l, (iy + PKT_DATA + FDESC_LEN + 0)
+                ld h, (iy + PKT_DATA + FDESC_LEN + 1)
+                ld e, (iy + PKT_DATA + FDESC_LEN + 2)
+                ld d, (iy + PKT_DATA + FDESC_LEN + 3)
+; DEHL - file length in bytes.
+; Divide by 128 to find number of records. Instead of shifting right by 7 bits,
+; We can shift left by one and use DEH as the result.
+                and a
+                rl l
+                rl h
+                rl e
+                rl d
+                jp c, cfl_error         ; Jump if overly long (> 2 GB)
+; DEH - number of whole records. Deal with any fraction.
+                ld a, (iy + PKT_DATA + FDESC_LEN + 0)
+                and CPM_SECTOR_SIZE - 1
+; A - number of bytes in last record.
+                jr z, cfl_have_len
+; The final record is not completely filled, so an additional record will be
+; required.
+                ld a, 1
+                add h
+                ld h, a
+                ld a, 0
+                adc e
+                ld e, a
+                ld a, 0
+                adc d
+                ld d, a
+; DEH - number of whole records.
+cfl_have_len    ld a, d
+                and a
+                jr nz, cfl_error        ; Jump if overly long (>= 8 MB)
+; If the files are of the same length, e = R1 and h = R0.
+                ld a, (ix + FCB_RECORD + 0) ; R0
+                cp h
+                jr nz, cfl_error        ; Jump on mismatch
+                ld a, (ix + FCB_RECORD + 1) ; R1
+                cp e
+                jr nz, cfl_error        ; Jump on mismatch
+                and a                   ; Flag all is well
+;
+; Return with carry set on error.
+cfl_exit        pop hl
+                pop de
+                pop bc
+                ret
+;
+; Something went wrong.
+cfl_error       scf                     ; Flag error
+                jr cfl_exit
+;
+;
+; Calculate CRC and Adler-32 for a file. Call with:
+; IX - pointer to FCBR structure
+; Returns with:
+; DE - CRC
+; D'E'H'L' - Adler-32
+; Carry flag is set on error.
+; IX is preserved. Alternate register set is not preserved.
+calc_file_sums  push bc
+                push hl
+;
+; File lengths match. Open the file so we can examine the contents.
+                call fopen              ; Open existing file for R/W
+                jr c, cfs_error         ; Jump on error
+;
+; Calculate Adler-32 and CRC on the file.
+                ld de, 0                ; Initial CRC
+                exx
+                ld de, 0
+                ld hl, 1
+                exx
+; DE - CRC
+; D'E'H'L' - Adler-32
+cfs_reclp       call frdrec             ; Read record from file
+                jr c, cfs_done          ; Exit on error (end of file?)
+; Set address to buffer in FCBR structure.
+                push ix
+                pop hl
+                ld bc, FCBR_RBUFF
+                add hl, bc
+                ld b, CPM_SECTOR_SIZE   ; Loop counter
+; B - loop counter
+; DE - CRC
+; HL - record buffer address
+; D'E'H'L' - Adler-32
+; Loop for each byte.
+cfs_bytlp       ld a, (hl)
+                ex de, hl
+                call crc16x             ; Software CRC-16 (XMODEM)
+                ex de, hl
+                ld a, (hl)
+                exx
+                call adler              ; Adler-32 checksum
+                exx
+                inc hl
+                djnz cfs_bytlp
+                jr cfs_reclp            ; Fetch next record
+;
+cfs_done        call fclose             ; Close file
+;
+                and a                   ; Flag all is well
+;
+; Return with carry set on error.
+cfs_exit        pop hl
+                pop bc
+                ret
+;
+; Something went wrong.
+cfs_error       scf                     ; Flag error
+                jr cfs_exit
+;
+;
 ; Display filename in command packet. The data field length is assumed to have
-; been checked by chk_fn_length before calling this routine.
+; been checked by chk_fd_length before calling this routine.
 ; Call with:
 ; IY - pointer to packet buffer
 ; IY is preserved.
@@ -434,6 +1089,17 @@ disp_cmd_fn     push bc
                 ld a, ":"               ; Separator
                 call conwch             ; Write character to console
 ;
+                call disp_fn            ; Display filename and extension
+                call cwnwln             ; Write new line characters to console
+                pop hl
+                pop bc
+                ret
+;
+;
+; Display filename and extension. Call with:
+; HL - pointer to filename
+disp_fn         push bc
+;
 ; Filename
                 ld b, FILENAME_SIZE
 dcf_name_lp     ld a, (hl)              ; Fetch character
@@ -451,61 +1117,80 @@ dcf_ext_lp      ld a, (hl)              ; Fetch character
                 call cwvich             ; Print only visible 7-bit characters
                 djnz dcf_ext_lp
 ;
-                call cwnwln             ; Write new line characters to console
-                pop hl
                 pop bc
                 ret
 ;
 ;
-; Check data length in command packet is appropriate for a filename. This is
-; <drive letter><8 character filename><3 character extension>, so 12 bytes in
-; total.
+; Check data length in command packet is appropriate for file data.
 ; Call with:
 ; IY - pointer to packet buffer
 ; Returns with:
 ; Carry zero if all is well.
 ; IY is preserved.
-chk_fn_length   ld a, (iy + PKT_LENGTH)
-                cp FPTH_SIZE
+chk_fd_length   ld a, (iy + PKT_LENGTH)
+                cp FDESC_SIZE
                 jr nz, cfnl_error
                 ld a, (iy + PKT_LENGTH + 1)
                 and a
                 ret z                   ; Return with carry = 0 if OK
 ; Length is not as expected.
 cfnl_error      push hl
-                ld hl, cfnl_err_msg     ; "Path length error"
+                ld hl, pkt_len_err_msg  ; "Packet length error"
                 call conwms             ; Print $-terminated string to console
                 pop hl
                 scf                     ; Flag error
                 ret
 ;
 ;
+; As send_ack, but with a one-byte data field. Call with:
+; A - byte of data
+; IY - pointer to received packet
+; IY is preserved.
+send_ack_byte   push hl
+                push iy
+;
+; Set data byte.
+                ld iy, tx_packet_buf
+                ld (iy + PKT_DATA), a
+                pop iy                  ; Restore IY
+                push iy
+;
+                ld a, 1                 ; Set length
+                jr sa_send
+;
+;
 ; Acknowledge received packet (send an ACK). The PSN of the ACK is set to match
-; that of the packet we are acknowledging.
+; that of the packet we are acknowledging. The PSN is incremented to match that
+; of the next packet from the PC.
 ; Call with:
 ; IY - pointer to received packet
 ; IY is preserved.
 send_ack        push hl
                 push iy
 ;
-                ld l, (iy + PKT_PSN)    ; Fetch PSN of received packet
+                xor a                   ; Set length
+sa_send         ld l, (iy + PKT_PSN)    ; Fetch PSN of received packet
                 ld h, (iy + PKT_PSN + 1)
 ; Send ACK packet.
+; A - data length
+; HL - PSN
                 ld iy, tx_packet_buf
                 ld (iy + PKT_TYPE), PKTYP_ACK
                 ld (iy + PKT_PSN), l    ; PSN
                 ld (iy + PKT_PSN + 1), h
-                ld (iy + PKT_LENGTH), 0 ; Length
+                ld (iy + PKT_LENGTH), a ; Length
                 ld (iy + PKT_LENGTH + 1), 0
                 call txpkt
+;
+                call inc_psn            ; Increment PSN.
 ;
                 pop iy
                 pop hl
                 ret
 ;
 ;
-; Send Negative Acknowledgement packet (NACK). The PSN of the NACK is set to match
-; that of the packet we are compaining about.
+; Send Negative Acknowledgement packet (NACK). The PSN of the NACK is set to
+; match that of the packet we are complaining about.
 ; Call with:
 ; A - NAK reason code (NAK_xxx)
 ; IY - pointer to received packet
@@ -525,29 +1210,106 @@ send_nak        push hl
                 ld (iy + PKT_DATA), a   ; Reason code
                 call txpkt
 ;
+                call inc_psn            ; Increment PSN.
+;
                 pop iy
                 pop hl
                 ret
 ;
 ;
-; Check PSN against expected value. If not as expected, write an appropriate
-; message.
+; Send an END packet. The PSN of the packet is set to match that of the packet
+; we are acknowledging. The PSN is incremented to match that of the next packet
+; from the PC.
 ; Call with:
-; HL - expect PSN
+; IY - pointer to received packet
+; IY is preserved.
+; No more data to send. Send end packet.
+send_end        push hl
+                push iy
+;
+                ld l, (iy + PKT_PSN)    ; Fetch PSN of received packet
+                ld h, (iy + PKT_PSN + 1)
+; Send END packet.
+; A - data length
+; HL - PSN
+                push iy                 ; Save pointer to rx_packet_buf
+                ld iy, tx_packet_buf
+                ld (iy + PKT_TYPE), PKTYP_END
+                ld (iy + PKT_PSN), l    ; PSN
+                ld (iy + PKT_PSN + 1), h
+                ld (iy + PKT_LENGTH), 0 ; Length
+                ld (iy + PKT_LENGTH + 1), 0
+                call txpkt
+                pop iy
+;
+                call inc_psn            ; Increment PSN.
+;
+                pop iy
+                pop hl
+                ret
+;
+;
+; Increment PSN.
+inc_psn         push hl
+;
+                ld hl, (psn)
+                inc hl
+                ld (psn), hl
+;
+                pop hl
+                ret
+;
+;
+; Deal with out of sequence packets. Returns if all is well (PSNs match). If a
+; received packet contains the PSN of the previous packet, the last response is
+; re-sent if there was one. If the PSN is something else, it is ignored.
+; Call with:
 ; IY - pointer to packet buffer
 ; Returns with:
-; Carry zero if all is well.
+; Carry zero if all is well (PSN is as expected).
 ; IY is preserved.
-chk_psn         ld a, (iy + PKT_PSN)
+chk_psn         push hl
+;
+                ld hl, (psn)
+                ld a, (iy + PKT_PSN)
                 cp l
-                jr nz, cpz_error
+                jr nz, cpsn_not_curr
                 ld a, (iy + PKT_PSN + 1)
                 cp h
-                ret z                   ; Return with carry = 0 if PSN = 0
-; PSN missmatch.
-cpz_error       ld hl, psn_err_msg      ; "Packet sequence error"
+                jr nz, cpsn_not_curr
+; PSN is as expected.
+                and a                   ; Flag all is well
+                jr cpsn_exit
+;
+; PSN mismatch. Was it the previous packet?
+cpsn_not_curr   dec hl
+                ld a, (iy + PKT_PSN)
+                cp l
+                jr nz, cpsn_not_prev
+                ld a, (iy + PKT_PSN + 1)
+                cp h
+                jr nz, cpsn_not_prev
+; We have already processed this packet. Repeat the response if tx_packet_buf
+; contains valid data.
+                ld hl, flags
+                bit FLG_TXB_VALID_BIT, (hl)
+                jr z, cpsn_error
+                ld hl, pkt_rpt_msg      ; "Repeating packet transmission"
+                ld a, (clopt_flags)
+                and CLOPT_VERBOSE_MASK
+                call nz, conwms         ; Print $-terminated string to console
+                push iy
+                ld iy, tx_packet_buf
+                call txpkt
+                pop iy
+                jr cpsn_error
+;
+; PSN not recognised.
+cpsn_not_prev   ld hl, psn_err_msg      ; "Packet sequence error"
                 call conwms             ; Print $-terminated string to console
-                scf                     ; Flag error
+cpsn_error      scf                     ; Flag error
+; Exit
+cpsn_exit       pop hl
                 ret
 ;
 ;
@@ -625,10 +1387,9 @@ dh_type_dn      ld hl, dh_psn_msg       ; ", PSN "
                 assert FCBR_FCB = 0
 ;
 ;
-; Setup FCBR and create file from data in packet. This is similar in function
-; to fbfcb followed by fmake from cpm_utility. There are some differences in
-; filename handling for this application.
-; Call with:
+; Setup FCBR from data in packet. This is similar in function to fbfcb from
+; cpm_utility. There are some differences in filename handling for this
+; application. Call with:
 ; HL - pointer to filename
 ; IX - pointer to FCBR
 ; Filename is <drive letter><8 character filename><3 character extension>, so
@@ -636,7 +1397,7 @@ dh_type_dn      ld hl, dh_psn_msg       ; ", PSN "
 ; Returns with:
 ; Carry flag is set if there is an error.
 ; IX is preserved.
-sfmake          push bc
+sfbfcb          push bc
                 push de
                 push hl
 ;
@@ -663,7 +1424,7 @@ of_clear_loop   ld (hl), a
                 cp "A" + NUM_DISKS_MAX
                 jp nc, of_bad_drive     ; Error if > "P"
                 sub "A" - 1             ; Make range 1 to 16
-of_fn_drdn      ld (hl), a
+                ld (hl), a
                 inc hl
 ;
 ; Filename. A crude check is made to ensure the name is valid, but only non-
@@ -696,10 +1457,7 @@ of_ext_loop     ld a, (de)
                 ld (hl), a
                 inc hl
                 djnz of_ext_loop
-;
-                call fmake              ; Create new file and report errors
-; A - BDOS error code if carry = 1
-; Carry flag is set if BDOS reported an error.
+                and a                   ; Clear carry to flag success
 ;
 ; Return with carry set on error.
 of_exit         pop de
@@ -725,35 +1483,54 @@ of_bad_name     ld hl, bad_fn_msg       ; "Bad filename"
 ; *************
 ;
 ;
-signon_msg      byte "*** Serial File Transfer V1.0 ***"
-cr_lf_msg       byte 0x0d, 0x0a, "$"
-op_err_msg      byte "Unexpected operand(s).", 0x0d, 0x0a, "$"
-one_port_msg    byte "Console and data share a common port. Press ^C to exit."
+signon_msg      byte "*** Serial File Transfer V"
+                byte MAJ_VER + "0", ".", MIN_VER + "0"
+                byte " ***", 0x0d, 0x0a
                 byte 0x0d, 0x0a, "$"
-two_port_msg    byte "Console and data use separate ports. Press ^C on the "
-                byte "console port to exit.", 0x0d, 0x0a, "$"
-break_awk_msg   byte "This will not be detected until a character is received "
-                byte "on the reader (RDR:)", 0x0d, 0x0a
-                byte "port.", 0x0d, 0x0a, "$"
+no_z80_msg      byte "Z80 CPU required", 0x0d, 0x0a, "$"
+clopt_list      byte "BVCAF", 0         ; List of option characters 
+op_err_msg      byte "Operand error. Expected format: stran [/<options>]", 0x0d, 0x0a
+                byte "Options:", 0x0d, 0x0a
+                byte "C=use CON: port", 0x0d, 0x0a
+                byte "A=use AUX: port (RDR: and PUN: on CP/M 2.x)", 0x0d, 0x0a
+                byte "F=force transfer even if source and destination are identical", 0x0d, 0x0a
+                byte "V=verbose messages,", 0x0d, 0x0a
+                byte "B=show build information and exit", 0x0d, 0x0a, "$"
+unsupp_os_msg   byte "Operating system not supported", 0x0d, 0x0a, "$"
+exit_msg        byte "Returning to CP/M.", 0x0d, 0x0a, "$"
+no_auto_msg     byte "Automatic port selection requires CP/M 3.x or ZARC."
+                byte 0x0d, 0x0a, "$"
+aux_warn_msg    byte "AUX: port status not supported on this system. System will freeze while"
+                byte 0x0d, 0x0a
+                byte "awaiting data on this port."
+                byte 0x0d, 0x0a, "$"
+ports1_msg      byte "Expecting data on $"
+auto_msg        byte "CON: or AUX: (RDR: / PUN:)$"
+aux_msg         byte "AUX: (RDR: / PUN:)$"
+con_msg         byte "CON:$"
+ctrl_c_msg      byte "Press ^C to exit.", 0x0d, 0x0a, "$"
+wait_rst_msg    byte "Waiting for reset", 0x0d, 0x0a, "$"
 waiting_msg     byte "Waiting for command packet", 0x0d, 0x0a, "$"
 break_msg       byte "Exiting due to ^C", 0x0d, 0x0a, "$"
 unexp_pkt_msg   byte "Unexpected packet type", 0x0d, 0x0a, "$"
-exit_msg        byte "Session complete", 0x0d, 0x0a, "$"
 tx_msg          byte "Transmit file (PC to CP/M): ", 0x0d, 0x0a, "$"
 rx_msg          byte "Receive file (CP/M to PC): ", 0x0d, 0x0a, "$"
-dir_msg         byte "Read CP/M directory: ", 0x0d, 0x0a, "$"
+dir_msg         byte "Read CP/M directory", 0x0d, 0x0a, "$"
 psn_err_msg     byte "Packet sequence error", 0x0d, 0x0a, "$"
-cfnl_err_msg    byte "Path length error", 0x0d, 0x0a, "$"
+pkt_rpt_msg     byte "Repeating packet transmission", 0x0d, 0x0a, "$"
+pkt_len_err_msg byte "Packet length error", 0x0d, 0x0a, "$"
 tran_compl_msg  byte "Transfer complete", 0x0d, 0x0a, "$"
 tran_abort_msg  byte "Transfer aborted", 0x0d, 0x0a, "$"
 bad_drive_msg   byte "Bad drive letter", 0x0d, 0x0a, "$"
 bad_fn_msg      byte "Bad filename", 0x0d, 0x0a, "$"
+files_match_msg byte "Transfer skipped - files match", 0x0d, 0x0a, "$"
 ;
 ; Display packet header messages.
 dh_rx_msg       byte "Received", "$"
 dh_tx_msg       byte "Transmitting", "$"
 dh_start_msg    byte " packet: ", "$"
-dh_types_msg    byte "NULL|ACK|NAK|Exit|Tx|Rx|End|Abort|Dir", 0
+; Entries in dh_types_msg must match PKT_TYPE definitions in stran.i
+dh_types_msg    byte "NULL|ACK|NAK|EXIT|TX|RX|END|RESET|DIR|DATA|DREQ", 0
 dh_bad_type_msg byte "(unknown type)", "$"
 dh_psn_msg      byte ", PSN ", "$"
 dh_len_msg      byte ", length ", "$"
@@ -769,13 +1546,20 @@ dh_len_msg      byte ", length ", "$"
                 dseg                ; Data segment
 ;
 bdos_sp         defs 2              ; BDOS's stack pointer
-zrcflg          defs 1              ; Non-zero if on a ZARC system
-spoflg          defs 1              ; Non-zero if in single port mode
-brkflg          defs 1              ; Non-zero if break character detected
+;
+clr_start                           ; Start of cleared variables area
+;
+clopt_flags     defs 1              ; Command line options
+flags           defs 1              ; Flags. See FLG_xxx in stran.i
+fcbr            defs FCBR_SIZE      ; FCB and record buffer structure
+psn             defs 2              ; Packet Sequence Number (PSN) expected
+dir_bdos_func   defs 1              ; Current BDOS directory function 
+;
+clr_end                             ; End of cleared variables area
+;
+; Packet buffers include 1 or 2 bytes of padding to align to 3-byte boundary.
 tx_packet_buf   defs PKT_SIZE + 2   ; Transmit packet buffer
 rx_packet_buf   defs PKT_SIZE + 2   ; Receive packet buffer
-fcbr            defs FCBR_SIZE      ; FCB and record buffer structure
-psn             defs 2              ; Packet Sequence Number (PSN)
 ;
                 defs STACK_SIZE     ; Stack space
 app_stack_top

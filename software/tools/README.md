@@ -22,7 +22,7 @@ I used gedit as my source code editor. [z80.lang](tools/z80.lang) is a syntax hi
 Note that the path may be different on your system.
 
 ## Assembler and Linker
-I used the assembler from [http://48k.ca/zmac.html](http://48k.ca/zmac.html) and [http://48k.ca/ld80.html](http://48k.ca/ld80.html). These must be copied to a suitable location. Make sure the zmac and ld80 scripts (from the scripts folder) are updated accordingly.
+I used the assembler from [http://48k.ca/zmac.html](http://48k.ca/zmac.html) and [http://48k.ca/ld80.html](http://48k.ca/ld80.html). These must be copied to suitable locations, in my case /home/merlin/Technical/Tools/zmac/ and /home/merlin/Technical/Tools/ld80/ respectively. Make sure the zmac and ld80 scripts (from the scripts folder) are updated accordingly. Both assembler and linker must be compiled with make. In my case, I had to install flex, bison and g++ to make it work.
 
 For the assembler to find the include files, I added the following to ~/.bashrc:
 

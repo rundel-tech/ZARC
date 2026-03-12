@@ -28,7 +28,11 @@
   28:				;
   29:				;
   30:				                include "macros.i"
+<<<<<<< HEAD
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/macros.i ****
+=======
 **** /home/merlin/Technical/ZARC_Z80_Box/git/software/includes//macros.i ****
+>>>>>>> refs/remotes/origin/main
    1:				; ***********************************
    2:				; * ZARC Macro Definitions          *
    3:				; * Written by: Merlin Skinner      *
@@ -107,355 +111,463 @@
   76:				                endm
   77:				;
   78:				;
-  79:				; Calculate offsets into jump tables.
-  80:				; The absolute segment is used so the offsets are not marked as relocatable. This
-  81:				; avoids "Not relocatable" errors.
-  82:				JPTBL_START     macro x
+  79:				; Allocate space. This is used to generate variable addresses, affectively
+  80:				; providing a new variables segment. Allocated size is kept track of separately
+  81:				; to the address as the latter may overflow in certain error cases.
+  82:				ALLOC           macro x
   83:				                .aseg
-  84:				jptbl_addr      set x               ; Set start address
-  85:				                endm
-  86:				;
-  87:				; Invoke for each item.
-  88:				JPTBL_ENTRY     macro x
-  89:				x               equ jptbl_addr
-  90:				jptbl_addr      set jptbl_addr + 3
-  91:				                endm
-  92:				;
-  93:				; Invoke for a data block in the jump table
-  94:				JPTBL_BLOCK     macro x, size   ; <name>, <size>
-  95:				x               equ jptbl_addr
-  96:				jptbl_addr      set jptbl_addr + size
-  97:				                endm
-  98:				;
-  99:				JPTBL_END       macro x
- 100:				x               set jptbl_addr      ; Set label to next address
- 101:				                .cseg
- 102:				                endm
- 103:				;
- 104:				;
- 105:				; Define bits and masks. This is inspired by the Commodore Amiga BITDEF mechanism.
- 106:				; Given:
- 107:				; BITDEF I2C_CSR_STOP, 2
- 108:				; Yields:
- 109:				; I2C_CSR_STOP_BIT  EQU 2       ; Bit number
- 110:				; I2C_CSR_STOP_MASK EQU 1<<2    ; Bit mask
- 111:				BITDEF          macro n, b      ; <Name>, <bit>
- 112:				n`_BIT          equ b
- 113:				n`_MASK         equ 1 << b
+  84:				all_addr        set x
+  85:				all_size        set 0
+  86:				                endm
+  87:				;
+  88:				; Add a byte entry.
+  89:				ALL_BYTE        macro x
+  90:				x               equ all_addr
+  91:				all_addr        set all_addr + 1
+  92:				all_size        set all_size + 1
+  93:				                endm
+  94:				;
+  95:				; Add a word (16-bit) entry.
+  96:				ALL_WORD        macro x
+  97:				x               equ all_addr
+  98:				all_addr        set all_addr + 2
+  99:				all_size        set all_size + 2
+ 100:				                endm
+ 101:				;
+ 102:				; Add a 3 byte (24-bit) entry.
+ 103:				ALL_24BIT       macro x
+ 104:				x               equ all_addr
+ 105:				all_addr        set all_addr + 3
+ 106:				all_size        set all_size + 3
+ 107:				                endm
+ 108:				;
+ 109:				; Add a long (32-bit) entry.
+ 110:				ALL_LONG        macro x
+ 111:				x               equ all_addr
+ 112:				all_addr        set all_addr + 4
+ 113:				all_size        set all_size + 4
  114:				                endm
  115:				;
- 116:				;
- 117:				; Force alignment. This asserts an appropriate number of zero bytes to achieve
- 118:				; the required alignment. Note that these macros cannot work for relocatable
- 119:				; files.
- 120:				; 16-bit
- 121:				ALIGN_WORD      macro
- 122:				                if $ and 1
- 123:				                    byte 0
- 124:				                endif
- 125:				                endm
- 126:				;
- 127:				; 32-bit
- 128:				ALIGN_LONG      macro
- 129:				                ALIGN_WORD
- 130:				                if $ and 2
- 131:				                    byte 0, 0
- 132:				                endif
- 133:				                endm
- 134:				
+ 116:				; Add an arbitrary length entry.
+ 117:				ALL_BLOCK       macro x, size   ; <name>, <size>
+ 118:				x               equ all_addr
+ 119:				all_addr        set all_addr + size
+ 120:				all_size        set all_size + size
+ 121:				                endm
+ 122:				;
+ 123:				; End of allocated space. Returns size of block.
+ 124:				ALL_END         macro x
+ 125:				x               equ all_size
+ 126:				                .cseg
+ 127:				                endm
+ 128:				;
+ 129:				;
+ 130:				; Calculate offsets into jump tables.
+ 131:				; The absolute segment is used so the offsets are not marked as relocatable. This
+ 132:				; avoids "Not relocatable" errors.
+ 133:				JPTBL_START     macro x
+ 134:				                .aseg
+ 135:				jptbl_addr      set x               ; Set start address
+ 136:				                endm
+ 137:				;
+ 138:				; Invoke for each item.
+ 139:				JPTBL_ENTRY     macro x
+ 140:				x               equ jptbl_addr
+ 141:				jptbl_addr      set jptbl_addr + 3
+ 142:				                endm
+ 143:				;
+ 144:				; Invoke for a data block in the jump table
+ 145:				JPTBL_BLOCK     macro x, size   ; <name>, <size>
+ 146:				x               equ jptbl_addr
+ 147:				jptbl_addr      set jptbl_addr + size
+ 148:				                endm
+ 149:				;
+ 150:				JPTBL_END       macro x
+ 151:				x               set jptbl_addr      ; Set label to next address
+ 152:				                .cseg
+ 153:				                endm
+ 154:				;
+ 155:				;
+ 156:				; Define bits and masks. This is inspired by the Commodore Amiga BITDEF mechanism.
+ 157:				; Given:
+ 158:				; BITDEF I2C_CSR_STOP, 2
+ 159:				; Yields:
+ 160:				; I2C_CSR_STOP_BIT  EQU 2       ; Bit number
+ 161:				; I2C_CSR_STOP_MASK EQU 1<<2    ; Bit mask
+ 162:				BITDEF          macro n, b      ; <Name>, <bit>
+ 163:				n`_BIT          equ b
+ 164:				n`_MASK         equ 1 << b
+ 165:				                endm
+ 166:				;
+ 167:				;
+ 168:				; Force alignment. This asserts an appropriate number of zero bytes to achieve
+ 169:				; the required alignment. Note that these macros cannot work for relocatable
+ 170:				; files.
+ 171:				; 16-bit
+ 172:				ALIGN_WORD      macro
+ 173:				                if $ and 1
+ 174:				                    byte 0
+ 175:				                endif
+ 176:				                endm
+ 177:				;
+ 178:				; 32-bit
+ 179:				ALIGN_LONG      macro
+ 180:				                ALIGN_WORD
+ 181:				                if $ and 2
+ 182:				                    byte 0, 0
+ 183:				                endif
+ 184:				                endm
+ 185:				;
+ 186:				;
+ 187:				; Write message to console (short for "call conwms").
+ 188:				CON_WR_MSG      macro
+ 189:				                rst 08
+ 190:				                endm
+ 191:				;
+ 192:				;
+ 193:				; Write character to console (short for "call conwch").
+ 194:				CON_WR_CHAR     macro
+ 195:				                rst 16
+ 196:				                endm
+ 197:				
 **** cpm_files.z80 ****
   31:				                include "cpm.i"
+<<<<<<< HEAD
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/cpm.i ****
+=======
 **** /home/merlin/Technical/ZARC_Z80_Box/git/software/includes//cpm.i ****
+>>>>>>> refs/remotes/origin/main
    1:				; *******************************************************
-   2:				; * ZARC Monitor CP/M Definitions                       *
+   2:				; * ZARC Monitor CP/M 2.2 Definitions                   *
    3:				; * Written by: Merlin Skinner                          *
    4:				; * Date Started: 26/5/2020                             *
    5:				; *******************************************************
    6:				;
-   7:				; Definitions related CP/M running under the monitor programme.
-   8:				;
-   9:				; Note that ld80 only considers the first six characters of labels significant.
-  10:				;
-  11:				; The following conditionals are intended to allow the same include file to be
-  12:				; used in the defining module and elsewhere as required. Some includes are used
-  13:				; for other applications than the monitor, such as the CP/M BIOS. In these cases,
-  14:				; the extern and public statements are not desirable.
-  15:				;
-  16:     -	0000'         	            ifdef monitor           ; Meaningful for monitor build only
-  28:				            endif
-  29:				;
-  30:				;
+   7:				; Definitions related to CP/M running under the monitor programme. It may also
+   8:				; be used for CP/M applications.
+   9:				;
+  10:				; Note that ld80 only considers the first six characters of labels significant.
+  11:				;
+  12:				; The following conditionals are intended to allow the same include file to be
+  13:				; used in the defining module and elsewhere as required. Some includes are used
+  14:				; for other applications than the monitor, such as the CP/M BIOS. In these cases,
+  15:				; the extern and public statements are not desirable.
+  16:				;
+  17:     -	0000'         	            ifdef monitor           ; Meaningful for monitor build only
+  30:				            endif
   31:				;
-  32:				; ****************
-  33:				; * Memory Usage *
+  32:				;
+  33:				;
   34:				; ****************
-  35:				;
-  36:				;
-  37:				; Note: memory banks are allocated by the monitor's initialisation code.
-  38:     -	0004'         	MMAP_CPM_PAGES      equ 4               ; Number of 16 kB pages
-  39:				;
-  40:				; The MS byte of INT_VEC_TABLE comes from the Z80 I register, and the LS byte
-  41:				; from the FPGA. The 0xe0 offset is chosen to allow the table to reside at the
-  42:				; top of memory (0xffe0 to 0xffff).
-  43:     -	FFE0'         	INT_VEC_TABLE   equ 0xffe0              ; Interrupt mode 2 vector table
-  44:				;
-  45:				; Copied from CP/M manual appendix A.
-  46:				; MSIZE             equ 64              ; CP/M version memory size in kilobytes
-  47:				;
-  48:				; "BIAS" is the address offset from 0x3400 for memory systems other than 16 K.
-  49:				;BIAS               equ (MSIZE-20) * 1024
-  50:     -	A200'         	CPM_BIAS            equ 0xa200          ; For CompuPro64K_CPM
-  51:     -	D600'         	CCP_START           equ 0x3400 + CPM_BIAS   ; Base of CCP
-  52:     -	DE06'         	BDOS_START          equ CCP_START + 0x0806  ; Base of BDOS
-  53:     -	EC00'         	BIOS_START          equ CCP_START + 0x1600  ; Base of BIOS
-  54:     -	002C'         	BIOS_CPM_START_SEC  equ 44              ; First CP/M sector of BIOS
-  55:     -	1000'         	BIOS_MAX_SIZE       equ 4096            ; 2 KB allocation for BIOS stored on MMC (ZARC)
-  56:     -	0100'         	TPA_START           equ 0x0100          ; Transient Programme Area
-  57:				;
-  58:				; Page zero.
-  59:     -	0003'         	IOBYTE              equ 0x0003          ; Intel I/O byte
-  60:     -	0004'         	CDISK               equ 0x0004          ; Current disk (0="A") & user no. (in high nibble)
-  61:     -	005C'         	FCB1                equ 0x005c          ; Default FCB 1
-  62:     -	006C'         	FCB2                equ 0x006c          ; Default FCB 2 (overwritten if FCB 1 is opened)
-  63:				; Default 128-byte disk buffer, also filled with the command line when a transient
-  64:				; is loaded under the CCP.
-  65:     -	0080'         	DEF_BUFFER          equ 0x80
-  66:     -	0080'         	DEF_BUFFER_SIZE     equ 0x80
-  67:				;
-  68:				; IOBYTE bit definitions.
-  69:     -	0003'         	IOB_CON_MASK        equ 0x03
-  70:     -	000C'         	IOB_RDR_MASK        equ 0x0c
-  71:     -	0030'         	IOB_PUN_MASK        equ 0x30
-  72:     -	00C0'         	IOB_LST_MASK        equ 0xc0
-  73:				;
-  74:				; BIOS option bits.
-  75:     -	        	BITDEF BIOS_OPT_DEBUG, 0                ; Enable BIOS debugging messages
-  76:     -	        	BITDEF BIOS_OPT_NOINTS, 1               ; Disables interrupts (use basic I/O mode)
-  77:     -	        	BITDEF BIOS_OPT_RAWCON, 2               ; Disables ADM-3A to VT-100 translation
-  78:				;
-  79:				;
+  35:				; * Memory Usage *
+  36:				; ****************
+  37:				;
+  38:				;
+  39:				; Note: memory banks are allocated by the monitor's initialisation code.
+  40:     -	0004'         	MMAP_CPM_PAGES      equ 4               ; Number of 16 kB pages
+  41:				;
+  42:				; The MS byte of INT_VEC_TABLE comes from the Z80 I register, and the LS byte
+  43:				; from the FPGA. The 0xe0 offset is chosen to allow the table to reside at the
+  44:				; top of memory (0xffe0 to 0xffff).
+  45:     -	FFE0'         	INT_VEC_TABLE   equ 0xffe0              ; Interrupt mode 2 vector table
+  46:				;
+  47:				; Copied from CP/M manual appendix A.
+  48:				; MSIZE             equ 64              ; CP/M version memory size in kilobytes
+  49:				;
+  50:				; "BIAS" is the address offset from 0x3400 for memory systems other than 16 K.
+  51:				;BIAS               equ (MSIZE-20) * 1024
+  52:     -	A200'         	CPM_BIAS            equ 0xa200          ; For CompuPro64K_CPM
+  53:     -	D600'         	CCP_START           equ 0x3400 + CPM_BIAS   ; Base of CCP
+  54:     -	DE06'         	BDOS_START          equ CCP_START + 0x0806  ; Base of BDOS
+  55:     -	EC00'         	BIOS_START          equ CCP_START + 0x1600  ; Base of BIOS
+  56:     -	002C'         	BIOS_CPM_START_SEC  equ 44              ; First CP/M sector of BIOS
+  57:     -	1000'         	BIOS_MAX_SIZE       equ 4096            ; 2 KB allocation for BIOS stored on MMC (ZARC)
+  58:     -	0100'         	TPA_START           equ 0x0100          ; Transient Programme Area
+  59:				;
+  60:				; Page zero.
+  61:     -	0003'         	IOBYTE              equ 0x0003          ; Intel I/O byte
+  62:     -	0004'         	CDISK               equ 0x0004          ; Current disk (0="A") & user no. (in high nibble)
+  63:     -	005C'         	FCB1                equ 0x005c          ; Default FCB 1
+  64:     -	006C'         	FCB2                equ 0x006c          ; Default FCB 2 (overwritten if FCB 1 is opened)
+  65:				; Default 128-byte disk buffer, also filled with the command line when a transient
+  66:				; is loaded under the CCP.
+  67:     -	0080'         	DEF_BUFFER          equ 0x80
+  68:     -	0080'         	DEF_BUFFER_SIZE     equ 0x80
+  69:				;
+  70:				; IOBYTE bit definitions.
+  71:     -	0003'         	IOB_CON_MASK        equ 0x03
+  72:     -	000C'         	IOB_RDR_MASK        equ 0x0c
+  73:     -	0030'         	IOB_PUN_MASK        equ 0x30
+  74:     -	00C0'         	IOB_LST_MASK        equ 0xc0
+  75:				;
+  76:				; BIOS option bits.
+  77:     -	        	BITDEF BIOS_OPT_DEBUG, 0                ; Enable BIOS debugging messages
+  78:     -	        	BITDEF BIOS_OPT_NOINTS, 1               ; Disables interrupts (use basic I/O mode)
+  79:     -	        	BITDEF BIOS_OPT_RAWCON, 2               ; Disables ADM-3A to VT-100 translation
   80:				;
-  81:				; ***************
-  82:				; * Disk System *
+  81:				;
+  82:				;
   83:				; ***************
-  84:				;
-  85:				;
-  86:     -	0080'         	CPM_SECTOR_SIZE     equ 128             ; CP/M disk sector size
-  87:     -	0010'         	NUM_DISKS           equ 16              ; Number of disk drives
-  88:     -	0010'         	NUM_DISKS_MAX       equ 16              ; Maximum number of disk drives
-  89:     -	0000'         	CPM_SYS_SIZE        equ 1024 * 1024     ; System area size (bytes)
-  90:     -	0000'         	CPM_DISK_SIZE       equ 1024 * 1024     ; Disk size (bytes)
-  91:     -	0008'         	FILENAME_SIZE       equ 8               ; Filename size
-  92:     -	0003'         	FILEEXT_SIZE        equ 3               ; File extension size
-  93:     -	001A'         	FILE_EOF            equ 0x1a            ; End of file (^Z)
-  94:     -	000F'         	MAX_USER            equ 15              ; Maximum user number
-  95:				;
-  96:     -	0001'         	BDOS_READ_SEQ_EOF   equ 1               ; Sequential read EOF error code
-  97:				;
-  98:				; Disk Parameter Header (DPH) structure.
-  99:     -	        	                STRUCT
- 100:     -	        	                STR_WORD DPH_XLT        ; Address of sector translation table
- 101:     -	        	                STR_WORD DPH_SCRATCH0   ; BDOS scratch area
- 102:     -	        	                STR_WORD DPH_SCRATCH1
- 103:     -	        	                STR_WORD DPH_SCRATCH2
- 104:     -	        	                STR_WORD DPH_DIRBF      ; BDOS directory scratch area
- 105:     -	        	                STR_WORD DPH_DPB        ; Pointer to DPB
- 106:     -	        	                STR_WORD DPH_CSV        ; Pointer to the directory checksum vector
- 107:     -	        	                STR_WORD DPH_ALV        ; Pointer to the allocation vector
- 108:     -	        	                STR_END DPH_SIZE
- 109:				;
- 110:				;
- 111:				; Disk Parameter Block (DPB) structure.
- 112:     -	        	                STRUCT
- 113:     -	        	                STR_WORD DPB_SPT        ; Number of 128-byte records per track
- 114:     -	        	                STR_BYTE DPB_BSH        ; Block shift. 3 => 1k, 4 => 2k, 5 => 4k....
- 115:     -	        	                STR_BYTE DPB_BLM        ; Block mask. 7 => 1k, 0Fh => 2k, 1Fh => 4k...
- 116:     -	        	                STR_BYTE DPB_EXM        ; Extent mask
- 117:     -	        	                STR_WORD DPB_DSM        ; Maximum block number
- 118:     -	        	                STR_WORD DPB_DRM        ; Maximum directory entry number
- 119:     -	        	                STR_BYTE DPB_AL0        ; Directory allocation bitmap
- 120:     -	        	                STR_BYTE DPB_AL1
- 121:     -	        	                STR_WORD DPB_CKS        ; Checksum vector size, 0 for a fixed disc
- 122:     -	        	                STR_WORD DPB_OFF        ; Offset, number of reserved tracks
- 123:     -	        	                STR_END DPB_SIZE
- 124:				;
- 125:				;
- 126:				; Directory entry structure.
- 127:     -	        	                STRUCT
- 128:     -	        	                STR_BYTE DIRE_USER      ; User number. 0xe5 if entry unused
- 129:     -	        	                STR_BLOCK DIRE_NAME, FILENAME_SIZE  ; Filename
- 130:     -	        	                STR_BLOCK DIRE_TYP, FILEEXT_SIZE    ; File type
- 131:     -	        	                STR_BYTE DIRE_EX        ; Extent counter, low byte (0-31)
- 132:     -	        	                STR_BYTE DIRE_S1        ; Reserved, set to 0
- 133:     -	        	                STR_BYTE DIRE_S2        ; Extent counter, high byte
- 134:     -	        	                STR_BYTE DIRE_RC        ; Record count (low byte)
- 135:     -	        	                STR_BLOCK DIRE_ALLOC, 16 ; Associated block numbers
- 136:     -	        	                STR_END DIRE_SIZE
- 137:				;
- 138:				;
- 139:				; File Control Block (FCB) structure.
- 140:     -	        	                STRUCT
- 141:     -	        	                STR_BYTE FCB_DRIVE      ; Drive. 0 for default, 1-16 for A-P
- 142:     -	        	                STR_BLOCK FCB_NAME, FILENAME_SIZE   ; Filename in ASCII upper-case
- 143:     -	        	                STR_BLOCK FCB_TYP, FILEEXT_SIZE     ; File type
- 144:     -	        	                STR_BYTE FCB_EX         ; Current extent (*)
- 145:     -	        	                STR_BYTE FCB_S1         ; Reserved (*)
- 146:     -	        	                STR_BYTE FCB_S2         ; Reserved (*)
- 147:     -	        	                STR_BYTE FCB_RC         ; Reserved (*)
- 148:     -	        	                STR_BLOCK FCB_ALLOC, 16 ; Associated block numbers
- 149:     -	        	                STR_BYTE FCB_CR         ; Current record within extent
- 150:     -	        	                STR_BLOCK FCB_RECORD, 3 ; Record number (low byte first)
- 151:     -	        	                STR_END FCB_SIZE
- 152:				;
- 153:				; * - Set this to 0 when opening a file and then leave it to CP/M. You can rewind
- 154:				; a file by setting EX, RC, S2 and CR to 0.
- 155:				;
- 156:				;
- 157:				;
- 158:				; **************
- 159:				; * BIOS Calls *
- 160:				; **************
- 161:				;
+  84:				; * Disk System *
+  85:				; ***************
+  86:				;
+  87:				;
+  88:				; Note: NUM_DISKS reduced to 9 from 16 in preparation for adding CP/M 3 support.
+  89:     -	0080'         	CPM_SECTOR_SIZE     equ 128             ; CP/M disk sector size
+  90:     -	0009'         	NUM_DISKS           equ 9               ; Number of disk drives
+  91:     -	0010'         	NUM_DISKS_MAX       equ 16              ; Maximum number of disk drives
+  92:     -	0000'         	CPM_SYS_SIZE        equ 1024 * 1024     ; System area size (bytes)
+  93:     -	0000'         	CPM_DISK_SIZE       equ 1024 * 1024     ; Disk size (bytes)
+  94:     -	0800'         	CPM_BLOCK_SIZE      equ 2048            ; Allocation block size (bytes)
+  95:     -	0200'         	CPM_DIR_ENTRIES     equ 512             ; Number of directory entries
+  96:     -	0008'         	FILENAME_SIZE       equ 8               ; Filename size
+  97:     -	0003'         	FILEEXT_SIZE        equ 3               ; File extension size
+  98:     -	001A'         	FILE_EOF            equ 0x1a            ; End of file (^Z)
+  99:     -	000F'         	MAX_USER            equ 15              ; Maximum user number
+ 100:				;
+ 101:     -	0001'         	BDOS_READ_SEQ_EOF   equ 1               ; Sequential read EOF error code
+ 102:				;
+ 103:				; CP/M 2.2 Disk Parameter Header (DPH) structure.
+ 104:     -	        	                STRUCT
+ 105:     -	        	                STR_WORD DPH_XLT        ; Address of sector translation table
+ 106:     -	        	                STR_WORD DPH_SCRATCH0   ; BDOS scratch area
+ 107:     -	        	                STR_WORD DPH_SCRATCH1
+ 108:     -	        	                STR_WORD DPH_SCRATCH2
+ 109:     -	        	                STR_WORD DPH_DIRBF      ; BDOS directory scratch area
+ 110:     -	        	                STR_WORD DPH_DPB        ; Pointer to DPB
+ 111:     -	        	                STR_WORD DPH_CSV        ; Pointer to the directory checksum vector
+ 112:     -	        	                STR_WORD DPH_ALV        ; Pointer to the allocation vector
+ 113:     -	        	                STR_END DPH_SIZE
+ 114:				;
+ 115:				;
+ 116:				; CP/M 2.2 Disk Parameter Block (DPB) structure.
+ 117:     -	        	                STRUCT
+ 118:     -	        	                STR_WORD DPB_SPT        ; Number of 128-byte records per track
+ 119:     -	        	                STR_BYTE DPB_BSH        ; Block shift. 3 => 1k, 4 => 2k, 5 => 4k....
+ 120:     -	        	                STR_BYTE DPB_BLM        ; Block mask. 7 => 1k, 0Fh => 2k, 1Fh => 4k...
+ 121:     -	        	                STR_BYTE DPB_EXM        ; Extent mask
+ 122:     -	        	                STR_WORD DPB_DSM        ; Maximum block number
+ 123:     -	        	                STR_WORD DPB_DRM        ; Maximum directory entry number
+ 124:     -	        	                STR_BYTE DPB_AL0        ; Directory allocation bitmap
+ 125:     -	        	                STR_BYTE DPB_AL1
+ 126:     -	        	                STR_WORD DPB_CKS        ; Checksum vector size, 0 for a fixed disc
+ 127:     -	        	                STR_WORD DPB_OFF        ; Offset, number of reserved tracks
+ 128:     -	        	                STR_END DPB_SIZE
+ 129:				;
+ 130:				;
+ 131:				; Directory entry structure.
+ 132:     -	        	                STRUCT
+ 133:     -	        	                STR_BYTE DIRE_USER      ; User number. 0xe5 if entry unused
+ 134:     -	        	                STR_BLOCK DIRE_NAME, FILENAME_SIZE  ; Filename
+ 135:     -	        	                STR_BLOCK DIRE_TYP, FILEEXT_SIZE    ; File type
+ 136:     -	        	                STR_BYTE DIRE_EX        ; Extent counter, low byte (0-31)
+ 137:     -	        	                STR_BYTE DIRE_S1        ; Reserved, set to 0
+ 138:     -	        	                STR_BYTE DIRE_S2        ; Extent counter, high byte
+ 139:     -	        	                STR_BYTE DIRE_RC        ; Record count (low byte)
+ 140:     -	        	                STR_BLOCK DIRE_ALLOC, 16 ; Associated block numbers
+ 141:     -	        	                STR_END DIRE_SIZE
+ 142:				;
+ 143:     -	0001'         	                assert DIRE_SIZE = 0x20
+ 144:				;
+ 145:				;
+ 146:				; File Control Block (FCB) structure.
+ 147:     -	        	                STRUCT
+ 148:     -	        	                STR_BYTE FCB_DRIVE      ; Drive. 0 for default, 1-16 for A-P
+ 149:     -	        	                STR_BLOCK FCB_NAME, FILENAME_SIZE   ; Filename in ASCII upper-case
+ 150:     -	        	                STR_BLOCK FCB_TYP, FILEEXT_SIZE     ; File type
+ 151:     -	        	                STR_BYTE FCB_EX         ; Current extent (*)
+ 152:     -	        	                STR_BYTE FCB_S1         ; Reserved (*)
+ 153:     -	        	                STR_BYTE FCB_S2         ; Extent high byte (*)
+ 154:     -	        	                STR_BYTE FCB_RC         ; Record count (*)
+ 155:     -	        	                STR_BLOCK FCB_ALLOC, 16 ; Associated block numbers
+ 156:     -	        	                STR_BYTE FCB_CR         ; Current record within extent
+ 157:     -	        	                STR_BLOCK FCB_RECORD, 3 ; Record number (low byte first)
+ 158:     -	        	                STR_END FCB_SIZE
+ 159:				;
+ 160:				; * - Set this to 0 when opening a file and then leave it to CP/M. You can
+ 161:				; rewind a file by setting EX, RC, S2 and CR to 0.
  162:				;
- 163:				; Calculate offsets into jump tables. Entries here must match the jump table in
- 164:				; the BIOS. The base address of the BIOS must be added to these addresses. A call
- 165:				; routine might look like:
- 166:				;
- 167:				; Call BIOS, allowing for its unknown base address.
- 168:				; Call with:
- 169:				; BC - operand (depends on BIOS function called)
- 170:				; DE - operand (depends on BIOS function called)
- 171:				; HL - offset for the routine (e.g. BIOS_CONIN)
- 172:				; call_bios       push de
- 173:				;                 ex de, hl
- 174:				;                 ld hl, (1)              ; Find WBOOT (warm boot) address
- 175:				;                 add hl, de              ; Add offset
- 176:				;                 pop de
- 177:				;                 jp (hl)                 ; Jump to BIOS then return to caller
- 178:				;
- 179:				; The above method is a bit clumsy, but then application code shouldn't normally
- 180:				; call the BIOS directly.
- 181:				;
- 182:     -	        	    JPTBL_START 0                   ; Generate offsets as BIOS_START isn't always known
- 183:				;
- 184:				; From monitor.z80
- 185:				; Note - cold start routine omitted to align with use of address at (1) to find BIOS.
- 186:     -	        	    JPTBL_ENTRY BIOS_WBOOT          ; Warm boot - reload command processor
- 187:     -	        	    JPTBL_ENTRY BIOS_CONST          ; Console status
- 188:     -	        	    JPTBL_ENTRY BIOS_CONIN          ; Console input
- 189:     -	        	    JPTBL_ENTRY BIOS_CONOUT         ; Console output
- 190:     -	        	    JPTBL_ENTRY BIOS_PLIST          ; Printer output
- 191:     -	        	    JPTBL_ENTRY BIOS_PUNCH          ; Paper tape punch output
- 192:     -	        	    JPTBL_ENTRY BIOS_READER         ; Paper tape reader input
- 193:     -	        	    JPTBL_ENTRY BIOS_HOME           ; Move disc head to track 0
- 194:     -	        	    JPTBL_ENTRY BIOS_SELDSK         ; Select disc drive
- 195:     -	        	    JPTBL_ENTRY BIOS_SETTRK         ; Set track number
- 196:     -	        	    JPTBL_ENTRY BIOS_SETSEC         ; Set sector number
- 197:     -	        	    JPTBL_ENTRY BIOS_SETDMA         ; Set DMA address
- 198:     -	        	    JPTBL_ENTRY BIOS_READ           ; Read a sector
- 199:     -	        	    JPTBL_ENTRY BIOS_WRITE          ; Write a sector
- 200:				; CP/M 2 functions.
- 201:     -	        	    JPTBL_ENTRY BIOS_LISTST         ; Status of list device
- 202:     -	        	    JPTBL_ENTRY BIOS_SECTRAN        ; Sector translation for skewing
- 203:				; CP/M 3 functions (not supported yet). From https://www.seasip.info/Cpm/bios.html
- 204:     -	        	    JPTBL_ENTRY BIOS_CONOST         ; Status of console output
- 205:     -	        	    JPTBL_ENTRY BIOS_AUXIST         ; Status of auxiliary input
- 206:     -	        	    JPTBL_ENTRY BIOS_AUXOST         ; Status of auxiliary output
- 207:     -	        	    JPTBL_ENTRY BIOS_DEVTBL         ; Address of devices table
- 208:     -	        	    JPTBL_ENTRY BIOS_DEVINI         ; Initialise a device
- 209:     -	        	    JPTBL_ENTRY BIOS_DRVTBL         ; Address of discs table
- 210:     -	        	    JPTBL_ENTRY BIOS_MULTIO         ; Read/write multiple sectors
- 211:     -	        	    JPTBL_ENTRY BIOS_FLUSH          ; Flush host buffers
- 212:     -	        	    JPTBL_ENTRY BIOS_MOVE           ; Move a block of memory
- 213:     -	        	    JPTBL_ENTRY BIOS_TIME           ; Real time clock
- 214:     -	        	    JPTBL_ENTRY BIOS_SELMEM         ; Select memory bank
- 215:     -	        	    JPTBL_ENTRY BIOS_SETBNK         ; Select bank for DMA operation
- 216:     -	        	    JPTBL_ENTRY BIOS_XMOVE          ; Preload banks for MOVE
- 217:     -	        	    JPTBL_ENTRY BIOS_USERF          ; System-depedent functions
- 218:     -	        	    JPTBL_ENTRY BIOS_RESERV1        ; Reserved
- 219:     -	        	    JPTBL_ENTRY BIOS_RESERV2        ; Reserved
- 220:				; ZARC-specific items.
- 221:     -	        	    JPTBL_BLOCK BIOS_ID, 3          ; BIOS ID ("ZRC")
- 222:     -	        	    JPTBL_BLOCK BIOS_VER, 3         ; Version (see below)
- 223:     -	        	    JPTBL_ENTRY BIOS_STARTUP        ; CP/M startup entry point
- 224:     -	        	    JPTBL_ENTRY BIOS_MON_CALL       ; Call monitor function
- 225:     -	        	    JPTBL_ENTRY BIOS_SUPER          ; Set supervisor state
- 226:     -	        	    JPTBL_ENTRY BIOS_INT_DISABLE    ; Disable interrupts and keep count
- 227:     -	        	    JPTBL_ENTRY BIOS_INT_ENABLE     ; Enable interrupts if safe
- 228:     -	        	    JPTBL_ENTRY BIOS_TIRD           ; Read time and date
- 229:     -	        	    JPTBL_ENTRY BIOS_SET_TIMER      ; Set timer
- 230:     -	        	    JPTBL_ENTRY BIOS_GET_TIMER      ; Get timer
- 231:				;
- 232:     -	        	    JPTBL_END BIOS_JPTBL_NEXT
- 233:				;
- 234:				; BIOS_VER is <reserved (zero)>, <major version>, <minor version>. The reserved
- 235:				; byte may flag capabilities at some point.
- 236:				;
+ 163:				;
+ 164:				;
+ 165:				; **************
+ 166:				; * BIOS Calls *
+ 167:				; **************
+ 168:				;
+ 169:				;
+ 170:				; Calculate offsets into jump tables. Entries here must match the jump table in
+ 171:				; the BIOS. The base address of the BIOS must be added to these addresses. A
+ 172:				; call routine might look like:
+ 173:				;
+ 174:				; Call BIOS, allowing for its unknown base address.
+ 175:				; Call with:
+ 176:				; BC - operand (depends on BIOS function called)
+ 177:				; DE - operand (depends on BIOS function called)
+ 178:				; HL - offset for the routine (e.g. BIOS_CONIN)
+ 179:				; call_bios       push de
+ 180:				;                 ex de, hl
+ 181:				;                 ld hl, (1)              ; Find WBOOT (warm boot) address
+ 182:				;                 add hl, de              ; Add offset
+ 183:				;                 pop de
+ 184:				;                 jp (hl)                 ; Jump to BIOS then return to caller
+ 185:				;
+ 186:				; The above method is a bit clumsy, but then application code shouldn't normally
+ 187:				; call the BIOS directly.
+ 188:				;
+ 189:     -	        	    JPTBL_START 0                   ; Generate offsets as BIOS_START isn't always known
+ 190:				;
+ 191:				; Note - cold start routine omitted to align with use of address at (1) to find BIOS.
+ 192:     -	        	    JPTBL_ENTRY BIOS_WBOOT          ; Warm boot - reload command processor
+ 193:     -	        	    JPTBL_ENTRY BIOS_CONST          ; Console status
+ 194:     -	        	    JPTBL_ENTRY BIOS_CONIN          ; Console input
+ 195:     -	        	    JPTBL_ENTRY BIOS_CONOUT         ; Console output
+ 196:     -	        	    JPTBL_ENTRY BIOS_PLIST          ; Printer output
+ 197:     -	        	    JPTBL_ENTRY BIOS_PUNCH          ; Paper tape punch output
+ 198:     -	        	    JPTBL_ENTRY BIOS_READER         ; Paper tape reader input
+ 199:     -	        	    JPTBL_ENTRY BIOS_HOME           ; Move disc head to track 0
+ 200:     -	        	    JPTBL_ENTRY BIOS_SELDSK         ; Select disc drive
+ 201:     -	        	    JPTBL_ENTRY BIOS_SETTRK         ; Set track number
+ 202:     -	        	    JPTBL_ENTRY BIOS_SETSEC         ; Set sector number
+ 203:     -	        	    JPTBL_ENTRY BIOS_SETDMA         ; Set DMA address
+ 204:     -	        	    JPTBL_ENTRY BIOS_READ           ; Read a sector
+ 205:     -	        	    JPTBL_ENTRY BIOS_WRITE          ; Write a sector
+ 206:				; CP/M 2 functions.
+ 207:     -	        	    JPTBL_ENTRY BIOS_LISTST         ; Status of list device
+ 208:     -	        	    JPTBL_ENTRY BIOS_SECTRAN        ; Sector translation for skewing
+ 209:				; CP/M 3 functions. From https://www.seasip.info/Cpm/bios.html
+ 210:     -	        	    JPTBL_ENTRY BIOS_CONOST         ; Status of console output
+ 211:     -	        	    JPTBL_ENTRY BIOS_AUXIST         ; Status of auxiliary input
+ 212:     -	        	    JPTBL_ENTRY BIOS_AUXOST         ; Status of auxiliary output
+ 213:     -	        	    JPTBL_ENTRY BIOS_DEVTBL         ; Address of devices table
+ 214:     -	        	    JPTBL_ENTRY BIOS_DEVINI         ; Initialise a device
+ 215:     -	        	    JPTBL_ENTRY BIOS_DRVTBL         ; Address of discs table
+ 216:     -	        	    JPTBL_ENTRY BIOS_MULTIO         ; Read/write multiple sectors
+ 217:     -	        	    JPTBL_ENTRY BIOS_FLUSH          ; Flush host buffers
+ 218:     -	        	    JPTBL_ENTRY BIOS_MOVE           ; Move a block of memory
+ 219:     -	        	    JPTBL_ENTRY BIOS_TIME           ; Real time clock
+ 220:     -	        	    JPTBL_ENTRY BIOS_SELMEM         ; Select memory bank
+ 221:     -	        	    JPTBL_ENTRY BIOS_SETBNK         ; Select bank for DMA operation
+ 222:     -	        	    JPTBL_ENTRY BIOS_XMOVE          ; Preload banks for MOVE
+ 223:     -	        	    JPTBL_ENTRY BIOS_USERF          ; System-depedent functions
+ 224:     -	        	    JPTBL_ENTRY BIOS_RESERV1        ; Reserved
+ 225:     -	        	    JPTBL_ENTRY BIOS_RESERV2        ; Reserved
+ 226:				; ZARC-specific items.
+ 227:     -	        	    JPTBL_BLOCK BIOS_ID, 3          ; BIOS ID ("ZRC")
+ 228:     -	        	    JPTBL_BLOCK BIOS_VER, 3         ; Version (see below)
+ 229:     -	        	    JPTBL_ENTRY BIOS_STARTUP        ; CP/M startup entry point
+ 230:     -	        	    JPTBL_ENTRY BIOS_MON_CALL       ; Call monitor function
+ 231:     -	        	    JPTBL_ENTRY BIOS_SUPER          ; Set supervisor state
+ 232:     -	        	    JPTBL_ENTRY BIOS_INT_DISABLE    ; Disable interrupts and keep count
+ 233:     -	        	    JPTBL_ENTRY BIOS_INT_ENABLE     ; Enable interrupts if safe
+ 234:     -	        	    JPTBL_ENTRY BIOS_TIRD           ; Read time and date (ZARC format)
+ 235:     -	        	    JPTBL_ENTRY BIOS_SET_TIMER      ; Set timer
+ 236:     -	        	    JPTBL_ENTRY BIOS_GET_TIMER      ; Get timer
  237:				;
- 238:				;
- 239:				; **************
- 240:				; * BDOS Calls *
- 241:				; **************
+ 238:     -	        	    JPTBL_END BIOS_JPTBL_NEXT
+ 239:				;
+ 240:				; BIOS_VER is <reserved (zero)>, <major version>, <minor version>. The reserved
+ 241:				; byte may flag capabilities at some point.
  242:				;
  243:				;
- 244:				; From http://www.gaby.de/cpm/manuals/archive/cpm22htm/ch5.htm#Section_5.2
- 245:				; In general, the function number is passed in register C with the information
- 246:				; address in the double byte pair DE. Single byte values are returned in register
- 247:				; A, with double byte values returned in HL. A zero value is returned when the
- 248:				; function number is out of range. For reasons of compatibility, register A = L
- 249:				; and register B = H upon return in all cases. Example call:
- 250:				;   ld c, BDOS_CONIN    ; Read next character
- 251:				;   call BDOS           ; Return character in A
- 252:				;
- 253:     -	0005'         	BDOS        equ 5               ; BDOS entry point
- 254:				;
- 255:     -	0000'         	BDOS_SYS_RST        equ 0       ; System Reset
- 256:     -	0001'         	BDOS_CON_IN         equ 1       ; Console Input
- 257:     -	0002'         	BDOS_CON_OUT        equ 2       ; Console Output
- 258:     -	0003'         	BDOS_RDR_IN         equ 3       ; Reader Input
- 259:     -	0004'         	BDOS_PUN_OUT        equ 4       ; Punch Output
- 260:     -	0005'         	BDOS_LST_OUT        equ 5       ; List Output
- 261:     -	0006'         	BDOS_DIRECT_CON_IO  equ 6       ; Direct Console I/O
- 262:     -	0007'         	BDOS_GET_IO_BYTE    equ 7       ; Get I/O Byte
- 263:     -	0008'         	BDOS_SET_IO_BYTE    equ 8       ; Set I/O Byte
- 264:     -	0009'         	BDOS_PRINT_STRING   equ 9       ; Print String
- 265:     -	000A'         	BDOS_READ_CON_BUFF  equ 10      ; Read Console Buffer
- 266:     -	000B'         	BDOS_GET_CON_STAT   equ 11      ; Get Console Status
- 267:     -	000C'         	BDOS_VERSION        equ 12      ; Return Version Number
- 268:     -	000D'         	BDOS_RESET_DISK_SYS equ 13      ; Reset Disk System
- 269:     -	000E'         	BDOS_SEL_DISK       equ 14      ; Select Disk
- 270:     -	000F'         	BDOS_OPEN_FILE      equ 15      ; Open File
- 271:     -	0010'         	BDOS_CLOSE_FILE     equ 16      ; Close File
- 272:     -	0011'         	BDOS_SEARCH_FIRST   equ 17      ; Search for First
- 273:     -	0012'         	BDOS_SEARCH_NEXT    equ 18      ; Search for Next
- 274:     -	0013'         	BDOS_DELETE_FILE    equ 19      ; Delete File
- 275:     -	0014'         	BDOS_READ_SEQ       equ 20      ; Read Sequential
- 276:     -	0015'         	BDOS_WRITE_SEQ      equ 21      ; Write Sequential
- 277:     -	0016'         	BDOS_MAKE_FILE      equ 22      ; Make File
- 278:     -	0017'         	BDOS_RENAME_FILE    equ 23      ; Rename File
- 279:     -	0018'         	BDOS_GET_LOGIN_VEC  equ 24      ; Return Login Vector
- 280:     -	0019'         	BDOS_GET_CURR_DISK  equ 25      ; Return Current Disk
- 281:     -	001A'         	BDOS_SET_DMA_ADDR   equ 26      ; Set DMA Address
- 282:     -	001B'         	BDOS_GET_ALLOC_ADDR equ 27      ; Get Addr (Alloc)
- 283:     -	001C'         	BDOS_WRITE_PROT     equ 28      ; Write Protect Disk
- 284:     -	001D'         	BDOS_GET_RO_VEC     equ 29      ; Get R/O Vector
- 285:     -	001E'         	BDOS_SET_FILE_ATTR  equ 30      ; Set File Attributes
- 286:     -	001F'         	BDOS_GET_DPB        equ 31      ; Get Addr (Disk Parms)
- 287:     -	0020'         	BDOS_GET_SET_USER   equ 32      ; Set/Get User Code
- 288:     -	0021'         	BDOS_READ_RANDOM    equ 33      ; Read Random
- 289:     -	0022'         	BDOS_WRITE_RANDOM   equ 34      ; Write Random
- 290:     -	0023'         	BDOS_GET_FILE_SIZE  equ 35      ; Compute File Size
- 291:     -	0024'         	BDOS_SET_RANDOM_REC equ 36      ; Set Random Record
- 292:     -	0025'         	BDOS_RESET_DRIVES   equ 37      ; Selectively reset disc drives
- 293:     -	0028'         	BDOS_WRITE_RAN_ZFILL equ 40     ; Write Random with Zero Fill
- 294:				
- 295:				; Functions 28 and 32 should be avoided in application programs to maintain upward
- 296:				; compatibility with CP/M.
- 297:				;
- 298:				
+ 244:				;
+ 245:				; **************
+ 246:				; * BDOS Calls *
+ 247:				; **************
+ 248:				;
+ 249:				;
+ 250:				; From http://www.gaby.de/cpm/manuals/archive/cpm22htm/ch5.htm#Section_5.2
+ 251:				; In general, the function number is passed in register C with the information
+ 252:				; address in the double byte pair DE. Single byte values are returned in register
+ 253:				; A, with double byte values returned in HL. A zero value is returned when the
+ 254:				; function number is out of range. For reasons of compatibility, register A = L
+ 255:				; and register B = H upon return in all cases. Example call:
+ 256:				;   ld c, BDOS_CONIN    ; Read next character
+ 257:				;   call BDOS           ; Return character in A
+ 258:				;
+ 259:     -	0005'         	BDOS        equ 5               ; BDOS entry point
+ 260:				;
+ 261:     -	0000'         	BDOS_SYS_RST        equ 0       ; System Reset
+ 262:     -	0001'         	BDOS_CON_IN         equ 1       ; Console Input
+ 263:     -	0002'         	BDOS_CON_OUT        equ 2       ; Console Output
+ 264:     -	0003'         	BDOS_RDR_IN         equ 3       ; Reader Input
+ 265:     -	0004'         	BDOS_PUN_OUT        equ 4       ; Punch Output
+ 266:     -	0005'         	BDOS_LST_OUT        equ 5       ; List Output
+ 267:     -	0006'         	BDOS_DIRECT_CON_IO  equ 6       ; Direct Console I/O
+ 268:     -	0007'         	BDOS_GET_IO_BYTE    equ 7       ; Get I/O Byte
+ 269:     -	0008'         	BDOS_SET_IO_BYTE    equ 8       ; Set I/O Byte
+ 270:     -	0009'         	BDOS_PRINT_STRING   equ 9       ; Print String
+ 271:     -	000A'         	BDOS_READ_CON_BUFF  equ 10      ; Read Console Buffer
+ 272:     -	000B'         	BDOS_GET_CON_STAT   equ 11      ; Get Console Status
+ 273:     -	000C'         	BDOS_VERSION        equ 12      ; Return Version Number
+ 274:     -	000D'         	BDOS_RESET_DISK_SYS equ 13      ; Reset Disk System
+ 275:     -	000E'         	BDOS_SEL_DISK       equ 14      ; Select Disk
+ 276:     -	000F'         	BDOS_OPEN_FILE      equ 15      ; Open File
+ 277:     -	0010'         	BDOS_CLOSE_FILE     equ 16      ; Close File
+ 278:     -	0011'         	BDOS_SEARCH_FIRST   equ 17      ; Search for first matching directory entry
+ 279:     -	0012'         	BDOS_SEARCH_NEXT    equ 18      ; Search for next matching directory entry
+ 280:     -	0013'         	BDOS_DELETE_FILE    equ 19      ; Delete File
+ 281:     -	0014'         	BDOS_READ_SEQ       equ 20      ; Read Sequential
+ 282:     -	0015'         	BDOS_WRITE_SEQ      equ 21      ; Write Sequential
+ 283:     -	0016'         	BDOS_MAKE_FILE      equ 22      ; Make File
+ 284:     -	0017'         	BDOS_RENAME_FILE    equ 23      ; Rename File
+ 285:     -	0018'         	BDOS_GET_LOGIN_VEC  equ 24      ; Return Login Vector
+ 286:     -	0019'         	BDOS_GET_CURR_DISK  equ 25      ; Return Current Disk
+ 287:     -	001A'         	BDOS_SET_DMA_ADDR   equ 26      ; Set DMA Address
+ 288:     -	001B'         	BDOS_GET_ALLOC_ADDR equ 27      ; Get Addr (Alloc)
+ 289:     -	001C'         	BDOS_WRITE_PROT     equ 28      ; Write Protect Disk
+ 290:     -	001D'         	BDOS_GET_RO_VEC     equ 29      ; Get R/O Vector
+ 291:     -	001E'         	BDOS_SET_FILE_ATTR  equ 30      ; Set File Attributes
+ 292:     -	001F'         	BDOS_GET_DPB        equ 31      ; Get Addr (Disk Parms)
+ 293:     -	0020'         	BDOS_GET_SET_USER   equ 32      ; Set/Get User Code
+ 294:     -	0021'         	BDOS_READ_RANDOM    equ 33      ; Read Random
+ 295:     -	0022'         	BDOS_WRITE_RANDOM   equ 34      ; Write Random
+ 296:     -	0023'         	BDOS_GET_FILE_SIZE  equ 35      ; Compute File Size
+ 297:     -	0024'         	BDOS_SET_RANDOM_REC equ 36      ; Set Random Record
+ 298:     -	0025'         	BDOS_RESET_DRIVES   equ 37      ; Selectively reset disc drives
+ 299:     -	0028'         	BDOS_WR_RND_ZFILL   equ 40      ; Write Random with Zero Fill
+ 300:     -	002C'         	BDOS_F_MULTISEC     equ 44      ; Set number of records to read/write at once
+ 301:     -	0031'         	BDOS_S_SYSVAR       equ 49      ; Access the System Control Block
+ 302:     -	0032'         	BDOS_S_BIOS         equ 50      ; Use the BIOS
+ 303:     -	003B'         	BDOS_P_LOAD         equ 59      ; Load overlay
+ 304:     -	003C'         	BDOS_CALL_RSX       equ 60      ; Call to RSX
+ 305:     -	0062'         	BDOS_DISK_CLEAN     equ 98      ; Clean up disc
+ 306:     -	0063'         	BDOS_F_TRUNCATE     equ 99      ; Truncate file
+ 307:     -	0068'         	BDOS_T_SET          equ 104     ; Set date and time
+ 308:     -	006C'         	BDOS_P_CODE         equ 108     ; Get/put program return code
+ 309:     -	006D'         	BDOS_C_MODE         equ 109     ; Set or get console mode
+ 310:     -	006E'         	BDOS_C_DELIMIT      equ 110     ; Get/set string delimiter
+ 311:     -	006F'         	BDOS_C_WRITEBLK     equ 111     ; Send block of text to console
+ 312:     -	0070'         	BDOS_L_WRITEBLK     equ 112     ; Send block of text to printer
+ 313:     -	0098'         	BDOS_F_PARSE        equ 152     ; Parse filename
+ 314:				;
+ 315:				; Functions 28 and 32 should be avoided in application programs to maintain upward
+ 316:				; compatibility with CP/M.
+ 317:				;
+ 318:				; Direct Console I/O (BDOS_DIRECT_CON_IO) command codes. There are additional
+ 319:				; codes supported by CP/M 3 (see cpm3.i).
+ 320:     -	00FF'         	DCONIO_GET_NO_WT    equ 0xff    ; Get character (no echo) else return zero
+ 321:     -	0000'         	DCONIO_PUT          equ 0x00    ; Put (write) character
+ 322:				;
+ 323:				; BDOS_S_BIOS (function 50) parameter block.
+ 324:     -	        	                STRUCT
+ 325:     -	        	                STR_BYTE SBM_FUNC       ; BIOS function (0-32)
+ 326:     -	        	                STR_BYTE SBM_A
+ 327:     -	        	                STR_BYTE SBM_C
+ 328:     -	        	                STR_BYTE SBM_B
+ 329:     -	        	                STR_BYTE SBM_E
+ 330:     -	        	                STR_BYTE SBM_D
+ 331:     -	        	                STR_BYTE SBM_L
+ 332:     -	        	                STR_BYTE SBM_H
+ 333:     -	        	                STR_END SBM_SIZE
+ 334:				;
+ 335:				;
+ 336:				
 **** cpm_files.z80 ****
   32:				                include "terminal.i"    ; Terminal constants
+<<<<<<< HEAD
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/terminal.i ****
+=======
 **** /home/merlin/Technical/ZARC_Z80_Box/git/software/includes//terminal.i ****
+>>>>>>> refs/remotes/origin/main
    1:				; ***********************************
    2:				; * ZARC Terminal Definitions       *
    3:				; * Written by: Merlin Skinner      *
@@ -492,7 +604,11 @@
   34:				
 **** cpm_files.z80 ****
   33:				                include "cpm_utility.i" ; CP/M utilities
+<<<<<<< HEAD
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/cpm_utility.i ****
+=======
 **** /home/merlin/Technical/ZARC_Z80_Box/git/software/includes//cpm_utility.i ****
+>>>>>>> refs/remotes/origin/main
    1:				; *******************************************************
    2:				; * Utility Routines for CP/M Applications              *
    3:				; * Version: V1.0                                       *
@@ -503,48 +619,61 @@
    8:				;
    9:     -	0001'         	            ifndef CPMU         ; Inhibit for this module
   10:				; CP/M specific.
-  11:				                extern cbdos    ; Call BDOS with some registers saved
-  12:				                extern cbios    ; Call BIOS with some registers saved
-  13:				                extern panic    ; Fatal application error
-  14:				                extern zrcdet   ; Detect ZARC
-  15:				                extern z80det   ; Detect Z80 (instead of 8080 / 8085)
-  16:				;
-  17:				; Derived from the monitor's utility.z80.
-  18:				                extern conwch   ; Write character to console
-  19:				                extern conrch   ; Read character from the console
-  20:				                extern const    ; Fetch console input status
-  21:				                extern cwnwln   ; Write new line characters to console
-  22:				                extern conwms   ; Print "$" terminated string to the console
-  23:				                extern conwmn   ; Print message <n> in a list
-  24:				                extern skpspc   ; Step hl past spaces
-  25:				                extern toupca   ; Convert character in A to upper case
-  26:				                extern toloca   ; Convert character in A to lower case
-  27:				                extern cwvich   ; Print only visible 7-bit characters
-  28:				                extern cwpspc   ; Print a space
-  29:				                extern mtwdli   ; Match word in a string against list of options
-  30:				                extern cwphnb   ; Print least-significant nibble in A in hexadecimal
-  31:				                extern cwphby   ; Print A in hexadecimal
-  32:				                extern cwphwd   ; Print HL in hexadecimal
-  33:				                extern cwpdwd   ; Print HL in decimal. Leading zeros are suppressed
-  34:				                extern cwpdby   ; Print A in decimal. Leading zeros are suppressed
-  35:				                extern cwpdwd   ; Print HL in decimal. Leading zeros are suppressed
-  36:				                extern cwpdlo   ; Print DEHL in decimal. Leading zeros are suppressed
-  37:				                extern rdhxwd   ; Read a 16-bit hexadecimal number from a string
-  38:				                extern rdduwd   ; Read a 16-bit unsigned decimal number from a string
-  39:				                extern rddulo   ; Read a 32-bit unsigned decimal number from a string
-  40:				;
-  41:				            endif
-  42:				;
-  43:				;
-  44:				; mtwdli (match word in a string against list of options) option bits. Each bit
-  45:				; has the described effect if set.
-  46:     -	        	BITDEF MTWDLI_ABBREV, 0                 ; Enable "." abbreviation
-  47:     -	        	BITDEF MTWDLI_ICASE, 1                  ; Ignore case when matching
-  48:     -	        	BITDEF MTWDLI_TERM, 7                   ; Terminator found (internal use only)
-  49:				
+  11:				                extern init     ; Common initialisation code
+  12:				                extern conmod   ; Set console mode (BDOS or BIOS)
+  13:				                extern cpmver   ; CP/M version (packed BCD)
+  14:				                extern cbdos    ; Call BDOS with some registers saved
+  15:				                extern cbios    ; Call BIOS with some registers saved
+  16:				                extern panic    ; Fatal application error
+  17:				                extern zrcdet   ; Detect ZARC
+  18:				                extern z80det   ; Detect Z80 (instead of 8080 / 8085)
+  19:				                extern clopts   ; Read command line options
+  20:				;
+  21:				; Derived from the monitor's utility.z80.
+  22:				                extern conwch   ; Write character to console
+  23:				                extern conrch   ; Read character from the console
+  24:				                extern const    ; Fetch console input status
+  25:				                extern cwnwln   ; Write new line characters to console
+  26:				                extern conwms   ; Print "$" terminated string to the console
+  27:				                extern conwmn   ; Print message <n> in a list
+  28:				                extern skpspc   ; Step hl past spaces
+  29:				                extern toupca   ; Convert character in A to upper case
+  30:				                extern toloca   ; Convert character in A to lower case
+  31:				                extern cwvich   ; Print only visible 7-bit characters
+  32:				                extern cwpspc   ; Print a space
+  33:				                extern mtwdli   ; Match word in a string against list of options
+  34:				                extern cwphnb   ; Print least-significant nibble in A in hexadecimal
+  35:				                extern cwphby   ; Print A in hexadecimal
+  36:				                extern cwphwd   ; Print HL in hexadecimal
+  37:				                extern cwpdwd   ; Print HL in decimal. Leading zeros are suppressed
+  38:				                extern cwpdby   ; Print A in decimal. Leading zeros are suppressed
+  39:				                extern cwpdwd   ; Print HL in decimal. Leading zeros are suppressed
+  40:				                extern cwpdlo   ; Print DEHL in decimal. Leading zeros are suppressed
+  41:				                extern rdhxwd   ; Read a 16-bit hexadecimal number from a string
+  42:				                extern rdduwd   ; Read a 16-bit unsigned decimal number from a string
+  43:				                extern rddulo   ; Read a 32-bit unsigned decimal number from a string
+  44:				;
+  45:				            endif
+  46:				;
+  47:				;
+  48:				; mtwdli (match word in a string against list of options) option bits. Each bit
+  49:				; has the described effect if set.
+  50:     -	        	BITDEF MTWDLI_ABBREV, 0                 ; Enable "." abbreviation
+  51:     -	        	BITDEF MTWDLI_ICASE, 1                  ; Ignore case when matching
+  52:     -	        	BITDEF MTWDLI_TERM, 7                   ; Terminator found (internal use only)
+  53:				;
+  54:				;
+  55:				; Console mode (for conmod)
+  56:     -	0000'         	CONMOD_BDOS     equ 0x00                ; Use BDOS for console I/O
+  57:     -	0001'         	CONMOD_BIOS     equ 0x01                ; Use BIOS for console I/O
+  58:				
 **** cpm_files.z80 ****
   34:				                include "cpm_files.i"   ; CP/M file handling
+<<<<<<< HEAD
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/cpm_files.i ****
+=======
 **** /home/merlin/Technical/ZARC_Z80_Box/git/software/includes//cpm_files.i ****
+>>>>>>> refs/remotes/origin/main
    1:				; *******************************************************
    2:				; * Utility Routines for CP/M Applications              *
    3:				; * Version: V1.0                                       *
@@ -562,14 +691,16 @@
   31:     -	        	                STRUCT
   32:     -	        	                STR_BLOCK FCBR_FCB, FCB_SIZE    ; FCB structure
   33:     -	        	                STR_BYTE FCBR_FLAGS             ; Status flags
-  34:     -	        	                STR_BYTE FCBR_CONTENTS          ; No. of bytes in RBUFF (*)
+  34:     -	        	                STR_BYTE FCBR_CONTENTS          ; No. of bytes in RBUFF
   35:     -	        	                STR_BLOCK FCBR_RBUFF, CPM_SECTOR_SIZE   ; Record buffer
   36:     -	        	                STR_END FCBR_SIZE               ; Structure size
   37:				;
-  38:				; Flags are active if the bit is zero.
+  38:				; Flag bits in FCBR_FLAGS. This is zeroed by finit.
   39:     -	        	BITDEF FCBR_FL_OPEN, 0          ; File is open
   40:     -	        	BITDEF FCBR_FL_DIRTY, 1         ; RBUFF contains data to write
-  41:				
+  41:     -	        	BITDEF FCBR_FL_BYTES, 2         ; Byte access
+  42:     -	        	BITDEF FCBR_FL_RECS, 3          ; Record access
+  43:				
 **** cpm_files.z80 ****
   35:				;
   36:				;
@@ -626,13 +757,13 @@
   87:				;
   88:				; Initialise FCBR structure.
   89:				; Call with:
-  90:				; IX - pointer to FCB (or FCBR structure)
+  90:				; IX - pointer to FCBR structure
   91:				; IX is preserved.
   92:    0+19	0000' DD362400	finit           ld (ix + FCBR_FLAGS), 0  ; Initialise flags
   93:   19+10	0004' C9      	                ret
   94:				;
   95:				;
-  96:				; Build FCB or FCBR). The FCB is zeroed and the filename is copied in. The
+  96:				; Build FCB or FCBR. The FCB is zeroed and the filename is copied in. The
   97:				; default drive is selected, but this may be overwritten if required.
   98:				; Call with:
   99:				; HL - pointer to filename, e.g. "FOOFILE TXT"
@@ -665,7 +796,7 @@
  126:				;
  127:				; Delete file and report any errors to the console.
  128:				; Call with:
- 129:				; IX - pointer to FCB (or FCBR structure)
+ 129:				; IX - pointer to FCBR structure
  130:				; Returns with:
  131:				; A - BDOS error code if carry = 1
  132:				; Carry flag is set if BDOS reported an error.
@@ -697,7 +828,7 @@
  161:				;
  162:				; File delete error.
  163:  384+11	003C' F5      	df_error        push af                 ; Save error code
- 164:  395+10	003D' 210A03  	                ld hl, delete_err_msg   ; "Can't delete file"
+ 164:  395+10	003D' 214E03  	                ld hl, delete_err_msg   ; "Can't delete file"
  165:  405+17	0040' CD0000  	                call conwms             ; Print $-terminated string to console
  166:  422+10	0043' F1      	                pop af
  167:  432+4	0044' 37      	                scf                     ; Flag error
@@ -718,844 +849,902 @@
  182:     -	0000'         	                ifdef DEBUG
  186:				                endif
  187:				;
- 188:  481+15	004A' DDE5    	                push ix
- 189:  496+10	004C' D1      	                pop de
- 190:  506+7	004D' 0E0F    	                ld c, BDOS_OPEN_FILE    ; Open File
- 191:  513+17	004F' CD0000  	                call cbdos
- 192:  530+7	0052' FEFF    	                cp 0xff
- 193:  537+7+5	0054' 2811    	                jr z, of_error          ; Jump on error
- 194:				;
- 195:     -	0000'         	                ifdef DEBUG
- 199:				                endif
- 200:				;
- 201:				; Initialise FCBR variables.
- 202:  544+23	0056' DDCB24C6	                set FCBR_FL_OPEN_BIT, (ix + FCBR_FLAGS)    ; Flag file is open
- 203:  567+23	005A' DDCB248E	                res FCBR_FL_DIRTY_BIT, (ix + FCBR_FLAGS)   ; Buffer is clean
- 204:  590+19	005E' DD362500	                ld (ix + FCBR_CONTENTS), 0  ;RBUFF is empty
- 205:  609+4	0062' A7      	                and a                   ; Flag success (carry = 0)
- 206:				;
- 207:				; Return with carry set and BDOS error code in A on error.
- 208:  613+10	0063' E1      	of_exit         pop hl
- 209:  623+10	0064' D1      	                pop de
- 210:  633+10	0065' C1      	                pop bc
- 211:  643+10	0066' C9      	                ret
- 212:				;
- 213:				; File open error.
- 214:  653+11	0067' F5      	of_error        push af                 ; Save BDOS error code
- 215:  664+10	0068' 216703  	                ld hl, open_err_msg     ; "Can't open file"
- 216:  674+17	006B' CD0000  	                call conwms             ; Print $-terminated string to console
- 217:  691+10	006E' F1      	                pop af
- 218:  701+23	006F' DDCB2486	                res FCBR_FL_OPEN_BIT, (ix + FCBR_FLAGS)  ; Flag file is closed
- 219:  724+4	0073' 37      	                scf                     ; Flag error
- 220:  728+12	0074' 18ED    	                jr of_exit
+ 188:				; Panic if file is already open.
+ 189:  481+20	004A' DDCB2446	                bit FCBR_FL_OPEN_BIT, (ix + FCBR_FLAGS)
+ 190:  501+10+7	004E' C40000  	                call nz, panic
+ 191:				;
+ 192:  511+17	0051' CD1002  	                call clr_fcb            ; Clear all but name and user num.
+ 193:				;
+ 194:				; Open the file.
+ 195:  528+15	0054' DDE5    	                push ix
+ 196:  543+10	0056' D1      	                pop de
+ 197:  553+7	0057' 0E0F    	                ld c, BDOS_OPEN_FILE    ; Open File
+ 198:  560+17	0059' CD0000  	                call cbdos
+ 199:  577+7	005C' FEFF    	                cp 0xff
+ 200:  584+7+5	005E' 280E    	                jr z, of_error          ; Jump on error
+ 201:				;
+ 202:     -	0000'         	                ifdef DEBUG
+ 206:				                endif
+ 207:				;
+ 208:				; Initialise FCBR variables and exit. Used by fopen and fmake.
+ 209:  591+7	0060' 3E01    	omf_exit_ok     ld a, FCBR_FL_OPEN_MASK
+ 210:				; This also clears FCBR_FL_DIRTY, FCBR_FL_BYTES, and FCBR_FL_RECS.
+ 211:  598+19	0062' DD7724  	                ld (ix + FCBR_FLAGS), a
+ 212:  617+19	0065' DD362500	                ld (ix + FCBR_CONTENTS), 0  ;RBUFF is empty
+ 213:  636+4	0069' A7      	                and a                   ; Flag success (carry = 0)
+ 214:				;
+ 215:				; Return with carry set and BDOS error code in A on error. Used by fopen and
+ 216:				; fmake.
+ 217:  640+10	006A' E1      	omf_exit        pop hl
+ 218:  650+10	006B' D1      	                pop de
+ 219:  660+10	006C' C1      	                pop bc
+ 220:  670+10	006D' C9      	                ret
  221:				;
- 222:				;
- 223:				; Create new file for read / write and report any errors to the console. Any
- 224:				; existing file with the same name is deleted.
- 225:				; Call with:
- 226:				; IX - pointer to FCBR structure
- 227:				; Returns with:
- 228:				; A - BDOS error code if carry = 1
- 229:				; Carry flag is set if BDOS reported an error.
- 230:				; IX is preserved.
- 231:  740+11	0076' C5      	fmake           push bc
- 232:  751+11	0077' D5      	                push de
- 233:  762+11	0078' E5      	                push hl
- 234:				;
- 235:				; Panic if file is open.
- 236:  773+20	0079' DDCB2446	                bit FCBR_FL_OPEN_BIT, (ix + FCBR_FLAGS)
- 237:  793+10+7	007D' C40000  	                call nz, panic
- 238:				;
- 239:				; First delete any existing file. This is recommended to prevent multiple files
- 240:				; with the same name.
- 241:  803+17	0080' CD2100  	                call fdel               ; Delete any existing file
- 242:  820+7+5	0083' 3806    	                jr c, mf_delete_dn      ; Jump on error (can't find file)
- 243:				; Inform user of deletion.
- 244:  827+10	0085' 218D03  	                ld hl, make_del_msg     ; "Existing file deleted"
- 245:  837+17	0088' CD0000  	                call conwms             ; Print $-terminated string to console
+ 222:				; File open error.
+ 223:  680+11	006E' F5      	of_error        push af                 ; Save BDOS error code
+ 224:  691+10	006F' 21AB03  	                ld hl, open_err_msg     ; "Can't open file"
+ 225:  701+17	0072' CD0000  	                call conwms             ; Print $-terminated string to console
+ 226:  718+10	0075' F1      	                pop af
+ 227:  728+4	0076' 37      	                scf                     ; Flag error
+ 228:  732+12	0077' 18F1    	                jr omf_exit
+ 229:				;
+ 230:				;
+ 231:				; Create new file for read / write and report any errors to the console. Any
+ 232:				; existing file with the same name is deleted.
+ 233:				; Call with:
+ 234:				; IX - pointer to FCBR structure
+ 235:				; Returns with:
+ 236:				; A - BDOS error code if carry = 1
+ 237:				; Carry flag is set if BDOS reported an error.
+ 238:				; IX is preserved.
+ 239:  744+11	0079' C5      	fmake           push bc
+ 240:  755+11	007A' D5      	                push de
+ 241:  766+11	007B' E5      	                push hl
+ 242:				;
+ 243:				; Panic if file is open.
+ 244:  777+20	007C' DDCB2446	                bit FCBR_FL_OPEN_BIT, (ix + FCBR_FLAGS)
+ 245:  797+10+7	0080' C40000  	                call nz, panic
  246:				;
- 247:				; Create the file.
- 248:     -	008B'         	mf_delete_dn
- 249:     -	0000'         	                ifdef DEBUG
- 253:				                endif
+ 247:				; First delete any existing file. This is recommended to prevent multiple files
+ 248:				; with the same name.
+ 249:  807+17	0083' CD2100  	                call fdel               ; Delete any existing file
+ 250:  824+7+5	0086' 3806    	                jr c, mf_delete_dn      ; Jump on error (can't find file)
+ 251:				; Inform user of deletion.
+ 252:  831+10	0088' 21D103  	                ld hl, make_del_msg     ; "Existing file deleted"
+ 253:  841+17	008B' CD0000  	                call conwms             ; Print $-terminated string to console
  254:				;
- 255:  854+15	008B' DDE5    	                push ix
- 256:  869+10	008D' D1      	                pop de
- 257:  879+7	008E' 0E16    	                ld c, BDOS_MAKE_FILE    ; Open File
- 258:  886+17	0090' CD0000  	                call cbdos
- 259:  903+7	0093' FEFF    	                cp 0xff
- 260:  910+7+5	0095' 2811    	                jr z, mf_error          ; Jump on error
- 261:				;
- 262:     -	0000'         	                ifdef DEBUG
- 266:				                endif
- 267:				;
- 268:				; Initialise FCBR variables.
- 269:  917+23	0097' DDCB24C6	                set FCBR_FL_OPEN_BIT, (ix + FCBR_FLAGS)    ; Flag file is open
- 270:  940+23	009B' DDCB248E	                res FCBR_FL_DIRTY_BIT, (ix + FCBR_FLAGS)   ; Buffer is clean
- 271:  963+19	009F' DD362500	                ld (ix + FCBR_CONTENTS), 0  ;RBUFF is empty
- 272:  982+4	00A3' A7      	                and a                   ; Flag success (carry = 0)
- 273:				;
- 274:				; Return with carry set and BDOS error code in A on error.
- 275:  986+10	00A4' E1      	mf_exit         pop hl
- 276:  996+10	00A5' D1      	                pop de
- 277: 1006+10	00A6' C1      	                pop bc
- 278: 1016+10	00A7' C9      	                ret
- 279:				;
- 280:				; File open error.
- 281: 1026+11	00A8' F5      	mf_error        push af                 ; Save BDOS error code
- 282: 1037+10	00A9' 21B203  	                ld hl, make_err_msg     ; "Can't create file"
- 283: 1047+17	00AC' CD0000  	                call conwms             ; Print $-terminated string to console
- 284: 1064+10	00AF' F1      	                pop af
- 285: 1074+4	00B0' 37      	                scf                     ; Flag error
- 286: 1078+12	00B1' 18F1    	                jr mf_exit
- 287:				;
+ 255:				; Create the file.
+ 256:     -	008E'         	mf_delete_dn
+ 257:     -	0000'         	                ifdef DEBUG
+ 261:				                endif
+ 262:				;
+ 263:  858+17	008E' CD1002  	                call clr_fcb            ; Clear all but name and user num.
+ 264:				;
+ 265:  875+15	0091' DDE5    	                push ix
+ 266:  890+10	0093' D1      	                pop de
+ 267:  900+7	0094' 0E16    	                ld c, BDOS_MAKE_FILE    ; Open File
+ 268:  907+17	0096' CD0000  	                call cbdos
+ 269:  924+7	0099' FEFF    	                cp 0xff
+ 270:  931+7+5	009B' 2802    	                jr z, mf_error          ; Jump on error
+ 271:				;
+ 272:     -	0000'         	                ifdef DEBUG
+ 276:				                endif
+ 277:				;
+ 278:				; Initialise FCBR variables and exit.
+ 279:  938+12	009D' 18C1    	                jr omf_exit_ok
+ 280:				;
+ 281:				; File open error.
+ 282:  950+11	009F' F5      	mf_error        push af                 ; Save BDOS error code
+ 283:  961+10	00A0' 21F603  	                ld hl, make_err_msg     ; "Can't create file"
+ 284:  971+17	00A3' CD0000  	                call conwms             ; Print $-terminated string to console
+ 285:  988+10	00A6' F1      	                pop af
+ 286:  998+4	00A7' 37      	                scf                     ; Flag error
+ 287: 1002+12	00A8' 18C0    	                jr omf_exit
  288:				;
- 289:				; Write record buffer contents to the file and report any errors to the
- 290:				; console.
- 291:				; Call with:
- 292:				; IX - pointer to FCBR structure
- 293:				; Returns with:
- 294:				; A - BDOS error code if carry = 1
- 295:				; Carry flag is set if BDOS reported an error.
- 296:				; IX is preserved.
- 297: 1090+11	00B3' C5      	fwrrec          push bc
- 298: 1101+11	00B4' D5      	                push de
- 299: 1112+11	00B5' E5      	                push hl
- 300:				;
- 301:     -	0000'         	                ifdef DEBUG
- 305:				                endif
- 306:				;
- 307:				; Panic if file is not open.
- 308: 1123+20	00B6' DDCB2446	                bit FCBR_FL_OPEN_BIT, (ix + FCBR_FLAGS)
- 309: 1143+10+7	00BA' CC0000  	                call z, panic
+ 289:				;
+ 290:				; Write record buffer contents to the file and report any errors to the
+ 291:				; console.
+ 292:				; Call with:
+ 293:				; IX - pointer to FCBR structure
+ 294:				; Returns with:
+ 295:				; A - BDOS error code if carry = 1
+ 296:				; Carry flag is set if BDOS reported an error.
+ 297:				; IX is preserved.
+ 298:				;
+ 299:				; Panic if we are using byte streams and a block write is attempted. A check
+ 300:				; that the file is open is performed later.
+ 301: 1014+20	00AA' DDCB2456	fwrrec          bit FCBR_FL_BYTES_BIT, (ix + FCBR_FLAGS)
+ 302: 1034+10+7	00AE' C40000  	                call nz, panic
+ 303:				; Flag that we are using record access.
+ 304: 1044+23	00B1' DDCB24DE	                set FCBR_FL_RECS_BIT, (ix + FCBR_FLAGS)
+ 305:				;
+ 306:				; Entry point for internal use by the byte stream code.
+ 307: 1067+11	00B5' C5      	fwrrec_raw      push bc
+ 308: 1078+11	00B6' D5      	                push de
+ 309: 1089+11	00B7' E5      	                push hl
  310:				;
- 311:				; Set DMA address to buffer in FCBR structure.
- 312: 1153+15	00BD' DDE5    	                push ix
- 313: 1168+10	00BF' E1      	                pop hl
- 314: 1178+10	00C0' 112600  	                ld de, FCBR_RBUFF
- 315: 1188+11	00C3' 19      	                add hl, de
- 316: 1199+4	00C4' EB      	                ex de, hl
- 317:				; DE - record buffer address.
- 318: 1203+7	00C5' 0E1A    	                ld c, BDOS_SET_DMA_ADDR ; Set DMA Address
- 319: 1210+17	00C7' CD0000  	                call cbdos
+ 311:     -	0000'         	                ifdef DEBUG
+ 315:				                endif
+ 316:				;
+ 317:				; Panic if file is not open.
+ 318: 1100+20	00B8' DDCB2446	                bit FCBR_FL_OPEN_BIT, (ix + FCBR_FLAGS)
+ 319: 1120+10+7	00BC' CC0000  	                call z, panic
  320:				;
- 321:				; Perform the write.
- 322: 1227+15	00CA' DDE5    	                push ix
- 323: 1242+10	00CC' D1      	                pop de
- 324: 1252+7	00CD' 0E15    	                ld c, BDOS_WRITE_SEQ    ; Write Sequential
- 325:				; DE - pointer to FCB.
- 326: 1259+17	00CF' CD0000  	                call cbdos
- 327: 1276+4	00D2' A7      	                and a
- 328: 1280+7+5	00D3' 280A    	                jr z, wrr_ok            ; Return if OK (carry = 0)
- 329:				; BDOS returned an error.
- 330: 1287+11	00D5' F5      	                push af                 ; Save BDOS error code
- 331: 1298+17	00D6' CDC802  	                call fdswem             ; Display sequential write error message
- 332: 1315+10	00D9' F1      	                pop af
- 333: 1325+4	00DA' 37      	                scf                     ; Flag error
- 334:				;
- 335:				; Return with carry set and BDOS error code in A on error.
- 336: 1329+10	00DB' E1      	wrr_exit        pop hl
- 337: 1339+10	00DC' D1      	                pop de
- 338: 1349+10	00DD' C1      	                pop bc
- 339: 1359+10	00DE' C9      	                ret
- 340:				;
- 341:				; Mark buffer clean and exit.
- 342: 1369+23	00DF' DDCB248E	wrr_ok          res FCBR_FL_DIRTY_BIT, (ix + FCBR_FLAGS)
- 343: 1392+12	00E3' 18F6    	                jr wrr_exit
+ 321:				; Set DMA address to buffer in FCBR structure.
+ 322: 1130+15	00BF' DDE5    	                push ix
+ 323: 1145+10	00C1' E1      	                pop hl
+ 324: 1155+10	00C2' 112600  	                ld de, FCBR_RBUFF
+ 325: 1165+11	00C5' 19      	                add hl, de
+ 326: 1176+4	00C6' EB      	                ex de, hl
+ 327:				; DE - record buffer address.
+ 328: 1180+7	00C7' 0E1A    	                ld c, BDOS_SET_DMA_ADDR ; Set DMA Address
+ 329: 1187+17	00C9' CD0000  	                call cbdos
+ 330:				;
+ 331:				; Perform the write.
+ 332: 1204+15	00CC' DDE5    	                push ix
+ 333: 1219+10	00CE' D1      	                pop de
+ 334: 1229+7	00CF' 0E15    	                ld c, BDOS_WRITE_SEQ    ; Write Sequential
+ 335:				; DE - pointer to FCB.
+ 336: 1236+17	00D1' CD0000  	                call cbdos
+ 337: 1253+4	00D4' A7      	                and a
+ 338: 1257+7+5	00D5' 280A    	                jr z, wrr_ok            ; Return if OK (carry = 0)
+ 339:				; BDOS returned an error.
+ 340: 1264+11	00D7' F5      	                push af                 ; Save BDOS error code
+ 341: 1275+17	00D8' CD0C03  	                call fdswem             ; Display sequential write error message
+ 342: 1292+10	00DB' F1      	                pop af
+ 343: 1302+4	00DC' 37      	                scf                     ; Flag error
  344:				;
- 345:				;
- 346:				; Write byte to file and report any errors to the console.
- 347:				; Call with:
- 348:				; A - byte
- 349:				; IX - pointer FCBR structure
- 350:				; Returns with:
- 351:				; A - BDOS error code if carry = 1
- 352:				; Carry flag is set if BDOS reported an error.
- 353:				; IX is preserved.
- 354: 1404+11	00E5' C5      	fwrby           push bc
- 355: 1415+11	00E6' D5      	                push de
- 356: 1426+11	00E7' E5      	                push hl
- 357:				;
- 358: 1437+4	00E8' 4F      	                ld c, a                 ; Save byte for later
- 359:				; Find address in record buffer.
- 360: 1441+15	00E9' DDE5    	                push ix
- 361: 1456+10	00EB' E1      	                pop hl
- 362: 1466+10	00EC' 112600  	                ld de, FCBR_RBUFF
- 363: 1476+11	00EF' 19      	                add hl, de              ; Add buffer start
- 364: 1487+19	00F0' DD5E25  	                ld e, (ix + FCBR_CONTENTS)
- 365: 1506+7	00F3' 1600    	                ld d, 0
- 366: 1513+11	00F5' 19      	                add hl, de              ; Add bytes in buffer
- 367: 1524+7	00F6' 71      	                ld (hl), c              ; Insert new byte
- 368: 1531+23	00F7' DD3425  	                inc (ix + FCBR_CONTENTS)    ; One more byte in buffer
- 369: 1554+23	00FA' DDCB24CE	                set FCBR_FL_DIRTY_BIT, (ix + FCBR_FLAGS)   ; Buffer is dirty
- 370:				;
- 371:				; Exit unless the buffer is full.
- 372: 1577+19	00FE' DD7E25  	                ld a, (ix + FCBR_CONTENTS)
- 373: 1596+7	0101' FE80    	                cp CPM_SECTOR_SIZE
- 374: 1603+7+5	0103' 380D    	                jr c, wrb_ok
- 375:				; Write record.
- 376: 1610+17	0105' CDB300  	                call fwrrec             ; Write record to file
- 377: 1627+7+5	0108' 3809    	                jr c, wrb_exit          ; Exit on error
- 378: 1634+19	010A' DD362500	                ld (ix + FCBR_CONTENTS), 0  ;RBUFF is empty
- 379: 1653+23	010E' DDCB248E	                res FCBR_FL_DIRTY_BIT, (ix + FCBR_FLAGS)   ; Buffer is clean
- 380:				;
- 381:				; Exit with success flag.
- 382: 1676+4	0112' A7      	wrb_ok          and a
- 383:				;
- 384:				; Return with carry set and BDOS error code in A on error.
- 385: 1680+10	0113' E1      	wrb_exit        pop hl
- 386: 1690+10	0114' D1      	                pop de
- 387: 1700+10	0115' C1      	                pop bc
- 388: 1710+10	0116' C9      	                ret
+ 345:				; Return with carry set and BDOS error code in A on error.
+ 346: 1306+10	00DD' E1      	wrr_exit        pop hl
+ 347: 1316+10	00DE' D1      	                pop de
+ 348: 1326+10	00DF' C1      	                pop bc
+ 349: 1336+10	00E0' C9      	                ret
+ 350:				;
+ 351:				; Mark buffer clean and exit.
+ 352: 1346+23	00E1' DDCB248E	wrr_ok          res FCBR_FL_DIRTY_BIT, (ix + FCBR_FLAGS)
+ 353: 1369+12	00E5' 18F6    	                jr wrr_exit
+ 354:				;
+ 355:				;
+ 356:				; Write byte to file and report any errors to the console.
+ 357:				; Call with:
+ 358:				; A - byte
+ 359:				; IX - pointer FCBR structure
+ 360:				; Returns with:
+ 361:				; A - BDOS error code if carry = 1
+ 362:				; Carry flag is set if BDOS reported an error.
+ 363:				; IX is preserved.
+ 364: 1381+11	00E7' C5      	fwrby           push bc
+ 365: 1392+11	00E8' D5      	                push de
+ 366: 1403+11	00E9' E5      	                push hl
+ 367:				;
+ 368:				; Panic if file is not open.
+ 369: 1414+20	00EA' DDCB2446	                bit FCBR_FL_OPEN_BIT, (ix + FCBR_FLAGS)
+ 370: 1434+10+7	00EE' CC0000  	                call z, panic
+ 371:				; Panic if we are using record access, as we can't mix the two.
+ 372: 1444+20	00F1' DDCB245E	                bit FCBR_FL_RECS_BIT, (ix + FCBR_FLAGS)
+ 373: 1464+10+7	00F5' C40000  	                call nz, panic
+ 374:				; Flag that we are using byte access.
+ 375: 1474+23	00F8' DDCB24D6	                set FCBR_FL_BYTES_BIT, (ix + FCBR_FLAGS)
+ 376:				;
+ 377: 1497+4	00FC' 4F      	                ld c, a                 ; Save byte for later
+ 378:				; Find address in record buffer.
+ 379: 1501+15	00FD' DDE5    	                push ix
+ 380: 1516+10	00FF' E1      	                pop hl
+ 381: 1526+10	0100' 112600  	                ld de, FCBR_RBUFF
+ 382: 1536+11	0103' 19      	                add hl, de              ; Add buffer start
+ 383: 1547+19	0104' DD5E25  	                ld e, (ix + FCBR_CONTENTS)
+ 384: 1566+7	0107' 1600    	                ld d, 0
+ 385: 1573+11	0109' 19      	                add hl, de              ; Add bytes in buffer
+ 386: 1584+7	010A' 71      	                ld (hl), c              ; Insert new byte
+ 387: 1591+23	010B' DD3425  	                inc (ix + FCBR_CONTENTS)    ; One more byte in buffer
+ 388: 1614+23	010E' DDCB24CE	                set FCBR_FL_DIRTY_BIT, (ix + FCBR_FLAGS)   ; Buffer is dirty
  389:				;
- 390:				;
- 391:				; Write an arbitrary length block to a file and report any errors to the
- 392:				; console. The file must be open before calling this routine, and the block
- 393:				; is appended to any data previously written. If the length is not a whole
- 394:				; number of records, the last record is padded with ^Z (EOF). No translation
- 395:				; is performed, so the file will be a binary copy of the memory block. Text
- 396:				; files should not require a ^Z to be appended externally due to the padding
- 397:				; behaviour. From http://www.gaby.de/cpm/manuals/archive/cpm22htm/ch5.htm:
- 398:				; The end of an ASCII file is denoted by a CTRL-Z character (1AH) or a real
- 399:				; end-of-file returned by the CP/M read operation.
- 400:				;
- 401:				; Call with:
- 402:				; BC - length of block (0 or more bytes)
- 403:				; HL - start of block
- 404:				; IX - pointer FCBR structure
- 405:				; Returns with:
- 406:				; A - BDOS error code if carry = 1
- 407:				; Carry flag is set if BDOS reported an error.
- 408:				; IX is preserved.
- 409: 1720+11	0117' D5      	fwrblk          push de
- 410:				;
- 411:     -	0000'         	                ifdef DEBUG
- 427:				                endif
- 428:				;
- 429: 1731+4	0118' 78      	wblk_loop       ld a, b
- 430: 1735+4	0119' B1      	                or c
- 431: 1739+7+5	011A' 280A    	                jr z, wblk_exit         ; Exit if all done (carry = 0)
- 432:				; Write a byte.
- 433: 1746+7	011C' 7E      	                ld a, (hl)
- 434: 1753+17	011D' CDE500  	                call fwrby
- 435: 1770+7+5	0120' 3804    	                jr c, wblk_exit         ; Exit on error
- 436: 1777+6	0122' 23      	                inc hl
- 437: 1783+6	0123' 0B      	                dec bc
- 438: 1789+12	0124' 18F2    	                jr wblk_loop
- 439:				;
- 440:				; Return with carry set and BDOS error code in A on error.
- 441: 1801+10	0126' D1      	wblk_exit       pop de
- 442: 1811+10	0127' C9      	                ret
- 443:				;
- 444:				;
- 445:				; Read a record from the file to the record buffer and report any errors to the
- 446:				; console.
- 447:				; Call with:
- 448:				; IX - pointer to FCB (or FCBR structure)
- 449:				; Returns with:
- 450:				; A - BDOS error code if carry = 1 (e.g. BDOS_READ_SEQ_EOF)
- 451:				; Carry flag is set if BDOS reported an error.
- 452:				; IX is preserved.
- 453: 1821+11	0128' C5      	frdrec          push bc
- 454: 1832+11	0129' D5      	                push de
- 455: 1843+11	012A' E5      	                push hl
- 456:				;
- 457:     -	0000'         	                ifdef DEBUG
- 461:				                endif
+ 390:				; Exit unless the buffer is full.
+ 391: 1637+19	0112' DD7E25  	                ld a, (ix + FCBR_CONTENTS)
+ 392: 1656+7	0115' FE80    	                cp CPM_SECTOR_SIZE
+ 393: 1663+7+5	0117' 380D    	                jr c, wrb_ok
+ 394:				; Write record.
+ 395: 1670+17	0119' CDB500  	                call fwrrec_raw         ; Write record to file
+ 396: 1687+7+5	011C' 3809    	                jr c, wrb_exit          ; Exit on error
+ 397: 1694+19	011E' DD362500	                ld (ix + FCBR_CONTENTS), 0  ;RBUFF is empty
+ 398: 1713+23	0122' DDCB248E	                res FCBR_FL_DIRTY_BIT, (ix + FCBR_FLAGS)   ; Buffer is clean
+ 399:				;
+ 400:				; Exit with success flag.
+ 401: 1736+4	0126' A7      	wrb_ok          and a
+ 402:				;
+ 403:				; Return with carry set and BDOS error code in A on error.
+ 404: 1740+10	0127' E1      	wrb_exit        pop hl
+ 405: 1750+10	0128' D1      	                pop de
+ 406: 1760+10	0129' C1      	                pop bc
+ 407: 1770+10	012A' C9      	                ret
+ 408:				;
+ 409:				;
+ 410:				; Write an arbitrary length block to a file and report any errors to the
+ 411:				; console. The file must be open before calling this routine, and the block
+ 412:				; is appended to any data previously written. If the length is not a whole
+ 413:				; number of records, the last record is padded with ^Z (EOF). No translation
+ 414:				; is performed, so the file will be a binary copy of the memory block. Text
+ 415:				; files should not require a ^Z to be appended externally due to the padding
+ 416:				; behaviour. From http://www.gaby.de/cpm/manuals/archive/cpm22htm/ch5.htm:
+ 417:				; The end of an ASCII file is denoted by a CTRL-Z character (1AH) or a real
+ 418:				; end-of-file returned by the CP/M read operation.
+ 419:				;
+ 420:				; Call with:
+ 421:				; BC - length of block (0 or more bytes)
+ 422:				; HL - start of block
+ 423:				; IX - pointer FCBR structure
+ 424:				; Returns with:
+ 425:				; A - BDOS error code if carry = 1
+ 426:				; Carry flag is set if BDOS reported an error.
+ 427:				; IX is preserved.
+ 428: 1780+11	012B' D5      	fwrblk          push de
+ 429:				;
+ 430:     -	0000'         	                ifdef DEBUG
+ 446:				                endif
+ 447:				;
+ 448: 1791+4	012C' 78      	wblk_loop       ld a, b
+ 449: 1795+4	012D' B1      	                or c
+ 450: 1799+7+5	012E' 280A    	                jr z, wblk_exit         ; Exit if all done (carry = 0)
+ 451:				; Write a byte.
+ 452: 1806+7	0130' 7E      	                ld a, (hl)
+ 453: 1813+17	0131' CDE700  	                call fwrby
+ 454: 1830+7+5	0134' 3804    	                jr c, wblk_exit         ; Exit on error
+ 455: 1837+6	0136' 23      	                inc hl
+ 456: 1843+6	0137' 0B      	                dec bc
+ 457: 1849+12	0138' 18F2    	                jr wblk_loop
+ 458:				;
+ 459:				; Return with carry set and BDOS error code in A on error.
+ 460: 1861+10	013A' D1      	wblk_exit       pop de
+ 461: 1871+10	013B' C9      	                ret
  462:				;
- 463:				; Panic if file is not open.
- 464: 1854+20	012B' DDCB2446	                bit FCBR_FL_OPEN_BIT, (ix + FCBR_FLAGS)
- 465: 1874+10+7	012F' CC0000  	                call z, panic
- 466:				;
- 467:				; Set DMA address to buffer in FCBR structure.
- 468: 1884+15	0132' DDE5    	                push ix
- 469: 1899+10	0134' E1      	                pop hl
- 470: 1909+10	0135' 112600  	                ld de, FCBR_RBUFF
- 471: 1919+11	0138' 19      	                add hl, de
- 472: 1930+4	0139' EB      	                ex de, hl
- 473:				; DE - record buffer address.
- 474: 1934+7	013A' 0E1A    	                ld c, BDOS_SET_DMA_ADDR ; Set DMA Address
- 475: 1941+17	013C' CD0000  	                call cbdos
- 476:				;
- 477:				; Perform the read.
- 478: 1958+15	013F' DDE5    	                push ix
- 479: 1973+10	0141' D1      	                pop de
- 480: 1983+7	0142' 0E14    	                ld c, BDOS_READ_SEQ     ; Read Sequential
- 481: 1990+17	0144' CD0000  	                call cbdos
- 482: 2007+4	0147' A7      	                and a
- 483: 2011+7+5	0148' 2808    	                jr z, rdr_exit          ; Return if OK (carry = 0)
- 484: 2018+7	014A' FE01    	                cp BDOS_READ_SEQ_EOF
- 485: 2025+7+5	014C' 2803    	                jr z, rdr_error         ; Return with EOF error
- 486:				; BDOS returned an error. EOF is not really an error, so nothing is displayed
- 487:				; in this case.
- 488: 2032+17	014E' CDCF02  	                call fdsrem             ; Display sequential write error message
- 489: 2049+4	0151' 37      	rdr_error       scf                     ; Flag error
+ 463:				;
+ 464:				; Read a record from the file to the record buffer and report any errors to the
+ 465:				; console.
+ 466:				; Call with:
+ 467:				; IX - pointer to FCB (or FCBR structure)
+ 468:				; Returns with:
+ 469:				; A - BDOS error code if carry = 1 (e.g. BDOS_READ_SEQ_EOF)
+ 470:				; Carry flag is set if BDOS reported an error.
+ 471:				; IX is preserved.
+ 472:				;
+ 473:				; Panic if we are using byte streams and a block write is attempted. A check
+ 474:				; that the file is open is performed later.
+ 475: 1881+20	013C' DDCB2456	frdrec          bit FCBR_FL_BYTES_BIT, (ix + FCBR_FLAGS)
+ 476: 1901+10+7	0140' C40000  	                call nz, panic
+ 477:				; Flag that we are using record access.
+ 478: 1911+23	0143' DDCB24DE	                set FCBR_FL_RECS_BIT, (ix + FCBR_FLAGS)
+ 479:				;
+ 480:				; Entry point for internal use by the byte stream code.
+ 481: 1934+11	0147' C5      	frdrec_raw      push bc
+ 482: 1945+11	0148' D5      	                push de
+ 483: 1956+11	0149' E5      	                push hl
+ 484:				;
+ 485:     -	0000'         	                ifdef DEBUG
+ 489:				                endif
  490:				;
- 491:				; Return with carry set and BDOS error code in A on error.
- 492: 2053+10	0152' E1      	rdr_exit        pop hl
- 493: 2063+10	0153' D1      	                pop de
- 494: 2073+10	0154' C1      	                pop bc
- 495: 2083+10	0155' C9      	                ret
- 496:				;
- 497:				;
- 498:				; Read byte from file and report any errors to the console.
- 499:				; Call with:
- 500:				; IX - pointer FCBR structure
- 501:				; Returns with:
- 502:				; A - BDOS error code if carry = 1 (e.g. BDOS_READ_SEQ_EOF) or byte if
- 503:				; carry = 0
- 504:				; Carry flag is set if BDOS reported an error.
- 505:				; IX is preserved.
- 506: 2093+11	0156' C5      	frdby           push bc
- 507: 2104+11	0157' D5      	                push de
- 508: 2115+11	0158' E5      	                push hl
- 509:				;
- 510: 2126+20	0159' DDCB244E	                bit FCBR_FL_DIRTY_BIT, (ix + FCBR_FLAGS)
- 511: 2146+7+5	015D' 2809    	                jr z, rdb_clean
- 512:				;
- 513:				; We would be reading over write data, which is almost certainly not what
- 514:				; was intended.
- 515: 2153+10	015F' 210604  	                ld hl, dirty_err_msg    ; "Buffer is dirty!"
- 516: 2163+17	0162' CD0000  	                call conwms         ; Print $-terminated string to console
- 517: 2180+4	0165' 37      	                scf                 ; Flag error
- 518: 2184+12	0166' 1824    	                jr rdb_exit
- 519:				;
- 520:				; Is there any data in the buffer?
- 521: 2196+19	0168' DD7E25  	rdb_clean       ld a, (ix + FCBR_CONTENTS)
- 522: 2215+4	016B' A7      	                and a
- 523: 2219+7+5	016C' 2009    	                jr nz, rdb_fetch
+ 491:				; Panic if file is not open.
+ 492: 1967+20	014A' DDCB2446	                bit FCBR_FL_OPEN_BIT, (ix + FCBR_FLAGS)
+ 493: 1987+10+7	014E' CC0000  	                call z, panic
+ 494:				;
+ 495:				; Set DMA address to buffer in FCBR structure.
+ 496: 1997+15	0151' DDE5    	                push ix
+ 497: 2012+10	0153' E1      	                pop hl
+ 498: 2022+10	0154' 112600  	                ld de, FCBR_RBUFF
+ 499: 2032+11	0157' 19      	                add hl, de
+ 500: 2043+4	0158' EB      	                ex de, hl
+ 501:				; DE - record buffer address.
+ 502: 2047+7	0159' 0E1A    	                ld c, BDOS_SET_DMA_ADDR ; Set DMA Address
+ 503: 2054+17	015B' CD0000  	                call cbdos
+ 504:				;
+ 505:				; Perform the read.
+ 506: 2071+15	015E' DDE5    	                push ix
+ 507: 2086+10	0160' D1      	                pop de
+ 508: 2096+7	0161' 0E14    	                ld c, BDOS_READ_SEQ     ; Read Sequential
+ 509: 2103+17	0163' CD0000  	                call cbdos
+ 510: 2120+4	0166' A7      	                and a
+ 511: 2124+7+5	0167' 2808    	                jr z, rdr_exit          ; Return if OK (carry = 0)
+ 512: 2131+7	0169' FE01    	                cp BDOS_READ_SEQ_EOF
+ 513: 2138+7+5	016B' 2803    	                jr z, rdr_error         ; Return with EOF error
+ 514:				; BDOS returned an error. EOF is not really an error, so nothing is displayed
+ 515:				; in this case.
+ 516: 2145+17	016D' CD1303  	                call fdsrem             ; Display sequential read error message
+ 517: 2162+4	0170' 37      	rdr_error       scf                     ; Flag error
+ 518:				;
+ 519:				; Return with carry set and BDOS error code in A on error.
+ 520: 2166+10	0171' E1      	rdr_exit        pop hl
+ 521: 2176+10	0172' D1      	                pop de
+ 522: 2186+10	0173' C1      	                pop bc
+ 523: 2196+10	0174' C9      	                ret
  524:				;
- 525:				; The buffer is empty, so read a record.
- 526: 2226+17	016E' CD2801  	                call frdrec             ; Read record from file
- 527: 2243+7+5	0171' 3819    	                jr c, rdb_exit          ; Exit on error
- 528: 2250+19	0173' DD362580	                ld (ix + FCBR_CONTENTS), CPM_SECTOR_SIZE
- 529:				;
- 530:				; Find address in record buffer.
- 531: 2269+15	0177' DDE5    	rdb_fetch       push ix
- 532: 2284+10	0179' E1      	                pop hl
- 533: 2294+10	017A' 112600  	                ld de, FCBR_RBUFF
- 534: 2304+11	017D' 19      	                add hl, de              ; Add buffer start
- 535: 2315+7	017E' 3E80    	                ld a, CPM_SECTOR_SIZE
- 536: 2322+19	0180' DD9625  	                sub (ix + FCBR_CONTENTS)
- 537: 2341+4	0183' 5F      	                ld e, a
- 538: 2345+7	0184' 1600    	                ld d, 0
- 539: 2352+11	0186' 19      	                add hl, de              ; Add bytes in buffer
- 540: 2363+7	0187' 7E      	                ld a, (hl)              ; Fetch byte
- 541: 2370+23	0188' DD3525  	                dec (ix + FCBR_CONTENTS)    ; One fewer bytes in buffer
- 542:				;
- 543:				; Exit with success flag.
- 544: 2393+4	018B' A7      	rdb_ok          and a
- 545:				;
- 546:				; Return with carry set on error and byte or BDOS error code in A.
- 547: 2397+10	018C' E1      	rdb_exit        pop hl
- 548: 2407+10	018D' D1      	                pop de
- 549: 2417+10	018E' C1      	                pop bc
- 550: 2427+10	018F' C9      	                ret
- 551:				;
- 552:				;
- 553:				; Read an arbitrary length block from a file and report any errors to the
- 554:				; console. Reading will continue until the maximum length is reached or the
- 555:				; BDOS reports EOF. The file must be open before calling this routine. The
- 556:				; data read follows on from any previous byte reads. No translation is
- 557:				; performed, so the memory block will be a binary copy of the file. This will
- 558:				; include any EOF (^Z) characters.
- 559:				; Call with:
- 560:				; BC - maximum length of block (0 or more bytes)
- 561:				; HL - start of block
- 562:				; IX - pointer to FCBR structure
- 563:				; Returns with:
- 564:				; A - BDOS error code if carry = 1 (e.g. BDOS_READ_SEQ_EOF)
- 565:				; BC - number of bytes read
- 566:				; Carry flag is set if BDOS reported an error.
- 567:				; IX is preserved.
- 568: 2437+11	0190' D5      	frdblk          push de
- 569:				;
- 570:     -	0000'         	                ifdef DEBUG
- 586:				                endif
- 587:				;
- 588: 2448+10	0191' 110000  	                ld de, 0                ; Counter
+ 525:				;
+ 526:				; Read byte from file and report any errors to the console.
+ 527:				; Call with:
+ 528:				; IX - pointer FCBR structure
+ 529:				; Returns with:
+ 530:				; A - BDOS error code if carry = 1 (e.g. BDOS_READ_SEQ_EOF) or byte if
+ 531:				; carry = 0
+ 532:				; Carry flag is set if BDOS reported an error.
+ 533:				; IX is preserved.
+ 534: 2206+11	0175' C5      	frdby           push bc
+ 535: 2217+11	0176' D5      	                push de
+ 536: 2228+11	0177' E5      	                push hl
+ 537:				;
+ 538:				; Panic if file is not open.
+ 539: 2239+20	0178' DDCB2446	                bit FCBR_FL_OPEN_BIT, (ix + FCBR_FLAGS)
+ 540: 2259+10+7	017C' CC0000  	                call z, panic
+ 541:				; Panic if we are using record access, as we can't mix the two.
+ 542: 2269+20	017F' DDCB245E	                bit FCBR_FL_RECS_BIT, (ix + FCBR_FLAGS)
+ 543: 2289+10+7	0183' C40000  	                call nz, panic
+ 544:				; Flag that we are using byte access.
+ 545: 2299+23	0186' DDCB24D6	                set FCBR_FL_BYTES_BIT, (ix + FCBR_FLAGS)
+ 546:				;
+ 547: 2322+20	018A' DDCB244E	                bit FCBR_FL_DIRTY_BIT, (ix + FCBR_FLAGS)
+ 548: 2342+7+5	018E' 2809    	                jr z, rdb_clean
+ 549:				;
+ 550:				; We would be reading over write data, which is almost certainly not what
+ 551:				; was intended.
+ 552: 2349+10	0190' 214A04  	                ld hl, dirty_err_msg    ; "Buffer is dirty!"
+ 553: 2359+17	0193' CD0000  	                call conwms         ; Print $-terminated string to console
+ 554: 2376+4	0196' 37      	                scf                 ; Flag error
+ 555: 2380+12	0197' 1824    	                jr rdb_exit
+ 556:				;
+ 557:				; Is there any data in the buffer?
+ 558: 2392+19	0199' DD7E25  	rdb_clean       ld a, (ix + FCBR_CONTENTS)
+ 559: 2411+4	019C' A7      	                and a
+ 560: 2415+7+5	019D' 2009    	                jr nz, rdb_fetch
+ 561:				;
+ 562:				; The buffer is empty, so read a record.
+ 563: 2422+17	019F' CD4701  	                call frdrec_raw         ; Read record from file
+ 564: 2439+7+5	01A2' 3819    	                jr c, rdb_exit          ; Exit on error
+ 565: 2446+19	01A4' DD362580	                ld (ix + FCBR_CONTENTS), CPM_SECTOR_SIZE
+ 566:				;
+ 567:				; Find address in record buffer.
+ 568: 2465+15	01A8' DDE5    	rdb_fetch       push ix
+ 569: 2480+10	01AA' E1      	                pop hl
+ 570: 2490+10	01AB' 112600  	                ld de, FCBR_RBUFF
+ 571: 2500+11	01AE' 19      	                add hl, de              ; Add buffer start
+ 572: 2511+7	01AF' 3E80    	                ld a, CPM_SECTOR_SIZE
+ 573: 2518+19	01B1' DD9625  	                sub (ix + FCBR_CONTENTS)
+ 574: 2537+4	01B4' 5F      	                ld e, a
+ 575: 2541+7	01B5' 1600    	                ld d, 0
+ 576: 2548+11	01B7' 19      	                add hl, de              ; Add bytes in buffer
+ 577: 2559+7	01B8' 7E      	                ld a, (hl)              ; Fetch byte
+ 578: 2566+23	01B9' DD3525  	                dec (ix + FCBR_CONTENTS)    ; One fewer bytes in buffer
+ 579:				;
+ 580:				; Exit with success flag.
+ 581: 2589+4	01BC' A7      	rdb_ok          and a
+ 582:				;
+ 583:				; Return with carry set on error and byte or BDOS error code in A.
+ 584: 2593+10	01BD' E1      	rdb_exit        pop hl
+ 585: 2603+10	01BE' D1      	                pop de
+ 586: 2613+10	01BF' C1      	                pop bc
+ 587: 2623+10	01C0' C9      	                ret
+ 588:				;
  589:				;
- 590: 2458+4	0194' 78      	rblk_loop       ld a, b
- 591: 2462+4	0195' B1      	                or c
- 592: 2466+7+5	0196' 280B    	                jr z, rblk_exit         ; Exit if all done (carry = 0)
- 593:				; Read a byte.
- 594: 2473+17	0198' CD5601  	                call frdby
- 595: 2490+7+5	019B' 3806    	                jr c, rblk_exit         ; Exit on error
- 596: 2497+7	019D' 77      	                ld (hl), a
- 597: 2504+6	019E' 23      	                inc hl
- 598: 2510+6	019F' 13      	                inc de                  ; Count bytes read
- 599: 2516+6	01A0' 0B      	                dec bc
- 600: 2522+12	01A1' 18F1    	                jr rblk_loop
- 601:				;
- 602:				; Return with carry set and BDOS error code in A on error.
- 603: 2534+4	01A3' 42      	rblk_exit       ld b, d                 ; Copy bytes read to BC
- 604: 2538+4	01A4' 4B      	                ld c, e
- 605: 2542+10	01A5' D1      	                pop de
- 606: 2552+10	01A6' C9      	                ret
- 607:				;
- 608:				;
- 609:				; Close an open file and report any errors to the console. If the file is
- 610:				; already closed, no action is taken.
- 611:				; Call with:
- 612:				; IX - pointer to FCBR structure
- 613:				; Returns with:
- 614:				; A - BDOS error code if carry = 1
- 615:				; Carry flag is set if BDOS reported an error.
- 616:				; IX is preserved.
- 617: 2562+11	01A7' C5      	fclose          push bc
- 618: 2573+11	01A8' D5      	                push de
- 619: 2584+11	01A9' E5      	                push hl
- 620:				;
- 621:				; Exit if file is not open.
- 622: 2595+20	01AA' DDCB2446	                bit FCBR_FL_OPEN_BIT, (ix + FCBR_FLAGS)
- 623: 2615+7+5	01AE' 281C    	                jr z, cf_exit           ; Return with carry = 0
- 624:				
- 625:     -	0000'         	                ifdef DEBUG
- 629:				                endif
- 630:				;
- 631:				; Does the buffer contain unwritten write data? If so, pad with ^Z until the
- 632:				; record is written.
- 633: 2622+20	01B0' DDCB244E	cf_pad_loop     bit FCBR_FL_DIRTY_BIT, (ix + FCBR_FLAGS)
- 634: 2642+7+5	01B4' 2809    	                jr z, cf_clean
- 635:				; Pad record with ^Z. When the buffer is full, fwrby will write it and flag the
- 636:				; buffer clean.
- 637: 2649+7	01B6' 3E1A    	                ld a, FILE_EOF
- 638: 2656+17	01B8' CDE500  	                call fwrby              ; Write byte to file
- 639: 2673+7+5	01BB' 3817    	                jr c, cf_close_err      ; Exit on error
- 640: 2680+12	01BD' 18F1    	                jr cf_pad_loop
- 641:				;
- 642:				; Close the file.
- 643: 2692+15	01BF' DDE5    	cf_clean        push ix
- 644: 2707+10	01C1' D1      	                pop de
- 645: 2717+7	01C2' 0E10    	                ld c, BDOS_CLOSE_FILE   ; Close File
- 646: 2724+17	01C4' CD0000  	                call cbdos
- 647: 2741+7	01C7' FEFF    	                cp 0xff
- 648: 2748+7+5	01C9' 2809    	                jr z, cf_close_err      ; Jump on error
- 649:				;
- 650:     -	0000'         	                ifdef DEBUG
- 654:				                endif
- 655: 2755+4	01CB' A7      	                and a                   ; Flag success (carry = 0)
- 656:				;
- 657:				; Return with carry set and BDOS error code in A on error.
- 658: 2759+23	01CC' DDCB2486	cf_exit         res FCBR_FL_OPEN_BIT, (ix + FCBR_FLAGS) ; Mark file closed
- 659: 2782+10	01D0' E1      	                pop hl
- 660: 2792+10	01D1' D1      	                pop de
- 661: 2802+10	01D2' C1      	                pop bc
- 662: 2812+10	01D3' C9      	                ret
- 663:				;
- 664:				; File close error.
- 665: 2822+11	01D4' F5      	cf_close_err    push af                 ; Save BDOS error code
- 666: 2833+10	01D5' 213903  	                ld hl, close_err_msg    ; "Can't close file"
- 667: 2843+17	01D8' CD0000  	                call conwms             ; Print $-terminated string to console
- 668: 2860+10	01DB' F1      	                pop af
- 669: 2870+4	01DC' 37      	                scf                     ; Flag error
- 670: 2874+12	01DD' 18ED    	                jr cf_exit
- 671:				;
- 672:				;
- 673:				; Display File Control Block (FCB). This is mainly for use when debugging.
- 674:				; Unlike fdnam, all name characters are printed.
- 675:				; "D:12345678.123, EX: xx, S1: xx, S2: xx, RC: xx"
- 676:				; "AL: 00 11 22 33 44 55 66 77 88 99 AA BB CC DD EE FF"
- 677:				; "CR: xx, Rec: 00 11 22"
- 678:				; Call with:
- 679:				; IX - pointer to FCB (or FCBR structure)
- 680:				; Returns with:
- 681:				; IX is preserved.
- 682: 2886+11	01DF' C5      	fdfcb           push bc
- 683: 2897+11	01E0' D5      	                push de
- 684: 2908+11	01E1' E5      	                push hl
- 685:				;
- 686: 2919+15	01E2' DDE5    	                push ix
- 687: 2934+10	01E4' E1      	                pop hl
- 688:				; HL - FCB pointer.
- 689:				
- 690:				; Drive. 0 for default, 1-16 for A-P.
- 691: 2944+7	01E5' 7E      	                ld a, (hl)              ; Drive. 0 for default, 1-16 for A-P
- 692: 2951+6	01E6' 23      	                inc hl
- 693: 2957+4	01E7' A7      	                and a
- 694: 2961+7+5	01E8' 2004    	                jr nz, dfcb_drv_ndef    ; Jump if not default drive
- 695:				; Default drive.
- 696: 2968+7	01EA' 3E20    	                ld a, " "
- 697: 2975+12	01EC' 1802    	                jr dfcb_prnt_drive
- 698:				; Drive specified.
- 699: 2987+7	01EE' C640    	dfcb_drv_ndef   add "A" - 1             ; Convert to letter
- 700: 2994+7	01F0' 0E3F    	dfcb_prnt_drive ld c, '?'               ; Substitution character
- 701: 3001+17	01F2' CD0000  	                call cwvich             ; Print only visible 7-bit characters
- 702: 3018+7	01F5' 3E3A    	                ld a, ":"               ; Separator
- 703: 3025+17	01F7' CD0000  	                call conwch             ; Write character to console
- 704:				;
- 705:				; Filename
- 706: 3042+7	01FA' 0608    	                ld b, FILENAME_SIZE
- 707: 3049+7	01FC' 7E      	dfcb_name_loop  ld a, (hl)              ; Fetch character
- 708: 3056+6	01FD' 23      	                inc hl
- 709: 3062+17	01FE' CD0000  	                call cwvich             ; Print only visible 7-bit characters
- 710: 3079+8+5	0201' 10F9    	                djnz dfcb_name_loop
- 711:				;
- 712: 3087+7	0203' 3E2E    	                ld a, "."               ; Separator
- 713: 3094+17	0205' CD0000  	                call conwch             ; Write character to console
- 714:				;
- 715:				; Type (extension).
- 716: 3111+7	0208' 0603    	                ld b, FILEEXT_SIZE
- 717: 3118+7	020A' 7E      	dfcb_ext_loop   ld a, (hl)              ; Fetch character
- 718: 3125+6	020B' 23      	                inc hl
- 719: 3131+17	020C' CD0000  	                call cwvich             ; Print only visible 7-bit characters
- 720: 3148+8+5	020F' 10F9    	                djnz dfcb_ext_loop
- 721:				;
- 722: 3156+10	0211' 111F04  	                ld de, dfcb_msgs        ; Point to text
- 723:				; DE - pointer to text
- 724:				; HL - pointer to data in FCB
+ 590:				; Read an arbitrary length block from a file and report any errors to the
+ 591:				; console. Reading will continue until the maximum length is reached or the
+ 592:				; BDOS reports EOF. The file must be open before calling this routine. The
+ 593:				; data read follows on from any previous byte reads. No translation is
+ 594:				; performed, so the memory block will be a binary copy of the file. This will
+ 595:				; include any EOF (^Z) characters.
+ 596:				; Call with:
+ 597:				; BC - maximum length of block (0 or more bytes)
+ 598:				; HL - start of block
+ 599:				; IX - pointer to FCBR structure
+ 600:				; Returns with:
+ 601:				; A - BDOS error code if carry = 1 (e.g. BDOS_READ_SEQ_EOF)
+ 602:				; BC - number of bytes read
+ 603:				; Carry flag is set if BDOS reported an error.
+ 604:				; IX is preserved.
+ 605: 2633+11	01C1' D5      	frdblk          push de
+ 606:				;
+ 607:     -	0000'         	                ifdef DEBUG
+ 623:				                endif
+ 624:				;
+ 625: 2644+10	01C2' 110000  	                ld de, 0                ; Counter
+ 626:				;
+ 627: 2654+4	01C5' 78      	rblk_loop       ld a, b
+ 628: 2658+4	01C6' B1      	                or c
+ 629: 2662+7+5	01C7' 280B    	                jr z, rblk_exit         ; Exit if all done (carry = 0)
+ 630:				; Read a byte.
+ 631: 2669+17	01C9' CD7501  	                call frdby
+ 632: 2686+7+5	01CC' 3806    	                jr c, rblk_exit         ; Exit on error
+ 633: 2693+7	01CE' 77      	                ld (hl), a
+ 634: 2700+6	01CF' 23      	                inc hl
+ 635: 2706+6	01D0' 13      	                inc de                  ; Count bytes read
+ 636: 2712+6	01D1' 0B      	                dec bc
+ 637: 2718+12	01D2' 18F1    	                jr rblk_loop
+ 638:				;
+ 639:				; Return with carry set and BDOS error code in A on error.
+ 640: 2730+4	01D4' 42      	rblk_exit       ld b, d                 ; Copy bytes read to BC
+ 641: 2734+4	01D5' 4B      	                ld c, e
+ 642: 2738+10	01D6' D1      	                pop de
+ 643: 2748+10	01D7' C9      	                ret
+ 644:				;
+ 645:				;
+ 646:				; Close an open file and report any errors to the console. If the file is
+ 647:				; already closed, no action is taken.
+ 648:				; Call with:
+ 649:				; IX - pointer to FCBR structure
+ 650:				; Returns with:
+ 651:				; A - BDOS error code if carry = 1
+ 652:				; Carry flag is set if BDOS reported an error.
+ 653:				; IX is preserved.
+ 654: 2758+11	01D8' C5      	fclose          push bc
+ 655: 2769+11	01D9' D5      	                push de
+ 656: 2780+11	01DA' E5      	                push hl
+ 657:				;
+ 658:				; Exit if file is not open.
+ 659: 2791+20	01DB' DDCB2446	                bit FCBR_FL_OPEN_BIT, (ix + FCBR_FLAGS)
+ 660: 2811+7+5	01DF' 281B    	                jr z, cf_exit_ok        ; Return with carry = 0
+ 661:				
+ 662:     -	0000'         	                ifdef DEBUG
+ 666:				                endif
+ 667:				;
+ 668:				; Does the buffer contain unwritten write data? If so, pad with ^Z until the
+ 669:				; record is written.
+ 670: 2818+20	01E1' DDCB244E	cf_pad_loop     bit FCBR_FL_DIRTY_BIT, (ix + FCBR_FLAGS)
+ 671: 2838+7+5	01E5' 2809    	                jr z, cf_clean
+ 672:				; Pad record with ^Z. When the buffer is full, fwrby will write it and flag the
+ 673:				; buffer clean.
+ 674: 2845+7	01E7' 3E1A    	                ld a, FILE_EOF
+ 675: 2852+17	01E9' CDE700  	                call fwrby              ; Write byte to file
+ 676: 2869+7+5	01EC' 3817    	                jr c, cf_close_err      ; Exit on error
+ 677: 2876+12	01EE' 18F1    	                jr cf_pad_loop
+ 678:				;
+ 679:				; Close the file.
+ 680: 2888+15	01F0' DDE5    	cf_clean        push ix
+ 681: 2903+10	01F2' D1      	                pop de
+ 682: 2913+7	01F3' 0E10    	                ld c, BDOS_CLOSE_FILE   ; Close File
+ 683: 2920+17	01F5' CD0000  	                call cbdos
+ 684: 2937+7	01F8' FEFF    	                cp 0xff
+ 685: 2944+7+5	01FA' 2809    	                jr z, cf_close_err      ; Jump on error
+ 686:				;
+ 687:     -	0000'         	                ifdef DEBUG
+ 691:				                endif
+ 692: 2951+4	01FC' A7      	cf_exit_ok      and a                   ; Flag success (carry = 0)
+ 693:				;
+ 694:				; Return with carry set and BDOS error code in A on error.
+ 695: 2955+23	01FD' DDCB2486	cf_exit         res FCBR_FL_OPEN_BIT, (ix + FCBR_FLAGS) ; Mark file closed
+ 696:				;
+ 697: 2978+10	0201' E1      	                pop hl
+ 698: 2988+10	0202' D1      	                pop de
+ 699: 2998+10	0203' C1      	                pop bc
+ 700: 3008+10	0204' C9      	                ret
+ 701:				;
+ 702:				; File close error.
+ 703: 3018+11	0205' F5      	cf_close_err    push af                 ; Save BDOS error code
+ 704: 3029+10	0206' 217D03  	                ld hl, close_err_msg    ; "Can't close file"
+ 705: 3039+17	0209' CD0000  	                call conwms             ; Print $-terminated string to console
+ 706: 3056+10	020C' F1      	                pop af
+ 707: 3066+4	020D' 37      	                scf                     ; Flag error
+ 708: 3070+12	020E' 18ED    	                jr cf_exit
+ 709:				;
+ 710:				;
+ 711:				; Clear all bus the name and user number of the FCB. Call with:
+ 712:				; IX - pointer to FCB (or FCBR structure)
+ 713: 3082+11	0210' C5      	clr_fcb         push bc
+ 714: 3093+11	0211' E5      	                push hl
+ 715:				;
+ 716: 3104+15	0212' DDE5    	                push ix
+ 717: 3119+10	0214' E1      	                pop hl
+ 718: 3129+10	0215' 010C00  	                ld bc, FCB_EX           ; Clear from EX to end
+ 719: 3139+11	0218' 09      	                add hl, bc              ; Find start address
+ 720: 3150+7	0219' 0618    	                ld b, FCB_SIZE - FCB_EX
+ 721: 3157+4	021B' AF      	                xor a
+ 722: 3161+7	021C' 77      	cfcb_clr_lp     ld (hl), a
+ 723: 3168+6	021D' 23      	                inc hl
+ 724: 3174+8+5	021E' 10FC    	                djnz cfcb_clr_lp
  725:				;
- 726:				; Current extent.
- 727: 3166+4	0214' 37      	                scf                     ; Display ", " prefix
- 728: 3170+17	0215' CD5202  	                call dfcb_item          ; EX
- 729: 3187+4	0218' 37      	                scf
- 730: 3191+17	0219' CD5202  	                call dfcb_item          ; S1
- 731: 3208+4	021C' 37      	                scf
- 732: 3212+17	021D' CD5202  	                call dfcb_item          ; S2
- 733: 3229+4	0220' 37      	                scf
- 734: 3233+17	0221' CD5202  	                call dfcb_item          ; RC
- 735:				;
- 736:				; Display associated block numbers.
- 737: 3250+11	0224' E5      	                push hl
- 738: 3261+10	0225' 211904  	                ld hl, dfcb_al_msg      ; 0x0d, 0x0a, "AL:"
- 739: 3271+17	0228' CD0000  	                call conwms             ; Print $-terminated string to console
- 740: 3288+10	022B' E1      	                pop hl
- 741:				;
- 742: 3298+7	022C' 0610    	                ld b, 16
- 743: 3305+17	022E' CD0000  	dfcb_al_data    call cwpspc             ; Print a space
- 744: 3322+7	0231' 7E      	                ld a, (hl)
- 745: 3329+17	0232' CD0000  	                call cwphby             ; Print A in hexadecimal
- 746: 3346+6	0235' 23      	                inc hl
- 747: 3352+8+5	0236' 10F6    	                djnz dfcb_al_data
- 748: 3360+17	0238' CD0000  	                call cwnwln             ; Write new line characters to console
- 749:				;
- 750: 3377+4	023B' A7      	                and a                   ; Skip ", " prefix
- 751: 3381+17	023C' CD5202  	                call dfcb_item          ; CR
- 752: 3398+4	023F' 37      	                scf
- 753: 3402+17	0240' CD5202  	                call dfcb_item          ; R0
- 754: 3419+4	0243' 37      	                scf
- 755: 3423+17	0244' CD5202  	                call dfcb_item          ; R1
- 756: 3440+4	0247' 37      	                scf
- 757: 3444+17	0248' CD5202  	                call dfcb_item          ; R2
- 758:				;
- 759: 3461+17	024B' CD0000  	                call cwnwln             ; Write new line characters to console
- 760: 3478+10	024E' E1      	                pop hl
- 761: 3488+10	024F' D1      	                pop de
- 762: 3498+10	0250' C1      	                pop bc
- 763: 3508+10	0251' C9      	                ret
- 764:				;
- 765:				; Display accopanying text and next byte. Used by dfcb. Call with:
- 766:				; DE - pointer to text
- 767:				; HL - pointer to data in FCB
- 768:				; Carry flag - set to display preceding ", ".
- 769:				; Returns with DE and HL advanced to next item.
- 770: 3518+11	0252' C5      	dfcb_item       push bc
- 771:				;
- 772: 3529+7+5	0253' 3008    	                jr nc, dfcb_pref_done   ; Skip prefix if appropriate
- 773: 3536+7	0255' 3E2C    	                ld a, ","
- 774: 3543+17	0257' CD0000  	                call conwch             ; Write character to console
- 775: 3560+17	025A' CD0000  	                call cwpspc             ; Print a space
- 776: 3577+4	025D' EB      	dfcb_pref_done  ex de, hl
- 777: 3581+7	025E' 0E7C    	                ld c, "|"               ; Text separator
- 778: 3588+7	0260' 7E      	dfcb_item_loop  ld a, (hl)
- 779: 3595+6	0261' 23      	                inc hl
- 780: 3601+4	0262' B9      	                cp c
- 781: 3605+7+5	0263' 2805    	                jr z, dfcb_name_done
- 782: 3612+17	0265' CD0000  	                call conwch             ; Write character to console
- 783: 3629+12	0268' 18F6    	                jr dfcb_item_loop
- 784: 3641+7	026A' 3E3A    	dfcb_name_done  ld a, ":"
- 785: 3648+17	026C' CD0000  	                call conwch             ; Write character to console
- 786: 3665+17	026F' CD0000  	                call cwpspc             ; Print a space
- 787: 3682+4	0272' EB      	                ex de, hl
- 788:				;
- 789:				; Text and separators written. Print the data.
- 790: 3686+7	0273' 7E      	                ld a, (hl)
- 791: 3693+6	0274' 23      	                inc hl
- 792: 3699+17	0275' CD0000  	                call cwphby             ; Print A in hexadecimal
+ 726: 3182+10	0220' E1      	                pop hl
+ 727: 3192+10	0221' C1      	                pop bc
+ 728: 3202+10	0222' C9      	                ret
+ 729:				;
+ 730:				;
+ 731:				; Display File Control Block (FCB). This is mainly for use when debugging.
+ 732:				; Unlike fdnam, all name characters are printed.
+ 733:				; "D:12345678.123, EX: xx, S1: xx, S2: xx, RC: xx"
+ 734:				; "AL: 00 11 22 33 44 55 66 77 88 99 AA BB CC DD EE FF"
+ 735:				; "CR: xx, Rec: 00 11 22"
+ 736:				; Call with:
+ 737:				; IX - pointer to FCB (or FCBR structure)
+ 738:				; Returns with:
+ 739:				; IX is preserved.
+ 740: 3212+11	0223' C5      	fdfcb           push bc
+ 741: 3223+11	0224' D5      	                push de
+ 742: 3234+11	0225' E5      	                push hl
+ 743:				;
+ 744: 3245+15	0226' DDE5    	                push ix
+ 745: 3260+10	0228' E1      	                pop hl
+ 746:				; HL - FCB pointer.
+ 747:				
+ 748:				; Drive. 0 for default, 1-16 for A-P.
+ 749: 3270+7	0229' 7E      	                ld a, (hl)              ; Drive. 0 for default, 1-16 for A-P
+ 750: 3277+6	022A' 23      	                inc hl
+ 751: 3283+4	022B' A7      	                and a
+ 752: 3287+7+5	022C' 2004    	                jr nz, dfcb_drv_ndef    ; Jump if not default drive
+ 753:				; Default drive.
+ 754: 3294+7	022E' 3E20    	                ld a, " "
+ 755: 3301+12	0230' 1802    	                jr dfcb_prnt_drive
+ 756:				; Drive specified.
+ 757: 3313+7	0232' C640    	dfcb_drv_ndef   add "A" - 1             ; Convert to letter
+ 758: 3320+7	0234' 0E3F    	dfcb_prnt_drive ld c, '?'               ; Substitution character
+ 759: 3327+17	0236' CD0000  	                call cwvich             ; Print only visible 7-bit characters
+ 760: 3344+7	0239' 3E3A    	                ld a, ":"               ; Separator
+ 761: 3351+17	023B' CD0000  	                call conwch             ; Write character to console
+ 762:				;
+ 763:				; Filename
+ 764: 3368+7	023E' 0608    	                ld b, FILENAME_SIZE
+ 765: 3375+7	0240' 7E      	dfcb_name_loop  ld a, (hl)              ; Fetch character
+ 766: 3382+6	0241' 23      	                inc hl
+ 767: 3388+17	0242' CD0000  	                call cwvich             ; Print only visible 7-bit characters
+ 768: 3405+8+5	0245' 10F9    	                djnz dfcb_name_loop
+ 769:				;
+ 770: 3413+7	0247' 3E2E    	                ld a, "."               ; Separator
+ 771: 3420+17	0249' CD0000  	                call conwch             ; Write character to console
+ 772:				;
+ 773:				; Type (extension).
+ 774: 3437+7	024C' 0603    	                ld b, FILEEXT_SIZE
+ 775: 3444+7	024E' 7E      	dfcb_ext_loop   ld a, (hl)              ; Fetch character
+ 776: 3451+6	024F' 23      	                inc hl
+ 777: 3457+17	0250' CD0000  	                call cwvich             ; Print only visible 7-bit characters
+ 778: 3474+8+5	0253' 10F9    	                djnz dfcb_ext_loop
+ 779:				;
+ 780: 3482+10	0255' 116304  	                ld de, dfcb_msgs        ; Point to text
+ 781:				; DE - pointer to text
+ 782:				; HL - pointer to data in FCB
+ 783:				;
+ 784:				; Current extent.
+ 785: 3492+4	0258' 37      	                scf                     ; Display ", " prefix
+ 786: 3496+17	0259' CD9602  	                call dfcb_item          ; EX
+ 787: 3513+4	025C' 37      	                scf
+ 788: 3517+17	025D' CD9602  	                call dfcb_item          ; S1
+ 789: 3534+4	0260' 37      	                scf
+ 790: 3538+17	0261' CD9602  	                call dfcb_item          ; S2
+ 791: 3555+4	0264' 37      	                scf
+ 792: 3559+17	0265' CD9602  	                call dfcb_item          ; RC
  793:				;
- 794: 3716+10	0278' C1      	                pop bc
- 795: 3726+10	0279' C9      	                ret
- 796:				;
- 797:				;
- 798:				; Display filename (only) from File Control Block (FCB). The drive letter is
- 799:				; included and trailing spaces are omitted. If no drive letter is specified,
- 800:				; the default (current) drive is shown. Example: A:FOO.TXT
- 801:				; Call with:
- 802:				; IX - pointer to FCB (or FCBR structure)
- 803:				; Returns with:
- 804:				; IX is preserved.
- 805: 3736+11	027A' C5      	fdnam           push bc
- 806: 3747+11	027B' E5      	                push hl
+ 794:				; Display associated block numbers.
+ 795: 3576+11	0268' E5      	                push hl
+ 796: 3587+10	0269' 215D04  	                ld hl, dfcb_al_msg      ; 0x0d, 0x0a, "AL:"
+ 797: 3597+17	026C' CD0000  	                call conwms             ; Print $-terminated string to console
+ 798: 3614+10	026F' E1      	                pop hl
+ 799:				;
+ 800: 3624+7	0270' 0610    	                ld b, 16
+ 801: 3631+17	0272' CD0000  	dfcb_al_data    call cwpspc             ; Print a space
+ 802: 3648+7	0275' 7E      	                ld a, (hl)
+ 803: 3655+17	0276' CD0000  	                call cwphby             ; Print A in hexadecimal
+ 804: 3672+6	0279' 23      	                inc hl
+ 805: 3678+8+5	027A' 10F6    	                djnz dfcb_al_data
+ 806: 3686+17	027C' CD0000  	                call cwnwln             ; Write new line characters to console
  807:				;
- 808: 3758+15	027C' DDE5    	                push ix
- 809: 3773+10	027E' E1      	                pop hl
- 810:				; HL - FCB pointer.
- 811:				;
- 812:				; Drive. 0 for default, 1-16 for A-P.
- 813: 3783+7	027F' 7E      	                ld a, (hl)              ; Drive. 0 for default, 1-16 for A-P
- 814: 3790+6	0280' 23      	                inc hl
- 815: 3796+4	0281' A7      	                and a
- 816: 3800+7+5	0282' 2006    	                jr nz, dfnm_drv_ndef    ; Jump if not default drive
- 817:				; Default drive. CDISK logs the current default drive (in bits 0-3, 0 being A:
- 818:				; and 1 being B:, etc) and the current user (in bits 4-7).
- 819: 3807+13	0284' 3A0400  	                ld a, (CDISK)
- 820: 3820+7	0287' E60F    	                and 0x0f                ; Isolate default drive
- 821: 3827+4	0289' 3C      	                inc a                   ; Change base to 1 to match FCB
- 822:				; A - drive
- 823: 3831+7	028A' C640    	dfnm_drv_ndef   add "A" - 1             ; Convert to letter
- 824: 3838+7	028C' 0E3F    	                ld c, '?'               ; Substitution character
- 825: 3845+17	028E' CD0000  	                call cwvich             ; Print only visible 7-bit characters
- 826: 3862+7	0291' 3E3A    	                ld a, ":"               ; Separator
- 827: 3869+17	0293' CD0000  	                call conwch             ; Write character to console
- 828:				;
- 829:				; Filename. Find last non-space character.
- 830:				; HL - points to first character of name.
- 831: 3886+7	0296' 0E08    	                ld c, FILENAME_SIZE
- 832: 3893+17	0298' CDAF02  	                call dfnm_name          ; Display filename
- 833:				;
- 834: 3910+7	029B' 3E2E    	                ld a, "."               ; Separator
- 835: 3917+17	029D' CD0000  	                call conwch             ; Write character to console
- 836:				;
- 837:				; Find address of extension.
- 838: 3934+15	02A0' DDE5    	                push ix
- 839: 3949+10	02A2' E1      	                pop hl
- 840: 3959+10	02A3' 010900  	                ld bc, FCB_TYP
- 841: 3969+11	02A6' 09      	                add hl, bc
- 842: 3980+7	02A7' 0E03    	                ld c, FILEEXT_SIZE
- 843: 3987+17	02A9' CDAF02  	                call dfnm_name          ; Display extension
- 844:				;
- 845: 4004+10	02AC' E1      	                pop hl
- 846: 4014+10	02AD' C1      	                pop bc
- 847: 4024+10	02AE' C9      	                ret
- 848:				;
- 849:				;
- 850:				; Write name or extension omitting trailing spaces.
- 851:				; C - maximum length of string
- 852:				; HL - pointer to start of string
- 853:				; B register is not preserved.
- 854: 4034+11	02AF' E5      	dfnm_name       push hl                 ; Save start address
- 855: 4045+7	02B0' 0600    	                ld b, 0
- 856: 4052+11	02B2' 09      	                add hl, bc              ; Add length
- 857:				; HL - points to last character + 1
- 858: 4063+4	02B3' 41      	                ld b, c
- 859: 4067+6	02B4' 2B      	dfnm_scan_loop  dec hl
- 860: 4073+7	02B5' 7E      	                ld a, (hl)
- 861: 4080+7	02B6' FE20    	                cp " "
- 862: 4087+7+5	02B8' 2002    	                jr nz, dfnm_scan_end    ; Jump if non-space found
- 863: 4094+8+5	02BA' 10F8    	                djnz dfnm_scan_loop
- 864:				; Now write out the string
- 865:				; B - length of string without trailing spaces. Zero indicates a null string.
- 866: 4102+10	02BC' E1      	dfnm_scan_end   pop hl                  ; Point to start of name again
- 867: 4112+4	02BD' 04      	                inc b                   ; Add offset for first pass
- 868: 4116+12	02BE' 1805    	                jr dfnm_name_strt
- 869: 4128+7	02C0' 7E      	dfnm_name_loop  ld a, (hl)              ; Fetch character
- 870: 4135+6	02C1' 23      	                inc hl
- 871: 4141+17	02C2' CD0000  	                call cwvich             ; Print only visible 7-bit characters
- 872: 4158+8+5	02C5' 10F9    	dfnm_name_strt  djnz dfnm_name_loop
- 873:				;
- 874: 4166+10	02C7' C9      	                ret
- 875:				;
- 876:				;
- 877:				; Display Sequential Write Error Message.
- 878:				; Writes an appropriate message according to a return code from BDOS_WRITE_SEQ.
- 879:				; Nothing is displayed if A = 0x00 (success code).
- 880:				; Call with:
- 881:				; A - BDOS_WRITE_SEQ return code
- 882: 4176+11	02C8' C5      	fdswem          push bc
- 883: 4187+11	02C9' E5      	                push hl
- 884:				;
- 885: 4198+10	02CA' 213704  	                ld hl, dswe_code_table
- 886: 4208+12	02CD' 1805    	                jr dserr_common         ; Continue with common code
- 887:				;
- 888:				;
- 889:				; Display Sequential Read Error Message.
- 890:				; Writes an appropriate message according to a return code from BDOS_READ_SEQ.
- 891:				; Nothing is displayed if A = 0x00 (success code).
- 892:				; Call with:
- 893:				; A - BDOS_READ_SEQ return code
- 894: 4220+11	02CF' C5      	fdsrem          push bc
- 895: 4231+11	02D0' E5      	                push hl
- 896:				;
- 897: 4242+10	02D1' 214604  	                ld hl, dsre_code_table
- 898:				;
- 899:				; Common code for fdswem and fdsrem.
- 900:				; A - BDOS return code
- 901:				; HL - pointer to code conversion table
- 902: 4252+4	02D4' A7      	dserr_common    and a
- 903: 4256+7+5	02D5' 2820    	                jr z, dserr_exit        ; Ignore success codes
- 904:				; Unfortunately, the codes are not consecutive. Convert them into a linear
- 905:				; sequence using a lookup table.
- 906: 4263+4	02D7' 4F      	                ld c, a                 ; Save original code
- 907: 4267+7	02D8' 7E      	dserr_conv_loop ld a, (hl)
- 908: 4274+6	02D9' 23      	                inc hl
- 909: 4280+4	02DA' A7      	                and a
- 910: 4284+7+5	02DB' 2806    	                jr z, dserr_unknown     ; Jump if terminator found
- 911: 4291+4	02DD' B9      	                cp c
- 912: 4295+7+5	02DE' 280B    	                jr z, dserr_match       ; Jump on match
- 913: 4302+6	02E0' 23      	                inc hl                  ; Skip second code in each pair
- 914: 4308+12	02E1' 18F5    	                jr dserr_conv_loop
- 915:				;
- 916:				; Code not found in table.
- 917: 4320+10	02E3' 21C304  	dserr_unknown   ld hl, dse_unkn_msg     ; "Unknown read / write error"
- 918: 4330+17	02E6' CD0000  	                call conwms             ; Print $-terminated string to console
- 919: 4347+12	02E9' 180C    	                jr dserr_exit
- 920:				;
- 921:				; HL - pointer to required message number.
- 922: 4359+7	02EB' 7E      	dserr_match     ld a, (hl)
- 923: 4366+7	02EC' 0E7C    	                ld c, "|"               ; Separator
- 924: 4373+10	02EE' 215104  	                ld hl, dserr_err_msgs
- 925: 4383+17	02F1' CD0000  	                call conwmn             ; Print message <n> in a list
- 926: 4400+17	02F4' CD0000  	                call cwnwln             ; Write new line characters to console
- 927:				;
- 928: 4417+10	02F7' E1      	dserr_exit      pop hl
- 929: 4427+10	02F8' C1      	                pop bc
- 930: 4437+10	02F9' C9      	                ret
+ 808: 3703+4	027F' A7      	                and a                   ; Skip ", " prefix
+ 809: 3707+17	0280' CD9602  	                call dfcb_item          ; CR
+ 810: 3724+4	0283' 37      	                scf
+ 811: 3728+17	0284' CD9602  	                call dfcb_item          ; R0
+ 812: 3745+4	0287' 37      	                scf
+ 813: 3749+17	0288' CD9602  	                call dfcb_item          ; R1
+ 814: 3766+4	028B' 37      	                scf
+ 815: 3770+17	028C' CD9602  	                call dfcb_item          ; R2
+ 816:				;
+ 817: 3787+17	028F' CD0000  	                call cwnwln             ; Write new line characters to console
+ 818: 3804+10	0292' E1      	                pop hl
+ 819: 3814+10	0293' D1      	                pop de
+ 820: 3824+10	0294' C1      	                pop bc
+ 821: 3834+10	0295' C9      	                ret
+ 822:				;
+ 823:				; Display accompanying text and next byte. Used by dfcb. Call with:
+ 824:				; DE - pointer to text
+ 825:				; HL - pointer to data in FCB
+ 826:				; Carry flag - set to display preceding ", ".
+ 827:				; Returns with DE and HL advanced to next item.
+ 828: 3844+11	0296' C5      	dfcb_item       push bc
+ 829:				;
+ 830: 3855+7+5	0297' 3008    	                jr nc, dfcb_pref_done   ; Skip prefix if appropriate
+ 831: 3862+7	0299' 3E2C    	                ld a, ","
+ 832: 3869+17	029B' CD0000  	                call conwch             ; Write character to console
+ 833: 3886+17	029E' CD0000  	                call cwpspc             ; Print a space
+ 834: 3903+4	02A1' EB      	dfcb_pref_done  ex de, hl
+ 835: 3907+7	02A2' 0E7C    	                ld c, "|"               ; Text separator
+ 836: 3914+7	02A4' 7E      	dfcb_item_loop  ld a, (hl)
+ 837: 3921+6	02A5' 23      	                inc hl
+ 838: 3927+4	02A6' B9      	                cp c
+ 839: 3931+7+5	02A7' 2805    	                jr z, dfcb_name_done
+ 840: 3938+17	02A9' CD0000  	                call conwch             ; Write character to console
+ 841: 3955+12	02AC' 18F6    	                jr dfcb_item_loop
+ 842: 3967+7	02AE' 3E3A    	dfcb_name_done  ld a, ":"
+ 843: 3974+17	02B0' CD0000  	                call conwch             ; Write character to console
+ 844: 3991+17	02B3' CD0000  	                call cwpspc             ; Print a space
+ 845: 4008+4	02B6' EB      	                ex de, hl
+ 846:				;
+ 847:				; Text and separators written. Print the data.
+ 848: 4012+7	02B7' 7E      	                ld a, (hl)
+ 849: 4019+6	02B8' 23      	                inc hl
+ 850: 4025+17	02B9' CD0000  	                call cwphby             ; Print A in hexadecimal
+ 851:				;
+ 852: 4042+10	02BC' C1      	                pop bc
+ 853: 4052+10	02BD' C9      	                ret
+ 854:				;
+ 855:				;
+ 856:				; Display filename (only) from File Control Block (FCB). The drive letter is
+ 857:				; included and trailing spaces are omitted. If no drive letter is specified,
+ 858:				; the default (current) drive is shown. Example: A:FOO.TXT
+ 859:				; Call with:
+ 860:				; IX - pointer to FCB (or FCBR structure)
+ 861:				; Returns with:
+ 862:				; IX is preserved.
+ 863: 4062+11	02BE' C5      	fdnam           push bc
+ 864: 4073+11	02BF' E5      	                push hl
+ 865:				;
+ 866: 4084+15	02C0' DDE5    	                push ix
+ 867: 4099+10	02C2' E1      	                pop hl
+ 868:				; HL - FCB pointer.
+ 869:				;
+ 870:				; Drive. 0 for default, 1-16 for A-P.
+ 871: 4109+7	02C3' 7E      	                ld a, (hl)              ; Drive. 0 for default, 1-16 for A-P
+ 872: 4116+6	02C4' 23      	                inc hl
+ 873: 4122+4	02C5' A7      	                and a
+ 874: 4126+7+5	02C6' 2006    	                jr nz, dfnm_drv_ndef    ; Jump if not default drive
+ 875:				; Default drive. CDISK logs the current default drive (in bits 0-3, 0 being A:
+ 876:				; and 1 being B:, etc) and the current user (in bits 4-7).
+ 877: 4133+13	02C8' 3A0400  	                ld a, (CDISK)
+ 878: 4146+7	02CB' E60F    	                and 0x0f                ; Isolate default drive
+ 879: 4153+4	02CD' 3C      	                inc a                   ; Change base to 1 to match FCB
+ 880:				; A - drive
+ 881: 4157+7	02CE' C640    	dfnm_drv_ndef   add "A" - 1             ; Convert to letter
+ 882: 4164+7	02D0' 0E3F    	                ld c, '?'               ; Substitution character
+ 883: 4171+17	02D2' CD0000  	                call cwvich             ; Print only visible 7-bit characters
+ 884: 4188+7	02D5' 3E3A    	                ld a, ":"               ; Separator
+ 885: 4195+17	02D7' CD0000  	                call conwch             ; Write character to console
+ 886:				;
+ 887:				; Filename. Find last non-space character.
+ 888:				; HL - points to first character of name.
+ 889: 4212+7	02DA' 0E08    	                ld c, FILENAME_SIZE
+ 890: 4219+17	02DC' CDF302  	                call dfnm_name          ; Display filename
+ 891:				;
+ 892: 4236+7	02DF' 3E2E    	                ld a, "."               ; Separator
+ 893: 4243+17	02E1' CD0000  	                call conwch             ; Write character to console
+ 894:				;
+ 895:				; Find address of extension.
+ 896: 4260+15	02E4' DDE5    	                push ix
+ 897: 4275+10	02E6' E1      	                pop hl
+ 898: 4285+10	02E7' 010900  	                ld bc, FCB_TYP
+ 899: 4295+11	02EA' 09      	                add hl, bc
+ 900: 4306+7	02EB' 0E03    	                ld c, FILEEXT_SIZE
+ 901: 4313+17	02ED' CDF302  	                call dfnm_name          ; Display extension
+ 902:				;
+ 903: 4330+10	02F0' E1      	                pop hl
+ 904: 4340+10	02F1' C1      	                pop bc
+ 905: 4350+10	02F2' C9      	                ret
+ 906:				;
+ 907:				;
+ 908:				; Write name or extension omitting trailing spaces.
+ 909:				; C - maximum length of string
+ 910:				; HL - pointer to start of string
+ 911:				; B register is not preserved.
+ 912: 4360+11	02F3' E5      	dfnm_name       push hl                 ; Save start address
+ 913: 4371+7	02F4' 0600    	                ld b, 0
+ 914: 4378+11	02F6' 09      	                add hl, bc              ; Add length
+ 915:				; HL - points to last character + 1
+ 916: 4389+4	02F7' 41      	                ld b, c
+ 917: 4393+6	02F8' 2B      	dfnm_scan_loop  dec hl
+ 918: 4399+7	02F9' 7E      	                ld a, (hl)
+ 919: 4406+7	02FA' FE20    	                cp " "
+ 920: 4413+7+5	02FC' 2002    	                jr nz, dfnm_scan_end    ; Jump if non-space found
+ 921: 4420+8+5	02FE' 10F8    	                djnz dfnm_scan_loop
+ 922:				; Now write out the string
+ 923:				; B - length of string without trailing spaces. Zero indicates a null string.
+ 924: 4428+10	0300' E1      	dfnm_scan_end   pop hl                  ; Point to start of name again
+ 925: 4438+4	0301' 04      	                inc b                   ; Add offset for first pass
+ 926: 4442+12	0302' 1805    	                jr dfnm_name_strt
+ 927: 4454+7	0304' 7E      	dfnm_name_loop  ld a, (hl)              ; Fetch character
+ 928: 4461+6	0305' 23      	                inc hl
+ 929: 4467+17	0306' CD0000  	                call cwvich             ; Print only visible 7-bit characters
+ 930: 4484+8+5	0309' 10F9    	dfnm_name_strt  djnz dfnm_name_loop
  931:				;
- 932:				;
+ 932: 4492+10	030B' C9      	                ret
  933:				;
- 934:				; *************
- 935:				; * Constants *
- 936:				; *************
- 937:				;
- 938:				;
- 939:     -	02FA' 44656C65	del_msg         byte "Deleting file", 0x0d, 0x0a, "$"
+ 934:				;
+ 935:				; Display Sequential Write Error Message.
+ 936:				; Writes an appropriate message according to a return code from BDOS_WRITE_SEQ.
+ 937:				; Nothing is displayed if A = 0x00 (success code).
+ 938:				; Call with:
+ 939:				; A - BDOS_WRITE_SEQ return code
+ 940: 4502+11	030C' C5      	fdswem          push bc
+ 941: 4513+11	030D' E5      	                push hl
+ 942:				;
+ 943: 4524+10	030E' 217B04  	                ld hl, dswe_code_table
+ 944: 4534+12	0311' 1805    	                jr dserr_common         ; Continue with common code
+ 945:				;
+ 946:				;
+ 947:				; Display Sequential Read Error Message.
+ 948:				; Writes an appropriate message according to a return code from BDOS_READ_SEQ.
+ 949:				; Nothing is displayed if A = 0x00 (success code).
+ 950:				; Call with:
+ 951:				; A - BDOS_READ_SEQ return code
+ 952: 4546+11	0313' C5      	fdsrem          push bc
+ 953: 4557+11	0314' E5      	                push hl
+ 954:				;
+ 955: 4568+10	0315' 218A04  	                ld hl, dsre_code_table
+ 956:				;
+ 957:				; Common code for fdswem and fdsrem.
+ 958:				; A - BDOS return code
+ 959:				; HL - pointer to code conversion table
+ 960: 4578+4	0318' A7      	dserr_common    and a
+ 961: 4582+7+5	0319' 2820    	                jr z, dserr_exit        ; Ignore success codes
+ 962:				; Unfortunately, the codes are not consecutive. Convert them into a linear
+ 963:				; sequence using a lookup table.
+ 964: 4589+4	031B' 4F      	                ld c, a                 ; Save original code
+ 965: 4593+7	031C' 7E      	dserr_conv_loop ld a, (hl)
+ 966: 4600+6	031D' 23      	                inc hl
+ 967: 4606+4	031E' A7      	                and a
+ 968: 4610+7+5	031F' 2806    	                jr z, dserr_unknown     ; Jump if terminator found
+ 969: 4617+4	0321' B9      	                cp c
+ 970: 4621+7+5	0322' 280B    	                jr z, dserr_match       ; Jump on match
+ 971: 4628+6	0324' 23      	                inc hl                  ; Skip second code in each pair
+ 972: 4634+12	0325' 18F5    	                jr dserr_conv_loop
+ 973:				;
+ 974:				; Code not found in table.
+ 975: 4646+10	0327' 210705  	dserr_unknown   ld hl, dse_unkn_msg     ; "Unknown read / write error"
+ 976: 4656+17	032A' CD0000  	                call conwms             ; Print $-terminated string to console
+ 977: 4673+12	032D' 180C    	                jr dserr_exit
+ 978:				;
+ 979:				; HL - pointer to required message number.
+ 980: 4685+7	032F' 7E      	dserr_match     ld a, (hl)
+ 981: 4692+7	0330' 0E7C    	                ld c, "|"               ; Separator
+ 982: 4699+10	0332' 219504  	                ld hl, dserr_err_msgs
+ 983: 4709+17	0335' CD0000  	                call conwmn             ; Print message <n> in a list
+ 984: 4726+17	0338' CD0000  	                call cwnwln             ; Write new line characters to console
+ 985:				;
+ 986: 4743+10	033B' E1      	dserr_exit      pop hl
+ 987: 4753+10	033C' C1      	                pop bc
+ 988: 4763+10	033D' C9      	                ret
+ 989:				;
+ 990:				;
+ 991:				;
+ 992:				; *************
+ 993:				; * Constants *
+ 994:				; *************
+ 995:				;
+ 996:				;
+ 997:     -	033E' 44656C65	del_msg         byte "Deleting file", 0x0d, 0x0a, "$"
 	              74696E67
 	              2066696C
 	              650D0A24
- 940:     -	030A' 43616E27	delete_err_msg  byte "Can't delete file", 0x0d, 0x0a, "$"
+ 998:     -	034E' 43616E27	delete_err_msg  byte "Can't delete file", 0x0d, 0x0a, "$"
 	              74206465
 	              6C657465
 	              2066696C
 	              650D0A24
- 941:     -	031E' 436C6F73	close_msg       byte "Closing file", 0x0d, 0x0a, "$"
+ 999:     -	0362' 436C6F73	close_msg       byte "Closing file", 0x0d, 0x0a, "$"
 	              696E6720
 	              66696C65
 	              0D0A24
- 942:     -	032D' 436C6F73	closed_msg      byte "Closed OK", 0x0d, 0x0a, "$"
+1000:     -	0371' 436C6F73	closed_msg      byte "Closed OK", 0x0d, 0x0a, "$"
 	              6564204F
 	              4B0D0A24
- 943:     -	0339' 43616E27	close_err_msg   byte "Can't close file", 0x0d, 0x0a, "$"
+1001:     -	037D' 43616E27	close_err_msg   byte "Can't close file", 0x0d, 0x0a, "$"
 	              7420636C
 	              6F736520
 	              66696C65
 	              0D0A24
- 944:     -	034C' 4F70656E	open_msg        byte "Opening file", 0x0d, 0x0a, "$"
+1002:     -	0390' 4F70656E	open_msg        byte "Opening file", 0x0d, 0x0a, "$"
 	              696E6720
 	              66696C65
 	              0D0A24
- 945:     -	035B' 4F70656E	opened_msg      byte "Opened OK", 0x0d, 0x0a, "$"
+1003:     -	039F' 4F70656E	opened_msg      byte "Opened OK", 0x0d, 0x0a, "$"
 	              6564204F
 	              4B0D0A24
- 946:     -	0367' 43616E27	open_err_msg    byte "Can't open file", 0x0d, 0x0a, "$"
+1004:     -	03AB' 43616E27	open_err_msg    byte "Can't open file", 0x0d, 0x0a, "$"
 	              74206F70
 	              656E2066
 	              696C650D
 	              0A24
- 947:     -	0379' 43726561	make_msg        byte "Creating new file", 0x0d, 0x0a, "$"
+1005:     -	03BD' 43726561	make_msg        byte "Creating new file", 0x0d, 0x0a, "$"
 	              74696E67
 	              206E6577
 	              2066696C
 	              650D0A24
- 948:     -	038D' 45786973	make_del_msg    byte "Existing file deleted", 0x0d, 0x0a, "$"
+1006:     -	03D1' 45786973	make_del_msg    byte "Existing file deleted", 0x0d, 0x0a, "$"
 	              74696E67
 	              2066696C
 	              65206465
 	              6C657465
 	              640D0A24
- 949:     -	03A5' 43726561	made_msg        byte "Created OK", 0x0d, 0x0a, "$"
+1007:     -	03E9' 43726561	made_msg        byte "Created OK", 0x0d, 0x0a, "$"
 	              74656420
 	              4F4B0D0A
 	              24
- 950:     -	03B2' 43616E27	make_err_msg    byte "Can't create file", 0x0d, 0x0a, "$"
+1008:     -	03F6' 43616E27	make_err_msg    byte "Can't create file", 0x0d, 0x0a, "$"
 	              74206372
 	              65617465
 	              2066696C
 	              650D0A24
- 951:     -	03C6' 57726974	wr_rec_msg      byte "Writing record", 0x0d, 0x0a, "$"
+1009:     -	040A' 57726974	wr_rec_msg      byte "Writing record", 0x0d, 0x0a, "$"
 	              696E6720
 	              7265636F
 	              72640D0A
 	              24
- 952:     -	03D7' 57726974	wr_blk_msg      byte "Writing block $"
+1010:     -	041B' 57726974	wr_blk_msg      byte "Writing block $"
 	              696E6720
 	              626C6F63
 	              6B2024
- 953:     -	03E6' 52656164	rd_rec_msg      byte "Reading record", 0x0d, 0x0a, "$"
+1011:     -	042A' 52656164	rd_rec_msg      byte "Reading record", 0x0d, 0x0a, "$"
 	              696E6720
 	              7265636F
 	              72640D0A
 	              24
- 954:     -	03F7' 52656164	rd_blk_msg      byte "Reading block $"
+1012:     -	043B' 52656164	rd_blk_msg      byte "Reading block $"
 	              696E6720
 	              626C6F63
 	              6B2024
- 955:     -	0406' 42756666	dirty_err_msg   byte "Buffer is dirty!", 0x0d, 0x0a, "$"
+1013:     -	044A' 42756666	dirty_err_msg   byte "Buffer is dirty!", 0x0d, 0x0a, "$"
 	              65722069
 	              73206469
 	              72747921
 	              0D0A24
- 956:     -	0419' 0D0A414C	dfcb_al_msg     byte 0x0d, 0x0a, "AL:", "$"
+1014:     -	045D' 0D0A414C	dfcb_al_msg     byte 0x0d, 0x0a, "AL:", "$"
 	              3A24
- 957:     -	041F' 45587C53	dfcb_msgs       byte "EX|S1|S2|RC|CR|R0|R1|R2|"
+1015:     -	0463' 45587C53	dfcb_msgs       byte "EX|S1|S2|RC|CR|R0|R1|R2|"
 	              317C5332
 	              7C52437C
 	              43527C52
 	              307C5231
 	              7C52327C
- 958:				;
- 959:				; BDOS_WRITE_SEQ error code translation table. The first entry in each pair is the
- 960:				; BDOS error code, and the second is the corresponding message number.
- 961:     -	0437' 0100    	dswe_code_table byte 1, 0           ; Directory full
- 962:     -	0439' 0201    	                byte 2, 1           ; Disk full
- 963:     -	043B' 0802    	                byte 8, 2           ; File locked
- 964:     -	043D' 0903    	                byte 9, 3           ; Invalid FCB
- 965:     -	043F' 0A04    	                byte 10, 4          ; Media changed
- 966:     -	0441' 0B05    	                byte 11, 5          ; File verification error
- 967:     -	0443' FF06    	                byte 0xff, 6        ; Hardware error
- 968:     -	0445' 00      	                byte 0              ; Terminator
- 969:				;
- 970:				; BDOS_READ_SEQ error code translation table. Note common messages are "borrowed"
- 971:				; from BDOS_WRITE_SEQ.
- 972:     -	0446' 0107    	dsre_code_table byte 1, 7           ; End of file
- 973:     -	0448' 0903    	                byte 9, 3           ; Invalid FCB
- 974:     -	044A' 0A04    	                byte 10, 4          ; Media changed
- 975:     -	044C' 0B05    	                byte 11, 5          ; File verification error
- 976:     -	044E' FF06    	                byte 0xff, 6        ; Hardware error
- 977:     -	0450' 00      	                byte 0              ; Terminator
- 978:				;
- 979:				; BDOS_WRITE_SEQ and BDOS_READ_SEQ error messages.
- 980:     -	0451' 44697265	dserr_err_msgs  byte "Directory full|"          ; 0
+1016:				;
+1017:				; BDOS_WRITE_SEQ error code translation table. The first entry in each pair is the
+1018:				; BDOS error code, and the second is the corresponding message number.
+1019:     -	047B' 0100    	dswe_code_table byte 1, 0           ; Directory full
+1020:     -	047D' 0201    	                byte 2, 1           ; Disk full
+1021:     -	047F' 0802    	                byte 8, 2           ; File locked
+1022:     -	0481' 0903    	                byte 9, 3           ; Invalid FCB
+1023:     -	0483' 0A04    	                byte 10, 4          ; Media changed
+1024:     -	0485' 0B05    	                byte 11, 5          ; File verification error
+1025:     -	0487' FF06    	                byte 0xff, 6        ; Hardware error
+1026:     -	0489' 00      	                byte 0              ; Terminator
+1027:				;
+1028:				; BDOS_READ_SEQ error code translation table. Note common messages are "borrowed"
+1029:				; from BDOS_WRITE_SEQ.
+1030:     -	048A' 0107    	dsre_code_table byte 1, 7           ; End of file
+1031:     -	048C' 0903    	                byte 9, 3           ; Invalid FCB
+1032:     -	048E' 0A04    	                byte 10, 4          ; Media changed
+1033:     -	0490' 0B05    	                byte 11, 5          ; File verification error
+1034:     -	0492' FF06    	                byte 0xff, 6        ; Hardware error
+1035:     -	0494' 00      	                byte 0              ; Terminator
+1036:				;
+1037:				; BDOS_WRITE_SEQ and BDOS_READ_SEQ error messages.
+1038:     -	0495' 44697265	dserr_err_msgs  byte "Directory full|"          ; 0
 	              63746F72
 	              79206675
 	              6C6C7C
- 981:     -	0460' 4469736B	                byte "Disk full|"               ; 1
+1039:     -	04A4' 4469736B	                byte "Disk full|"               ; 1
 	              2066756C
 	              6C7C
- 982:     -	046A' 46696C65	                byte "File locked|"             ; 2
+1040:     -	04AE' 46696C65	                byte "File locked|"             ; 2
 	              206C6F63
 	              6B65647C
- 983:     -	0476' 496E7661	                byte "Invalid FCB|"             ; 3
+1041:     -	04BA' 496E7661	                byte "Invalid FCB|"             ; 3
 	              6C696420
 	              4643427C
- 984:     -	0482' 4D656469	                byte "Media changed|"           ; 4
+1042:     -	04C6' 4D656469	                byte "Media changed|"           ; 4
 	              61206368
 	              616E6765
 	              647C
- 985:     -	0490' 46696C65	                byte "File verification error|" ; 5
+1043:     -	04D4' 46696C65	                byte "File verification error|" ; 5
 	              20766572
 	              69666963
 	              6174696F
 	              6E206572
 	              726F727C
- 986:     -	04A8' 48617264	                byte "Hardware error|"          ; 6
+1044:     -	04EC' 48617264	                byte "Hardware error|"          ; 6
 	              77617265
 	              20657272
 	              6F727C
- 987:     -	04B7' 456E6420	                byte "End of file", 0           ; 7
+1045:     -	04FB' 456E6420	                byte "End of file", 0           ; 7
 	              6F662066
 	              696C6500
- 988:				;
- 989:     -	04C3' 556E6B6E	dse_unkn_msg    byte "Unknown read / write error", 0x0d, 0x0a, "$"
+1046:				;
+1047:     -	0507' 556E6B6E	dse_unkn_msg    byte "Unknown read / write error", 0x0d, 0x0a, "$"
 	              6F776E20
 	              72656164
 	              202F2077
@@ -1563,20 +1752,20 @@
 	              20657272
 	              6F720D0A
 	              24
- 990:				;
- 991:				;
- 992:				;
- 993:				; *************
- 994:				; * Variables *
- 995:				; *************
- 996:				;
- 997:				;
- 998:				; Note: linker "-c" option is used, so no data is initialised here.
- 999:				                dseg                ; Data segment
-1000:				;
-1001:				;blk_length      defs 2              ; Length remaining
-1002:				;
-1003:     -	0000"         	                end
+1048:				;
+1049:				;
+1050:				;
+1051:				; *************
+1052:				; * Variables *
+1053:				; *************
+1054:				;
+1055:				;
+1056:				; Note: linker "-c" option is used, so no data is initialised here.
+1057:				                dseg                ; Data segment
+1058:				;
+1059:				;blk_length      defs 2              ; Length remaining
+1060:				;
+1061:     -	0000"         	                end
 
 
 
@@ -1584,11 +1773,11 @@ Statistics:
 
      4	passes
      0	jr promotions
-   309	symbols
-  1248	bytes
+   351	symbols
+  1316	bytes
 
-   102	macro calls
-  1546	macro bytes
+   114	macro calls
+  2391	macro bytes
      0	invented symbols
 
 
@@ -1608,11 +1797,19 @@ ASCII_SUB      =1A        26
 ASCII_SYN      =16        22
 ASCII_VT       =0B        11
 BDOS           =05        5
+BDOS_CALL_RSX  =3C        60
 BDOS_CLOSE_FILE=10        16
 BDOS_CON_IN    =01        1
 BDOS_CON_OUT   =02        2
+BDOS_C_DELIMIT =6E        110
+BDOS_C_MODE    =6D        109
+BDOS_C_WRITEBLK=6F        111
 BDOS_DELETE_FILE=13        19
 BDOS_DIRECT_CON_IO=06        6
+BDOS_DISK_CLEAN=62        98
+BDOS_F_MULTISEC=2C        44
+BDOS_F_PARSE   =98        152
+BDOS_F_TRUNCATE=63        99
 BDOS_GET_ALLOC_ADDR=1B        27
 BDOS_GET_CON_STAT=0B        11
 BDOS_GET_CURR_DISK=19        25
@@ -1623,10 +1820,13 @@ BDOS_GET_LOGIN_VEC=18        24
 BDOS_GET_RO_VEC=1D        29
 BDOS_GET_SET_USER=20        32
 BDOS_LST_OUT   =05        5
+BDOS_L_WRITEBLK=70        112
 BDOS_MAKE_FILE =16        22
 BDOS_OPEN_FILE =0F        15
 BDOS_PRINT_STRING=09        9
 BDOS_PUN_OUT   =04        4
+BDOS_P_CODE    =6C        108
+BDOS_P_LOAD    =3B        59
 BDOS_RDR_IN    =03        3
 BDOS_READ_CON_BUFF=0A        10
 BDOS_READ_RANDOM=21        33
@@ -1644,11 +1844,14 @@ BDOS_SET_IO_BYTE=08        8
 BDOS_SET_RANDOM_REC=24        36
 BDOS_START     =DE06      56838
 BDOS_SYS_RST   =00        0
+BDOS_S_BIOS    =32        50
+BDOS_S_SYSVAR  =31        49
+BDOS_T_SET     =68        104
 BDOS_VERSION   =0C        12
 BDOS_WRITE_PROT=1C        28
 BDOS_WRITE_RANDOM=22        34
-BDOS_WRITE_RAN_ZFILL=28        40
 BDOS_WRITE_SEQ =15        21
+BDOS_WR_RND_ZFILL=28        40
 BIOS_AUXIST    =33        51
 BIOS_AUXOST    =36        54
 BIOS_CONIN     =06        6
@@ -1703,11 +1906,17 @@ BIOS_WRITE     =27        39
 BIOS_XMOVE     =54        84
 CCP_START      =D600      54784
 CDISK          =04        4
+CONMOD_BDOS    =00        0
+CONMOD_BIOS    =01        1
 CPMF           =01        1
 CPM_BIAS       =A200      41472
+CPM_BLOCK_SIZE = 800      2048
+CPM_DIR_ENTRIES= 200      512
 CPM_DISK_SIZE  =00100000  1048576
 CPM_SECTOR_SIZE=80        128
 CPM_SYS_SIZE   =00100000  1048576
+DCONIO_GET_NO_WT=FF        255
+DCONIO_PUT     =00        0
 DEF_BUFFER     =80        128
 DEF_BUFFER_SIZE=80        128
 DIRE_ALLOC     =10        16
@@ -1744,10 +1953,14 @@ FCB2           =6C        108
 FCBR_CONTENTS  =25        37
 FCBR_FCB       =00        0
 FCBR_FLAGS     =24        36
+FCBR_FL_BYTES_BIT=02        2
+FCBR_FL_BYTES_MASK=04        4
 FCBR_FL_DIRTY_BIT=01        1
 FCBR_FL_DIRTY_MASK=02        2
 FCBR_FL_OPEN_BIT=00        0
 FCBR_FL_OPEN_MASK=01        1
+FCBR_FL_RECS_BIT=03        3
+FCBR_FL_RECS_MASK=08        8
 FCBR_RBUFF     =26        38
 FCBR_SIZE      =A6        166
 FCB_ALLOC      =10        16
@@ -1778,8 +1991,17 @@ MTWDLI_ICASE_BIT=01        1
 MTWDLI_ICASE_MASK=02        2
 MTWDLI_TERM_BIT=07        7
 MTWDLI_TERM_MASK=80        128
-NUM_DISKS      =10        16
+NUM_DISKS      =09        9
 NUM_DISKS_MAX  =10        16
+SBM_A          =01        1
+SBM_B          =03        3
+SBM_C          =02        2
+SBM_D          =05        5
+SBM_E          =04        4
+SBM_FUNC       =00        0
+SBM_H          =07        7
+SBM_L          =06        6
+SBM_SIZE       =08        8
 TPA_START      = 100      256
 ZKEY_CSR_DOWN  =1E        30
 ZKEY_CSR_LEFT  =01        1
@@ -1793,18 +2015,24 @@ ZKEY_PAGE_DOWN =1C        28
 ZKEY_PAGE_UP   =1D        29
 cbdos           00        0 (extern)
 cbios           00        0 (extern)
-cf_clean         1BF'     447
-cf_close_err     1D4'     468
-cf_exit          1CC'     460
-cf_pad_loop      1B0'     432
-close_err_msg    339'     825
-close_msg        31E'     798
-closed_msg       32D'     813
+cf_clean         1F0'     496
+cf_close_err     205'     517
+cf_exit          1FD'     509
+cf_exit_ok       1FC'     508
+cf_pad_loop      1E1'     481
+cfcb_clr_lp      21C'     540
+clopts          00        0 (extern)
+close_err_msg    37D'     893
+close_msg        362'     866
+closed_msg       371'     881
+clr_fcb          210'     528
+conmod          00        0 (extern)
 conrch          00        0 (extern)
 const           00        0 (extern)
 conwch          00        0 (extern)
 conwmn          00        0 (extern)
 conwms          00        0 (extern)
+cpmver          00        0 (extern)
 cwnwln          00        0 (extern)
 cwpdby          00        0 (extern)
 cwpdlo          00        0 (extern)
@@ -1814,93 +2042,96 @@ cwphnb          00        0 (extern)
 cwphwd          00        0 (extern)
 cwpspc          00        0 (extern)
 cwvich          00        0 (extern)
-del_msg          2FA'     762
-delete_err_msg   30A'     778
+del_msg          33E'     830
+delete_err_msg   34E'     846
 df_error        3C'       60
 df_exit         38'       56
-dfcb_al_data     22E'     558
-dfcb_al_msg      419'     1049
-dfcb_drv_ndef    1EE'     494
-dfcb_ext_loop    20A'     522
-dfcb_item        252'     594
-dfcb_item_loop   260'     608
-dfcb_msgs        41F'     1055
-dfcb_name_done   26A'     618
-dfcb_name_loop   1FC'     508
-dfcb_pref_done   25D'     605
-dfcb_prnt_drive  1F0'     496
-dfnm_drv_ndef    28A'     650
-dfnm_name        2AF'     687
-dfnm_name_loop   2C0'     704
-dfnm_name_strt   2C5'     709
-dfnm_scan_end    2BC'     700
-dfnm_scan_loop   2B4'     692
-dirty_err_msg    406'     1030
-dse_unkn_msg     4C3'     1219
-dserr_common     2D4'     724
-dserr_conv_loop  2D8'     728
-dserr_err_msgs   451'     1105
-dserr_exit       2F7'     759
-dserr_match      2EB'     747
-dserr_unknown    2E3'     739
-dsre_code_table  446'     1094
-dswe_code_table  437'     1079
+dfcb_al_data     272'     626
+dfcb_al_msg      45D'     1117
+dfcb_drv_ndef    232'     562
+dfcb_ext_loop    24E'     590
+dfcb_item        296'     662
+dfcb_item_loop   2A4'     676
+dfcb_msgs        463'     1123
+dfcb_name_done   2AE'     686
+dfcb_name_loop   240'     576
+dfcb_pref_done   2A1'     673
+dfcb_prnt_drive  234'     564
+dfnm_drv_ndef    2CE'     718
+dfnm_name        2F3'     755
+dfnm_name_loop   304'     772
+dfnm_name_strt   309'     777
+dfnm_scan_end    300'     768
+dfnm_scan_loop   2F8'     760
+dirty_err_msg    44A'     1098
+dse_unkn_msg     507'     1287
+dserr_common     318'     792
+dserr_conv_loop  31C'     796
+dserr_err_msgs   495'     1173
+dserr_exit       33B'     827
+dserr_match      32F'     815
+dserr_unknown    327'     807
+dsre_code_table  48A'     1162
+dswe_code_table  47B'     1147
 fbfcb           05'       5 (public)
-fclose           1A7'     423 (public)
+fclose           1D8'     472 (public)
 fdel            21'       33 (public)
-fdfcb            1DF'     479 (public)
-fdnam            27A'     634 (public)
-fdsrem           2CF'     719 (public)
-fdswem           2C8'     712 (public)
+fdfcb            223'     547 (public)
+fdnam            2BE'     702 (public)
+fdsrem           313'     787 (public)
+fdswem           30C'     780 (public)
 finit           00'       0 (public)
-fmake           76'       118 (public)
+fmake           79'       121 (public)
 fopen           47'       71 (public)
-frdblk           190'     400 (public)
-frdby            156'     342 (public)
-frdrec           128'     296 (public)
-fwrblk           117'     279 (public)
-fwrby           E5'       229 (public)
-fwrrec          B3'       179 (public)
+frdblk           1C1'     449 (public)
+frdby            175'     373 (public)
+frdrec           13C'     316 (public)
+frdrec_raw       147'     327
+fwrblk           12B'     299 (public)
+fwrby           E7'       231 (public)
+fwrrec          AA'       170 (public)
+fwrrec_raw      B5'       181
+init            00        0 (extern)
 jptbl_addr     =7E        126
-made_msg         3A5'     933
-make_del_msg     38D'     909
-make_err_msg     3B2'     946
-make_msg         379'     889
-mf_delete_dn    8B'       139
-mf_error        A8'       168
-mf_exit         A4'       164
+made_msg         3E9'     1001
+make_del_msg     3D1'     977
+make_err_msg     3F6'     1014
+make_msg         3BD'     957
+mf_delete_dn    8E'       142
+mf_error        9F'       159
 mtwdli          00        0 (extern)
-of_error        67'       103
-of_exit         63'       99
-open_err_msg     367'     871
-open_msg         34C'     844
-opened_msg       35B'     859
+of_error        6E'       110
+omf_exit        6A'       106
+omf_exit_ok     60'       96
+open_err_msg     3AB'     939
+open_msg         390'     912
+opened_msg       39F'     927
 panic           00        0 (extern)
-rblk_exit        1A3'     419
-rblk_loop        194'     404
-rd_blk_msg       3F7'     1015
-rd_rec_msg       3E6'     998
-rdb_clean        168'     360
-rdb_exit         18C'     396
-rdb_fetch        177'     375
-rdb_ok           18B'     395
+rblk_exit        1D4'     468
+rblk_loop        1C5'     453
+rd_blk_msg       43B'     1083
+rd_rec_msg       42A'     1066
+rdb_clean        199'     409
+rdb_exit         1BD'     445
+rdb_fetch        1A8'     424
+rdb_ok           1BC'     444
 rddulo          00        0 (extern)
 rdduwd          00        0 (extern)
 rdhxwd          00        0 (extern)
-rdr_error        151'     337
-rdr_exit         152'     338
+rdr_error        170'     368
+rdr_exit         171'     369
 rom_ld_clr_lp   0D'       13
 skpspc          00        0 (extern)
 str_offset     =A6        166
 toloca          00        0 (extern)
 toupca          00        0 (extern)
-wblk_exit        126'     294
-wblk_loop        118'     280
-wr_blk_msg       3D7'     983
-wr_rec_msg       3C6'     966
-wrb_exit         113'     275
-wrb_ok           112'     274
-wrr_exit        DB'       219
-wrr_ok          DF'       223
+wblk_exit        13A'     314
+wblk_loop        12C'     300
+wr_blk_msg       41B'     1051
+wr_rec_msg       40A'     1034
+wrb_exit         127'     295
+wrb_ok           126'     294
+wrr_exit        DD'       221
+wrr_ok          E1'       225
 z80det          00        0 (extern)
 zrcdet          00        0 (extern)

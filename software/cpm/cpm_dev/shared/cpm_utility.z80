@@ -1,7 +1,7 @@
 ; *******************************************************
 ; * Utility Routines for CP/M Applications              *
 ; * Version: V1.0                                       *
-; * Merlin Skinner, 22/3/2021                           *
+; * Merlin Skinner-Oakes, 22/3/2021                     *
 ; *******************************************************
 ;
 ; Support routines for use with CP/M applications. Character I/O is performed
@@ -16,6 +16,7 @@
                 title Utilites
 ;
 CPMU            equ 1                   ; Flag module for includes
+;DEBUG           equ 1                   ; Enable debugging messages
 ;
 ;
 ;
@@ -42,11 +43,14 @@ CPMU            equ 1                   ; Flag module for includes
 ;
 ; Functions.
 ; CP/M specific.
+                public init     ; Common initialisation code
+                public conmod   ; Set console mode (BDOS or BIOS)
                 public cbdos    ; Call BDOS with some registers saved
                 public cbios    ; Call BIOS with some registers saved
                 public panic    ; Fatal application error
                 public zrcdet   ; Detect ZARC
                 public z80det   ; Detect Z80 (instead of 8080 / 8085)
+                public clopts   ; Read command line options
 ;
 ; Derived from the monitor's utility.z80.
                 public conwch   ; Write character to console
@@ -72,6 +76,9 @@ CPMU            equ 1                   ; Flag module for includes
                 public rdduwd   ; Read a 16-bit unsigned decimal number from a string
                 public rddulo   ; Read a 32-bit unsigned decimal number from a string
 ;
+; Variables
+                public cpmver   ; CP/M version (packed BCD)
+;
 ;
 ;
 ; ********
@@ -81,9 +88,119 @@ CPMU            equ 1                   ; Flag module for includes
 ;
                 cseg                    ; Code segment
 ;
+;
+; Common initialisation code. The initial code does not assume a Z80 so we can
+; exit cleanly if this is run on an 8080, for example.
+init            push bc
+                push de
+
+; Determine CPU type.
+                call z80det             ; Detect Z80 (instead of 8080 / 8085)
+                jp nc, it_on_z80        ; Jump if we have a Z80
+;
+; 8080 / 8085 detected. Print message and exit. We can't use conwms as this
+; assumes a Z80.
+                ld de, no_z80_msg       ; "Z80 CPU required"
+; Display message in DE and return to CP/M.
+it_msg_exit     ld c, BDOS_PRINT_STRING ; Print String
+                call BDOS
+                rst 0                   ; Warm boot
+;
+; Set console output via BDOS, at least initially.
+it_on_z80       ld a, CONMOD_BDOS
+                call conmod
+;
+; Find out which version of CP/M we are running on.
+                ld c, BDOS_VERSION      ; Return BDOS Version Number
+                call cbdos              ; Call BDOS with some registers saved
+; Returns B=H=system type, A=L=version number.
+                ld a, h                 ; MSN=CPU type, LSN=CP/M type
+                and a
+                jr nz, os_error
+; Match version against those supported. It is likely that others are OK too,
+; but I can't test all combinations.
+                ld a, l                 ; OS Version number
+                cp 0x20
+                jr z, it_cpm_ok
+                cp 0x21
+                jr z, it_cpm_ok
+                cp 0x22
+                jr z, it_cpm_ok
+                cp 0x30
+                jr z, it_cpm_ok
+                cp 0x31
+                jr z, it_cpm_ok
+;
+; Go here if we don't like or can't recognise the operating system we are
+; running on.
+os_error        ld de, unsupp_os_msg
+                jr it_msg_exit          ; Display message and exit
+;
+; We are running on a system we know about.
+it_cpm_ok       ld (cpmver), a
+;
+                pop de
+                pop bc
+                ret
+;
+;
+; Set console mode (BDOS or BIOS). Call with:
+; A - CONMOD_BDOS or CONMOD_BIOS as required.
+conmod          push de
+                push hl
+;
+                ld hl, con_bdos_funcs   ; Point to list of BDOS routines
+                cp CONMOD_BDOS
+                jr z, cm_set
+                ld hl, con_bios_funcs   ; Point to list of BIOS routines
+                cp CONMOD_BIOS
+                jr z, cm_set
+                call panic              ; Panic if value is bad
+;
+cm_set          ld de, conwch_vec       ; Point to first vector
+                ld bc, 4 * 2            ; Four vectors to copy
+                ldir
+;
+                pop hl
+                pop de
+                ret
+;
+;
 ; Call BDOS with IX and IY registers saved.
 cbdos           push ix
                 push iy
+;
+; Write BDOS call parameters to console for debugging. E.g.:
+; [BDOS 12-F_OPEN, 1DAB] 
+                ifdef DEBUG
+                    push bc
+                    push de
+                    push hl
+                    call cwnwln         ; Write new line to console
+                    ld hl, bdos_msg     ; "[BDOS "
+                    call conwms         ; Print $-terminated string to console
+                    ld a, c
+                    call cwpdby         ; Print A in decimal
+                    ld a, "-"
+                    call conwch         ; Write character to console
+                    ld a, c
+                    ld c, "\"           ; Separator
+                    ld hl, bdos_func_list
+                    call conwmn         ; Print message <n> in a list
+                    ld a, ","
+                    call conwch         ; Write character to console
+                    ld a, " "
+                    call conwch         ; Write character to console
+                    ex de, hl
+                    call cwphwd         ; Print HL in hexadecimal
+                    ld a, "]"
+                    call conwch         ; Write character to console
+                    call cwnwln         ; Write new line to console
+                    pop hl
+                    pop de
+                    pop bc
+                endif
+;
                 call BDOS
                 pop iy
                 pop ix
@@ -108,10 +225,66 @@ cbios           push ix
 ; BC - operand (depends on BIOS function called)
 ; DE - operand (depends on BIOS function called)
 ; HL - offset for the routine (e.g. BIOS_CONIN)
+; BIOS_WBOOT is not supported as it is easily replicated by a jump to 0.
 cbios_raw       push de
-                ex de, hl
+; 
+; From the CP/M 3 Programmers Guide:
+;   Under CP/M 3, direct BIOS calls via the BIOS jump vector are only supported
+;   for the BIOS Console I/O and List functions. You must use Function 50 to
+;   call any other BIOS functions. In addition, Function 50 intercepts BIOS
+;   Function 27 (Select Memory) calls and returns with register A set to zero.
+; As BDOS_S_BIOS is likely to be very slow, first ascertain whether we can use
+; the CP/M 2.x method.
+                ld a, h
+                and a
+                call nz, panic          ; BIOS jump block is < 256 bytes long
+                ld a, l
+                and a
+                call z, panic           ; BIOS_WBOOT not supported
+                cp BIOS_CONOST
+                jr z, cbios_direct      ; Use direct method
+                cp BIOS_LISTST
+                jr z, cbios_direct      ; Use direct method
+                cp BIOS_PUNCH           ; First non-direct function
+                jr c, cbios_direct      ; Use direct method
+                cp BIOS_ID              ; First ZARC extension
+                jr nc, cbios_direct     ; Use direct method
+;
+; Under CP/M 3.x we must use BDOS_S_BIOS but for CP/M 2.x we must use the direct
+; method as BDOS_S_BIOS is not supported.
+                ld a, (cpmver)          ; CP/M version (packed BCD)
+                and 0xf0                ; Isolate major version
+                cp 0x30
+                jr c, cbios_direct      ; Jump if running on earlier than 3.0
+;
+; Use BDOS_S_BIOS.
+                ld ix, cbios_params
+                ld (ix + SBM_B), b
+                ld (ix + SBM_C), c
+                pop de
+                ld (ix + SBM_D), d
+                ld (ix + SBM_E), e
+; Find function number (L / 3) + 1. This is slow, but not required that often.
+                ld b, 3
+                ld c, 1                 ; Function number
+                ld a, l
+cbios_div_lp    inc c
+                sub b
+                call c, panic
+                jr nz, cbios_div_lp
+                ld (ix + SBM_FUNC), c
+                push ix
+                pop de
+                ld c, BDOS_S_BIOS       ; Use the BIOS
+                jp BDOS                 ; Call BDOS and return to caller
+; Returned values are those directly from the BIOS.
+;
+; Jump directly to BIOS for CP/M 2.x and earlier.
+cbios_direct    ex de, hl
                 ld hl, (1)              ; Find WBOOT (warm boot) address
                 add hl, de              ; Add offset
+; BC - operand (depends on BIOS function called)
+; HL - routine entry point
                 pop de
                 jp (hl)                 ; Jump to BIOS then return to caller
 ;
@@ -205,45 +378,57 @@ conwch          push bc
                 push de
                 push hl
 ;
-; BDOS version.
-;                ld e, a
-;                ld c, BDOS_CON_OUT      ; Console output
-;                call cbdos
+                ld hl, cw_ret           ; Return to this address
+                push hl
+                ld hl, (conwch_vec)
+                jp (hl)
 ;
-; BIOS version.
-                ld c, a
-                ld hl, BIOS_CONOUT      ; Console output
-                call cbios              ; Call BIOS
-;
-                pop hl
+cw_ret          pop hl
                 pop de
                 pop bc
                 ret
 ;
+; BDOS version.
+conwch_bdos     ld e, a
+                ld c, BDOS_CON_OUT      ; Console output
+                jp cbdos
+;
+; BIOS version.
+conwch_bios     ld c, a
+                ld hl, BIOS_CONOUT      ; Console output
+                jp cbios              ; Call BIOS
+;
 ;
 ; Read character from the console. This "looks like" the monitor's routine of
-; the same name, thereby easing the use of monitor routines copied here. BIOS
-; routines are used for console I/O as this avoids unwanted echoing of input.
-; This means that the BDOS tab expansion and XON / XOFF features are not
-; available.
+; the same name, thereby easing the use of monitor routines copied here. There
+; are some differences between how the BIOS and BDOS routines behave.
+; BDOS: echoes input to the display. Processes XON / XOFF, ^P etc.
+; BIOS: raw input with no echo.
 ; Returns with:
 ; A - character.
 conrch          push bc
                 push de
                 push hl
 ;
-; BDOS version.
-;                ld c, BDOS_CON_IN       ; Console input
-;                call cbdos
+                ld hl, cr_ret           ; Return to this address
+                push hl
+                ld hl, (conrch_vec)
+                jp (hl)
 ;
-; BIOS version.
-                ld hl, BIOS_CONIN       ; Console input
-                call cbios              ; Call BIOS
-;
-                pop hl
+cr_ret          pop hl
                 pop de
                 pop bc
                 ret
+;
+; BDOS version. Note that this could be modified to use BDOS function 6 (RAWIO),
+; which would avoid the echo. However, it would also disable ^S and ^P, for
+; example.
+conrch_bdos     ld c, BDOS_CON_IN       ; Console input
+                jp cbdos
+;
+; BIOS version.
+conrch_bios     ld hl, BIOS_CONIN       ; Console input
+                jp cbios                ; Call BIOS
 ;
 ;
 ; Write new line characters to console.
@@ -254,22 +439,27 @@ cwnwln          ld a, ascii_cr
 ;
 ;
 ; Fetch the console input status. Returns with:
-; A - zero if no character is ready, 0xff if one is.
+; A - zero if no character is ready, non-zero if one is.
 const           push bc
                 push de
                 push hl
 ;
-; BDOS version.
-;                ld c, BDOS_GET_CON_STAT     ; Console status
-;                call cbdos
+                ld hl, cs_ret           ; Return to this address
+                push hl
+                ld hl, (const_vec)
+                jp (hl)
 ;
-                ld hl, BIOS_CONST       ; Console status
-                call cbios
-;
-                pop hl
+cs_ret          pop hl
                 pop de
                 pop bc
                 ret
+
+; BDOS version.
+const_bdos      ld c, BDOS_GET_CON_STAT     ; Console status
+                jp cbdos
+;
+const_bios      ld hl, BIOS_CONST       ; Console status
+                jp cbios
 ;
 ;
 ; Print "$" terminated string to the console. Note, this is different to the
@@ -280,21 +470,28 @@ const           push bc
 conwms          push bc
                 push de
 ;
-; BDOS version.
-;                ex de, hl
-;                ld c, BDOS_PRINT_STRING ; Print String
-;                call cbdos
+                ex de, hl               ; Move pointer to HL
+                ld hl, cwm_ret          ; Return to this address
+                push hl
+                ld hl, (conwms_vec)
+                jp (hl)
 ;
-cwms_loop       ld a, (hl)
-                cp "$"
-                jr z, cwms_exit
-                call conwch             ; Write character to console
-                inc hl
-                jr cwms_loop
-;
-cwms_exit       pop de
+cwm_ret         pop de
                 pop bc
                 ret
+;
+; BDOS version.
+conwms_bdos     ld c, BDOS_PRINT_STRING ; Print String
+                jp cbdos
+;
+; BIOS version.
+conwms_bios     ex de, hl
+cwsb_loop       ld a, (hl)
+                cp "$"
+                ret z
+                call conwch             ; Write character to console
+                inc hl
+                jr cwsb_loop
 ;
 ;
 ; Step HL past any spaces.
@@ -904,6 +1101,118 @@ gldn_done       pop af                  ; Restore counter
                 ret                     ; Return with carry flag reset (OK)
 ;
 ;
+; Read command line options. Up to 8 option characters are allowed.
+; Call with:
+; DE - points to a null terminated list of option characters.
+; HL - points to the current position in the command line.
+; Returns with:
+; A - option flags.
+; HL - points to first character after options and any trailing spaces.
+; C flag - set on error (malformed option string)
+; Each bit in A corresponds to one character in the options list. Bit 0 is set
+; of the first character is encountered, bit 1 for the second and so on. Options
+; may begin with "[", "/" or "$", to match all conventions I have found used
+; with CP/M. If no options are included in the command line, A will be set to
+; zero (no options set). Option characters may include any printable character
+; except space or "]". Lower case is not permitted. Duplicates are ignored.
+clopts          push bc
+;
+                ld c, 0                 ; Set default options
+; Check for options. These may begin with "[", "/" or "$", to match all
+; conventions I have found used with CP/M.
+                call skpspc             ; Skip spaces
+; Options
+                ld a, (hl)
+                ld b, a                 ; Save for later
+                and a
+                jr z, clo_end_opts      ; Jump if no options 
+                cp "["
+                jr z, clo_op_loop
+                cp "/"
+                jr z, clo_op_loop
+                cp "$"
+                jr z, clo_op_loop
+; We have found a character, but it isn't an option introducer. We return with
+; HL pointing to this character we didn't recognise.
+                and a
+                jr clo_exit             ; Exit with no options
+;
+; Option loop. Attempt to match each option character with the list of options.
+; B - option introducer character
+; C - option flags (initially zero)
+; DE - points to a null terminated list of option characters.
+; HL - pointer to command line
+clo_op_loop     inc hl
+; A terminator or space ends the option string. If the introducer is a "[",
+; a closing "]" is required.
+                ld a, "["
+                cp b
+                ld a, (hl)              ; Fetch character from command line
+                jr nz, clo_not_brktd    ; Jump if we didn't start with "["
+; Options started with a "[" so must finish with a "]".
+                and a
+                jr z, clo_err
+                cp " "
+                jr z, clo_err
+                cp "]"
+                jr nz, clo_do_opt
+                inc hl                  ; Step past "]"
+                jr clo_end_opts         ; Exit
+; Options were started with "/" or "$" so there is no explicit terminator.
+clo_not_brktd   and a
+                jr z, clo_end_opts
+                cp " "
+                jr z, clo_end_opts
+;
+; Process option character.
+clo_do_opt      ld a, (hl)              ; Re-fetch character
+                push de                 ; Save address of option characters
+                ex de, hl
+                push bc                 ; Save introducer and flags
+                ld c, a
+                ld b, 1                 ; Flag bit mask
+; B - flag bit mask
+; C - option character
+; HL - points to a null terminated list of option characters.
+; DE - pointer to command line
+clo_ch_loop     ld a, (hl)              ; Fetch option character
+                and a
+                jr z, clo_miss          ; Jump if terminator found
+                inc hl
+                cp c
+                jr z, clo_match
+                rlc b                   ; Update mask
+                call c, panic           ; Panic if too many options
+                jr clo_ch_loop
+;
+; Match found.
+clo_match       ex de, hl
+                ld a, b                 ; Mask
+                pop bc                  ; Fetch introducer and flags
+                or c                    ; Update flags
+                ld c, a
+                pop de                  ; Restore pointer to start of list
+                jr clo_op_loop          ; Process next character
+;
+; We found the terminator while searching the list of possible options.
+clo_miss        pop bc                  ; Fetch introducer and flags 
+                pop de                  ; Restore pointer to start of list
+;
+; Return with error.
+clo_err         scf                     ; Flag error
+                jr clo_exit
+;
+; Normal return.
+clo_end_opts    and a                   ; Flag OK
+clo_exit        ld a, c                 ; Move option flags to A
+                pop bc
+; Skip any trailing spaces.
+                push af
+                call skpspc             ; Skip spaces
+                pop af
+                ret
+;
+;
 ;
 ; *************
 ; * Constants *
@@ -912,8 +1221,60 @@ gldn_done       pop af                  ; Restore counter
 ;
 panic_1_msg     byte 0x0d, 0x0a, "*** Software panic at PC=", "$"
 panic_2_msg     byte " ***", 0x0d, 0x0a, "$"
-curv_seq_msg    byte 0x1b, "[?25$"
-ccls_seq_msg    byte 0x1b, "[J$"
+no_z80_msg      byte "Z80 CPU required", 0x0d, 0x0a, "$"
+unsupp_os_msg   byte "Operating system not supported", 0x0d, 0x0a, "$"
+bdos_msg        byte "[BDOS $"
+; CP/M 2 and 3 BDOS function names list for debugging. CP/M 3-only functions are
+; prefixed with "3". Where functions differ between versions, the CP/M 2
+; function is listed first followed by the CP/M 3 one. Functions not valid for
+; either system are indicated with "". Function 152 (F_PARSE) is not included
+; as it would extend the table a lot and is not something I plan to use.
+                ifdef DEBUG
+bdos_func_list      byte "P_TERMCPM\C_READ\C_WRITE\A_READ\"             ; 0-3
+                    byte "A_WRITE\L_WRITE\C_RAWIO\GETIOB/3A_STATIN\"    ; 4-7
+                    byte "SETIOB/3A_STATOUT\C_WRITESTR\C_READSTR\C_STAT\" ; 8-11
+                    byte "S_BDOSVER\DRV_ALLRESET\DRV_SET\F_OPEN\"       ; 12-15
+                    byte "F_CLOSE\F_SFIRST\F_SNEXT\F_DELETE\"           ; 16-19
+                    byte "F_READ\F_WRITE\F_MAKE\F_RENAME\"              ; 20-23
+                    byte "DRV_LOGINVEC\DRV_GET\F_DMAOFF\DRV_ALLOCVEC\"  ; 24-27
+                    byte "DRV_SETRO\DRV_ROVEC\F_ATTRIB\DRV_DPB\"        ; 28-31
+                    byte "F_USERNUM\F_READRAND\F_WRITERAND\F_SIZE\"     ; 32-35
+                    byte "F_RANDREC\DRV_RESET\\\"                       ; 36-39
+                    byte "F_WRITEZF\\\\"                                ; 40-43
+                    byte "\\\\"                                         ; 44-47
+                    byte "\3ACCSCB\3S_BIOS\\"                           ; 48-51
+                    byte "\\\\"                                         ; 52-55
+                    byte "\\\3P_LOAD\"                                  ; 56-59
+                    byte "3CALLRSX\\\\"                                 ; 60-63
+                    byte "\\\\"                                         ; 64-67
+                    byte "\\\\"                                         ; 68-71
+                    byte "\\\\"                                         ; 72-75
+                    byte "\\\\"                                         ; 76-79
+                    byte "\\\\"                                         ; 80-83
+                    byte "\\\\"                                         ; 84-87
+                    byte "\\\\"                                         ; 88-91
+                    byte "\\\\"                                         ; 92-95
+                    byte "\\3CLEANDISK\3F_TRUNCATE\"                    ; 96-99
+                    byte "\\\\"                                         ; 100-103
+                    byte "3T_SET\3T_GET\\\"                             ; 104-107
+                    byte "3P_CODE\3C_MODE\3C_DELIMIT\3C_WRITEBLK\"      ; 108-111
+                    byte "3L_WRITEBLK\"                                 ; 112
+                    byte 0
+                endif
+;
+;
+; Pointers to BDOS console routines to be copied to con_vecs when BDOS is
+; selected.
+con_bdos_funcs  word conwch_bdos
+                word conwms_bdos
+                word conrch_bdos
+                word const_bdos
+;
+; As above, but for the BIOS routines.
+con_bios_funcs  word conwch_bios
+                word conwms_bios
+                word conrch_bios
+                word const_bios
 ;
 ;
 ;
@@ -929,6 +1290,15 @@ gldn_x1         defs 4              ; Read long decimal temporary store
 pdl_reg         defs 4              ; Working store
 pdl_lz_flag     defs 1              ; Leading zero flag
 pdl_ascii       defs 1              ; ASCII digit
+cpmver          defs 1              ; CP/M version (packed BCD)
+cbios_params    defs SBM_SIZE       ; BDOS_S_BIOS parameter block
+;
+; Console routine vectors. The order must match that in con_bdos_funcs and
+; con_bios_funcs.
+conwch_vec      defs 2              ; Vector to console write routine
+conwms_vec      defs 2              ; Vector to console message write routine
+conrch_vec      defs 2              ; Vector to console read routine
+const_vec       defs 2              ; Vector to console status routine
 ;
                 end
 
