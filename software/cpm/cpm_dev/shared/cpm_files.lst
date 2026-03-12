@@ -28,11 +28,7 @@
   28:				;
   29:				;
   30:				                include "macros.i"
-<<<<<<< HEAD
 **** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/macros.i ****
-=======
-**** /home/merlin/Technical/ZARC_Z80_Box/git/software/includes//macros.i ****
->>>>>>> refs/remotes/origin/main
    1:				; ***********************************
    2:				; * ZARC Macro Definitions          *
    3:				; * Written by: Merlin Skinner      *
@@ -232,11 +228,7 @@
  197:				
 **** cpm_files.z80 ****
   31:				                include "cpm.i"
-<<<<<<< HEAD
 **** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/cpm.i ****
-=======
-**** /home/merlin/Technical/ZARC_Z80_Box/git/software/includes//cpm.i ****
->>>>>>> refs/remotes/origin/main
    1:				; *******************************************************
    2:				; * ZARC Monitor CP/M 2.2 Definitions                   *
    3:				; * Written by: Merlin Skinner                          *
@@ -563,11 +555,7 @@
  336:				
 **** cpm_files.z80 ****
   32:				                include "terminal.i"    ; Terminal constants
-<<<<<<< HEAD
 **** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/terminal.i ****
-=======
-**** /home/merlin/Technical/ZARC_Z80_Box/git/software/includes//terminal.i ****
->>>>>>> refs/remotes/origin/main
    1:				; ***********************************
    2:				; * ZARC Terminal Definitions       *
    3:				; * Written by: Merlin Skinner      *
@@ -604,11 +592,7 @@
   34:				
 **** cpm_files.z80 ****
   33:				                include "cpm_utility.i" ; CP/M utilities
-<<<<<<< HEAD
 **** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/cpm_utility.i ****
-=======
-**** /home/merlin/Technical/ZARC_Z80_Box/git/software/includes//cpm_utility.i ****
->>>>>>> refs/remotes/origin/main
    1:				; *******************************************************
    2:				; * Utility Routines for CP/M Applications              *
    3:				; * Version: V1.0                                       *
@@ -669,11 +653,7 @@
   58:				
 **** cpm_files.z80 ****
   34:				                include "cpm_files.i"   ; CP/M file handling
-<<<<<<< HEAD
 **** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/cpm_files.i ****
-=======
-**** /home/merlin/Technical/ZARC_Z80_Box/git/software/includes//cpm_files.i ****
->>>>>>> refs/remotes/origin/main
    1:				; *******************************************************
    2:				; * Utility Routines for CP/M Applications              *
    3:				; * Version: V1.0                                       *
