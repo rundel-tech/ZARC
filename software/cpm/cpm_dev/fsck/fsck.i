@@ -25,7 +25,7 @@ BDIS_CHARS_MAX  equ (VT100_ROWS / 2) * VT100_COLS ; Maximum display area for blo
 BITDEF ALLCF_UNUSED, 7                  ; Set if any allocation is unused
 BITDEF ALLCF_SPARSE, 6                  ; Set file contains a hole
 ; LS bits serve as a counter.
-ALLCF_COUNT     equ 0x0f                ; Used allocation counter
+ALLCF_COUNT     equ 0x1f                ; Used allocation counter
 ;
 ; Command line option flags. The order must match clopt_list in fsck.z80.
 BITDEF CLOPT_BUILD, 0                   ; Show build time

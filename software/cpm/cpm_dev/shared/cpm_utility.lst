@@ -24,9 +24,14 @@
   24:				; * Includes *
   25:				; ************
   26:				;
+<<<<<<< HEAD
   27:				;
   28:				                include "macros.i"
 **** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/macros.i ****
+=======
+  27:				                include "macros.i"
+**** /home/merlin/Technical/ZARC_Z80_Box/git/software/includes//macros.i ****
+>>>>>>> refs/remotes/origin/main
    1:				; ***********************************
    2:				; * ZARC Macro Definitions          *
    3:				; * Written by: Merlin Skinner      *
@@ -225,8 +230,13 @@
  196:				                endm
  197:				
 **** cpm_utility.z80 ****
+<<<<<<< HEAD
   29:				                include "z80.i"
 **** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/z80.i ****
+=======
+  28:				                include "z80.i"
+**** /home/merlin/Technical/ZARC_Z80_Box/git/software/includes//z80.i ****
+>>>>>>> refs/remotes/origin/main
    1:				; ***********************************
    2:				; * ZARC Z80 Definitions            *
    3:				; * Written by: Merlin Skinner      *
@@ -247,8 +257,13 @@
   18:     -	0066'         	Z80_NMI_VEC     equ 0x0066      ; NMI vectors
   19:				
 **** cpm_utility.z80 ****
+<<<<<<< HEAD
   30:				                include "terminal.i"    ; Terminal constants
 **** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/terminal.i ****
+=======
+  29:				                include "terminal.i"    ; Terminal constants
+**** /home/merlin/Technical/ZARC_Z80_Box/git/software/includes//terminal.i ****
+>>>>>>> refs/remotes/origin/main
    1:				; ***********************************
    2:				; * ZARC Terminal Definitions       *
    3:				; * Written by: Merlin Skinner      *
@@ -284,8 +299,13 @@
   33:     -	001C'         	ZKEY_PAGE_DOWN      equ 0x1c
   34:				
 **** cpm_utility.z80 ****
+<<<<<<< HEAD
   31:				                include "cpm.i"
 **** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/cpm.i ****
+=======
+  30:				                include "cpm.i"
+**** /home/merlin/Technical/ZARC_Z80_Box/git/software/includes//cpm.i ****
+>>>>>>> refs/remotes/origin/main
    1:				; *******************************************************
    2:				; * ZARC Monitor CP/M 2.2 Definitions                   *
    3:				; * Written by: Merlin Skinner                          *
@@ -611,8 +631,13 @@
  335:				;
  336:				
 **** cpm_utility.z80 ****
+<<<<<<< HEAD
   32:				                include "cpm_utility.i"
 **** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/cpm_utility.i ****
+=======
+  31:				                include "cpm_utility.i"
+**** /home/merlin/Technical/ZARC_Z80_Box/git/software/includes//cpm_utility.i ****
+>>>>>>> refs/remotes/origin/main
    1:				; *******************************************************
    2:				; * Utility Routines for CP/M Applications              *
    3:				; * Version: V1.0                                       *

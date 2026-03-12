@@ -1,7 +1,12 @@
 ; *******************************************************
 ; * CP/M File System Checker                            *
+<<<<<<< HEAD
 ; * Version: V1.3                                       *
 ; * Merlin Skinner-Oakes, 18/7/2023                     *
+=======
+; * Version: V1.2                                       *
+; * Merlin Skinner-Oakes, 16/2/2022                     *
+>>>>>>> refs/remotes/origin/main
 ; *******************************************************
 ;
 ; V1.0 - 16/2/2022, initial version.
@@ -10,8 +15,12 @@
 ; V1.2 - 18/6/2023, added support for interleaved discs by Chris Radek (cradek)
 ;        plus bugfixes for small disks. These resulted from Chris' tests on real
 ;        hardware with 8" disks.
+<<<<<<< HEAD
 ; V1.3 - 18/7/2023, added CP/M 3 support. Improved illegal character detection
 ;        in filenames. Use BDOS for console I/O.
+=======
+;
+>>>>>>> refs/remotes/origin/main
 ;
 ;
 ; CP/M 2.2 and 3 file system checker. It is intended for ZARC but avoids using
@@ -241,6 +250,7 @@ cver_done
                 call conwms             ; Print $-terminated string to console
                 jp exit
 ;
+<<<<<<< HEAD
 ; Copy DPH.
                 assert CP3_DPH_SIZE > DPH_SIZE
 drive_sel_ok    ld de, dph
@@ -266,6 +276,13 @@ copy_dph        ldir
                 ld hl, dph + DPH_DPB    ; CP/M 2 pointer
 ; Fetch pointer to DPB.
 dpb_ptr_fetch   ld e, (hl)
+=======
+; Find address of DPB.
+                ld (dph), hl            ; Save for later
+                ld de, DPH_DPB          ; Offset to pointer to DPB
+                add hl, de
+                ld e, (hl)              ; Fetch pointer
+>>>>>>> refs/remotes/origin/main
                 inc hl
                 ld d, (hl)
                 ld (dpb), de            ; Save for later
@@ -742,7 +759,11 @@ slf_by_alu_used inc c                   ; Keep count
                 jp c, sl_err_stop       ; Error if already used
                 bit ALLCF_UNUSED_BIT, c
                 jr z, slf_by_alu_dn     ; Jump if no unused entries encountered
+<<<<<<< HEAD
 ; This used entry is preceded by an unused one. This means we have a holed, or
+=======
+; This used entry is preceeded by an unused one. This means we have a holed, or
+>>>>>>> refs/remotes/origin/main
 ; "sparse" file.
                 set ALLCF_SPARSE_BIT, c ; Hole detected
 ;
@@ -2452,6 +2473,7 @@ ss_track_done   ld (track), hl          ; Save track for status reporting
 ; to the translation table is the same in both.
                 assert DPH_XLT = CP3_DPH_XLT
                 pop bc                  ; Fetch sector
+<<<<<<< HEAD
                 ld hl, dph + DPH_XLT    ; Put translate table pointer in DE
                 ld e, (hl)
                 inc hl
@@ -2471,6 +2493,17 @@ ss_track_done   ld (track), hl          ; Save track for status reporting
                     call cwnwln             ; Write new line characters to console
                     pop bc
                 endif
+=======
+                ld hl, (dph)            ; put translate table pointer in DE
+                ld e, (hl)
+                inc hl
+                ld d, (hl)
+                ld hl, BIOS_SECTRAN     ; ask for translation of BC (return in HL)
+                call cbios
+                ld b,h                  ; back into BC for SETSEC
+                ld c,l
+                ld (sector), bc         ; Save sector for status reporting
+>>>>>>> refs/remotes/origin/main
                 ld hl, BIOS_SETSEC      ; Set sector number
                 call cbios              ; Call BIOS with some registers saved
 ;
@@ -2491,6 +2524,7 @@ ss_track_done   ld (track), hl          ; Save track for status reporting
 ; *************
 ;
 ;
+<<<<<<< HEAD
 signon_msg      byte "*** CP/M File System Checker V"
                 byte MAJ_VER + "0", ".", MIN_VER + "0"
                 byte " ***", 0x0d, 0x0a
@@ -2502,6 +2536,12 @@ op_err_msg      byte "Operand error. Expected format: fsck <drive>[:] [/<options
                 byte 0x0d, 0x0a
                 byte "V=verbose, B=show build information and exit"
                 byte 0x0d, 0x0a, "$"
+=======
+signon_msg      byte "*** CP/M File System Checker V1.2 ***", 0x0d, 0x0a, 0x0d, 0x0a, "$"
+no_z80_msg      byte "Z80 CPU required", 0x0d, 0x0a, "$"
+op_err_msg      byte "Operand error. Expected format: fsck <drive>[:] [/s]", 0x0d, 0x0a, "$"
+exit_msg        byte "Returning to CP/M.", 0x0d, 0x0a, "$"
+>>>>>>> refs/remotes/origin/main
 memory_msg      byte "Insufficient memory", 0x0d, 0x0a, "$"
 sel_err_msg     byte "Can't select drive", 0x0d, 0x0a, "$"
 disk_err_msg    byte "Disk I/O error", 0x0d, 0x0a, "$"
@@ -2623,6 +2663,11 @@ free_start      defs 2              ; First free location
 loaded_sector   defs 2              ; Currently loaded sector
 dir_blocks      defs 1              ; Number of blocks used by the directory
 phys_extent     defs 2              ; Calculated physical extent
+<<<<<<< HEAD
+=======
+dph             defs 2              ; Pointer to Disk Parameter Header (DPH_xxx)
+dpb             defs 2              ; Pointer to Disk Parameter Block (DPB_xxx)
+>>>>>>> refs/remotes/origin/main
 dire            defs 2              ; Pointer to directory entry structure (DIRE_xxx)
 fie             defs 2              ; Pointer to file information structure (FI_xxx)
 dir_entry_num   defs 2              ; Directory entry number being processed
