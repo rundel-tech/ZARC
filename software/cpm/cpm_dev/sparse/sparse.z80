@@ -1,0 +1,247 @@
+; *******************************************************
+; * CP/M Sparse File Generator                          *
+; * Version: V1.0                                       *
+; * Merlin Skinner-Oakes, 5/4/2026                      *
+; *******************************************************
+;
+; V1.0 - 16/2/2022, initial version.
+;
+;
+; This programme generates a single "sparse" file call SPARSE.TST. This allows
+; the behaviour of CP/M and its associated utilities to be investigated with
+; such files. The main purpose is to allow debugging of my FSCK application.
+; Though written for my ZARC retro-computer project, this should run on any
+; CP/M system. Changing the file name or blocks written requires changing the
+; source and re-assembly.
+;
+                title CP/M Sparse File Generator
+;
+;
+;
+; ************
+; * Includes *
+; ************
+;
+;
+                include "macros.i"
+                include "cpm.i"
+                include "cpm3.i"
+                include "memory.i"
+                include "terminal.i"    ; Terminal constants
+                include "sparse.i"        ; Project include file
+                include "cpm_utility.i" ; CP/M utilities
+                include "cpm_terminal.i"; Terminal control
+                include "cpm_top.i"     ; CP/M dummy top module
+;
+;
+;
+; *************
+; * Externals *
+; *************
+;
+;
+; Variables
+                extern btime    ; Build time string
+;
+;
+;
+; *************
+; * Main Code *
+; *************
+;
+;
+; The CP/M transient area start address is set in the linker invocation (see
+; makefile).
+                cseg                    ; Code segment
+;
+; The default stack space is very small (8 deep), which would almost certainly
+; cause issues, particularly with interrupts running. The initial code should
+; not assume a Z80 so we can exit cleanly if this is run on an 8080, for
+; example.
+                ld (bdos_sp), sp
+                ld sp, app_stack_top    ; Switch to our stack space
+;
+                call init               ; Common initialisation code
+;
+; We won't print the sign-on message yet so it can be suppressed by a q
+; ("quiet") option.
+;
+; Clear variables area
+                ld hl, clr_start        ; Start address
+                ld b, clr_end - clr_start
+                xor a
+clr_loop        ld (hl), a
+                inc hl
+                djnz clr_loop
+;
+; Examine the command tail, looking for operands. This is stored in the default
+; buffer. "The first byte at 0080H contains the length of the command tail,
+; while the command tail itself begins at 0081H. The command tail is terminated
+; by a byte containing a binary zero value."
+; (http://www.cpm.z80.de/manuals/cpm22-m.pdf appendix H).
+                ld hl, DEF_BUFFER + 1
+                call skpspc             ; Skip spaces
+;
+; Check for options. These may begin with "[", "/" or "$", to match all
+; conventions I have found used with CP/M.
+op_options      ld de, clopt_list       ; Null-terminated list of options
+                call clopts             ; Read command line options
+                jr c, op_error          ; Error on bad options
+                ld (clopt_flags), a
+;
+; HL - points to first character after options and any trailing spaces.
+; The terminator should follow.
+                ld a, (hl)
+                and a
+                jr z, clopt_term
+;
+; Go here if we don't like the operands supplied.
+op_error        ld hl, signon_msg       ; Sign on.
+                call conwms             ; Print $-terminated string to console
+; As above, but with no sign-on.
+op_err_no_sign  ld hl, op_err_msg
+                jp msg_exit
+;
+; Command line terminator found. Sign on unless "quiet" is selected.
+clopt_term      ld hl, signon_msg       ; Sign on.
+                call conwms             ; Print $-terminated string to console
+;
+; Show build information if requested, then exit.
+; Note that the build time string will be overwritten once the programme starts
+; storing data at fstfre, but this is OK as long as we exit after displaying
+; the string.
+                ld a, (clopt_flags)     ; Fetch command line options
+                and CLOPT_BUILD_MASK
+                jr z, no_build
+;
+                ld hl, btime            ; Build time string
+                call conwms             ; Print $-terminated string to console
+                call cwnwln             ; Write new line characters to console
+                jp exit
+;
+no_build        
+;
+; Delete any previous file.
+                ld de, fcb              ; File Control Block
+                ld c, BDOS_DELETE_FILE
+                call cbdos              ; Call BDOS with some registers saved
+;
+; Make output file.
+                ld de, fcb              ; File Control Block
+                ld c, BDOS_MAKE_FILE
+                call cbdos              ; Call BDOS with some registers saved
+                ld hl, nodir_msg        ; "No directory space"
+                inc a                   ; 255 becomes 0
+                jp z, msg_exit          ; done if no dir space
+;
+; Set DMA address to point to test data.
+                ld de, test_data
+                ld c, BDOS_SET_DMA_ADDR
+                call cbdos              ; Call BDOS with some registers saved
+;
+; Set record number.
+                ld hl, fcb + FCB_RECORD
+                ld (hl), 0
+                inc hl
+                ld (hl), 0
+                inc hl
+                ld (hl), 0
+;
+; Write record.
+                ld de, fcb              ; File Control Block
+                ld c, BDOS_WRITE_RANDOM
+                call cbdos              ; Call BDOS with some registers saved
+                ld hl, wr_err_msg       ; "Write record error"
+                inc a                   ; 255 becomes 0
+                jp z, msg_exit          ; done if no dir space
+;
+; Set record number.
+                ld hl, fcb + FCB_RECORD
+                ld (hl), 32
+                inc hl
+                ld (hl), 0
+                inc hl
+                ld (hl), 0
+;
+; Write record.
+                ld de, fcb              ; File Control Block
+                ld c, BDOS_WRITE_RANDOM
+                call cbdos              ; Call BDOS with some registers saved
+                ld hl, wr_err_msg       ; "Write record error"
+                inc a                   ; 255 becomes 0
+                jp z, msg_exit          ; done if no dir space
+;
+; Close file
+                ld de, fcb              ; File Control Block
+                ld c, BDOS_CLOSE_FILE
+                call cbdos              ; Call BDOS with some registers saved
+                ld hl, wrprot_msg       ; "Write protected?"
+                inc a                   ; 255 becomes 0
+                jp z, msg_exit          ; Should not happen
+;
+; Normal exit
+                ld hl, normal_msg       ; "File created"
+;
+; Print message pointed to by HL, then exit.
+msg_exit        call conwms             ; Print $-terminated string to console
+;
+; Return to CP/M.
+exit            ld sp, (bdos_sp)
+; This is a small application so we can just return.
+                ret                     ; Return to BDOS
+;                jp 0                    ; Warm boot
+;
+;
+;
+; *************
+; * Constants *
+; *************
+;
+;
+signon_msg      byte "*** CP/M Sparse File Generator V"
+                byte MAJ_VER + "0", ".", MIN_VER + "0"
+                byte " ***", 0x0d, 0x0a
+                byte 0x0d, 0x0a, "$"
+clopt_list      byte "B", 0        ; List of option characters 
+op_err_msg      byte "Operand error. Expected format: sparse [/<options>]"
+                byte 0x0d, 0x0a
+                byte "options: B=show build information and exit"
+                byte 0x0d, 0x0a, "$"
+nodir_msg       byte "No directory space$"
+wrprot_msg      byte "Write protected?$"
+wr_err_msg      byte "Write record error$"
+normal_msg      byte "File created$"
+;
+fcb             byte 0, "SPARSE  TST", 0, 0, 0, 0
+                dc 16, 0
+                byte 0              ; Current record
+                dc 3, 0             ; Random record number
+                assert $ = fcb + FCB_SIZE
+;
+test_data       byte "Lorem ipsum dolor sit amet, consectetur adipiscing elit. "
+                byte "Nam imperdiet metus eget felis vulputate, sit amet "
+                byte "feugiat urna sapien."
+                assert $ = test_data + CPM_SECTOR_SIZE
+;
+;
+; *************
+; * Variables *
+; *************
+;
+;
+; Note: linker "-c" option is used, so no data is initialised here.
+                dseg                ; Data segment
+;
+bdos_sp         defs 2              ; BDOS"s stack pointer
+;
+clr_start                           ; Start of cleared variables area
+;
+clopt_flags     defs 1              ; Command line options
+;
+clr_end                             ; End of cleared variables area
+;
+                defs STACKS_SIZE    ; Stack space
+app_stack_top
+;
+                end
+

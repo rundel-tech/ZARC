@@ -1,0 +1,1761 @@
+   1:				; *******************************************************
+   2:				; * CP/M Sparse File Generator                          *
+   3:				; * Version: V1.0                                       *
+   4:				; * Merlin Skinner-Oakes, 5/4/2026                      *
+   5:				; *******************************************************
+   6:				;
+   7:				; V1.0 - 16/2/2022, initial version.
+   8:				;
+   9:				;
+  10:				; This programme generates a single "sparse" file call SPARSE.TST. This allows
+  11:				; the behaviour of CP/M and its associated utilities to be investigated with
+  12:				; such files. The main purpose is to allow debugging of my FSCK application.
+  13:				; Though written for my ZARC retro-computer project, this should run on any
+  14:				; CP/M system. Changing the file name or blocks written requires changing the
+  15:				; source and re-assembly.
+  16:				;
+  17:				                title CP/M Sparse File Generator
+  18:				;
+  19:				;
+  20:				;
+  21:				; ************
+  22:				; * Includes *
+  23:				; ************
+  24:				;
+  25:				;
+  26:				                include "macros.i"
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/macros.i ****
+   1:				; ***********************************
+   2:				; * ZARC Macro Definitions          *
+   3:				; * Written by: Merlin Skinner      *
+   4:				; * Date Started: 30/7/2020         *
+   5:				; ***********************************
+   6:				;
+   7:				;
+   8:				;
+   9:				; **********
+  10:				; * Macros *
+  11:				; **********
+  12:				;
+  13:				;
+  14:				; Initialise enumeration.
+  15:				; The absolute segment is used so the offsets are not marked as relocatable. This
+  16:				; avoids "Not relocatable" errors.
+  17:				ENUM_START      macro
+  18:				                .aseg
+  19:				enum_counter    set 0
+  20:				                endm
+  21:				;
+  22:				; Invoke for each item.
+  23:				ENUM            macro x
+  24:				x               equ enum_counter
+  25:				enum_counter    set enum_counter + 1
+  26:				                endm
+  27:				;
+  28:				ENUM_END        macro x
+  29:				x               set enum_counter    ; Set label to count of items
+  30:				                .cseg
+  31:				                endm
+  32:				;
+  33:				;
+  34:				; Initialise a structure. This is used to generate offsets for data structures.
+  35:				; The absolute segment is used so the offsets are not marked as relocatable. This
+  36:				; avoids "Not relocatable" errors.
+  37:				STRUCT          macro
+  38:				                .aseg
+  39:				str_offset      set 0
+  40:				                endm
+  41:				;
+  42:				; Add a byte entry.
+  43:				STR_BYTE        macro x
+  44:				x               equ str_offset
+  45:				str_offset      set str_offset + 1
+  46:				                endm
+  47:				;
+  48:				; Add a word (16-bit) entry.
+  49:				STR_WORD        macro x
+  50:				x               equ str_offset
+  51:				str_offset      set str_offset + 2
+  52:				                endm
+  53:				;
+  54:				; Add a 3 byte (24-bit) entry.
+  55:				STR_24BIT       macro x
+  56:				x               equ str_offset
+  57:				str_offset      set str_offset + 3
+  58:				                endm
+  59:				;
+  60:				; Add a long (32-bit) entry.
+  61:				STR_LONG        macro x
+  62:				x               equ str_offset
+  63:				str_offset      set str_offset + 4
+  64:				                endm
+  65:				;
+  66:				; Add an arbitrary length entry.
+  67:				STR_BLOCK       macro x, size   ; <name>, <size>
+  68:				x               equ str_offset
+  69:				str_offset      set str_offset + size
+  70:				                endm
+  71:				;
+  72:				; End of structure (used to set size)
+  73:				STR_END         macro x
+  74:				x               equ str_offset
+  75:				                .cseg
+  76:				                endm
+  77:				;
+  78:				;
+  79:				; Allocate space. This is used to generate variable addresses, affectively
+  80:				; providing a new variables segment. Allocated size is kept track of separately
+  81:				; to the address as the latter may overflow in certain error cases.
+  82:				ALLOC           macro x
+  83:				                .aseg
+  84:				all_addr        set x
+  85:				all_size        set 0
+  86:				                endm
+  87:				;
+  88:				; Add a byte entry.
+  89:				ALL_BYTE        macro x
+  90:				x               equ all_addr
+  91:				all_addr        set all_addr + 1
+  92:				all_size        set all_size + 1
+  93:				                endm
+  94:				;
+  95:				; Add a word (16-bit) entry.
+  96:				ALL_WORD        macro x
+  97:				x               equ all_addr
+  98:				all_addr        set all_addr + 2
+  99:				all_size        set all_size + 2
+ 100:				                endm
+ 101:				;
+ 102:				; Add a 3 byte (24-bit) entry.
+ 103:				ALL_24BIT       macro x
+ 104:				x               equ all_addr
+ 105:				all_addr        set all_addr + 3
+ 106:				all_size        set all_size + 3
+ 107:				                endm
+ 108:				;
+ 109:				; Add a long (32-bit) entry.
+ 110:				ALL_LONG        macro x
+ 111:				x               equ all_addr
+ 112:				all_addr        set all_addr + 4
+ 113:				all_size        set all_size + 4
+ 114:				                endm
+ 115:				;
+ 116:				; Add an arbitrary length entry.
+ 117:				ALL_BLOCK       macro x, size   ; <name>, <size>
+ 118:				x               equ all_addr
+ 119:				all_addr        set all_addr + size
+ 120:				all_size        set all_size + size
+ 121:				                endm
+ 122:				;
+ 123:				; End of allocated space. Returns size of block.
+ 124:				ALL_END         macro x
+ 125:				x               equ all_size
+ 126:				                .cseg
+ 127:				                endm
+ 128:				;
+ 129:				;
+ 130:				; Calculate offsets into jump tables.
+ 131:				; The absolute segment is used so the offsets are not marked as relocatable. This
+ 132:				; avoids "Not relocatable" errors.
+ 133:				JPTBL_START     macro x
+ 134:				                .aseg
+ 135:				jptbl_addr      set x               ; Set start address
+ 136:				                endm
+ 137:				;
+ 138:				; Invoke for each item.
+ 139:				JPTBL_ENTRY     macro x
+ 140:				x               equ jptbl_addr
+ 141:				jptbl_addr      set jptbl_addr + 3
+ 142:				                endm
+ 143:				;
+ 144:				; Invoke for a data block in the jump table
+ 145:				JPTBL_BLOCK     macro x, size   ; <name>, <size>
+ 146:				x               equ jptbl_addr
+ 147:				jptbl_addr      set jptbl_addr + size
+ 148:				                endm
+ 149:				;
+ 150:				JPTBL_END       macro x
+ 151:				x               set jptbl_addr      ; Set label to next address
+ 152:				                .cseg
+ 153:				                endm
+ 154:				;
+ 155:				;
+ 156:				; Define bits and masks. This is inspired by the Commodore Amiga BITDEF mechanism.
+ 157:				; Given:
+ 158:				; BITDEF I2C_CSR_STOP, 2
+ 159:				; Yields:
+ 160:				; I2C_CSR_STOP_BIT  EQU 2       ; Bit number
+ 161:				; I2C_CSR_STOP_MASK EQU 1<<2    ; Bit mask
+ 162:				BITDEF          macro n, b      ; <Name>, <bit>
+ 163:				n`_BIT          equ b
+ 164:				n`_MASK         equ 1 << b
+ 165:				                endm
+ 166:				;
+ 167:				;
+ 168:				; Force alignment. This asserts an appropriate number of zero bytes to achieve
+ 169:				; the required alignment. Note that these macros cannot work for relocatable
+ 170:				; files.
+ 171:				; 16-bit
+ 172:				ALIGN_WORD      macro
+ 173:				                if $ and 1
+ 174:				                    byte 0
+ 175:				                endif
+ 176:				                endm
+ 177:				;
+ 178:				; 32-bit
+ 179:				ALIGN_LONG      macro
+ 180:				                ALIGN_WORD
+ 181:				                if $ and 2
+ 182:				                    byte 0, 0
+ 183:				                endif
+ 184:				                endm
+ 185:				;
+ 186:				;
+ 187:				; Write message to console (short for "call conwms").
+ 188:				CON_WR_MSG      macro
+ 189:				                rst 08
+ 190:				                endm
+ 191:				;
+ 192:				;
+ 193:				; Write character to console (short for "call conwch").
+ 194:				CON_WR_CHAR     macro
+ 195:				                rst 16
+ 196:				                endm
+ 197:				
+**** sparse.z80 ****
+  27:				                include "cpm.i"
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/cpm.i ****
+   1:				; *******************************************************
+   2:				; * ZARC Monitor CP/M 2.2 Definitions                   *
+   3:				; * Written by: Merlin Skinner                          *
+   4:				; * Date Started: 26/5/2020                             *
+   5:				; *******************************************************
+   6:				;
+   7:				; Definitions related to CP/M running under the monitor programme. It may also
+   8:				; be used for CP/M applications.
+   9:				;
+  10:				; Note that ld80 only considers the first six characters of labels significant.
+  11:				;
+  12:				; The following conditionals are intended to allow the same include file to be
+  13:				; used in the defining module and elsewhere as required. Some includes are used
+  14:				; for other applications than the monitor, such as the CP/M BIOS. In these cases,
+  15:				; the extern and public statements are not desirable.
+  16:				;
+  17:     -	0000'         	            ifdef monitor           ; Meaningful for monitor build only
+  30:				            endif
+  31:				;
+  32:				;
+  33:				;
+  34:				; ****************
+  35:				; * Memory Usage *
+  36:				; ****************
+  37:				;
+  38:				;
+  39:				; Note: memory banks are allocated by the monitor's initialisation code.
+  40:     -	0004'         	MMAP_CPM_PAGES      equ 4               ; Number of 16 kB pages
+  41:				;
+  42:				; The MS byte of INT_VEC_TABLE comes from the Z80 I register, and the LS byte
+  43:				; from the FPGA. The 0xe0 offset is chosen to allow the table to reside at the
+  44:				; top of memory (0xffe0 to 0xffff).
+  45:     -	FFE0'         	INT_VEC_TABLE   equ 0xffe0              ; Interrupt mode 2 vector table
+  46:				;
+  47:				; Copied from CP/M manual appendix A.
+  48:				; MSIZE             equ 64              ; CP/M version memory size in kilobytes
+  49:				;
+  50:				; "BIAS" is the address offset from 0x3400 for memory systems other than 16 K.
+  51:				;BIAS               equ (MSIZE-20) * 1024
+  52:     -	A200'         	CPM_BIAS            equ 0xa200          ; For CompuPro64K_CPM
+  53:     -	D600'         	CCP_START           equ 0x3400 + CPM_BIAS   ; Base of CCP
+  54:     -	DE06'         	BDOS_START          equ CCP_START + 0x0806  ; Base of BDOS
+  55:     -	EC00'         	BIOS_START          equ CCP_START + 0x1600  ; Base of BIOS
+  56:     -	002C'         	BIOS_CPM_START_SEC  equ 44              ; First CP/M sector of BIOS
+  57:     -	1000'         	BIOS_MAX_SIZE       equ 4096            ; 2 KB allocation for BIOS stored on MMC (ZARC)
+  58:     -	0100'         	TPA_START           equ 0x0100          ; Transient Programme Area
+  59:				;
+  60:				; Page zero.
+  61:     -	0003'         	IOBYTE              equ 0x0003          ; Intel I/O byte
+  62:     -	0004'         	CDISK               equ 0x0004          ; Current disk (0="A") & user no. (in high nibble)
+  63:     -	005C'         	FCB1                equ 0x005c          ; Default FCB 1
+  64:     -	006C'         	FCB2                equ 0x006c          ; Default FCB 2 (overwritten if FCB 1 is opened)
+  65:				; Default 128-byte disk buffer, also filled with the command line when a transient
+  66:				; is loaded under the CCP.
+  67:     -	0080'         	DEF_BUFFER          equ 0x80
+  68:     -	0080'         	DEF_BUFFER_SIZE     equ 0x80
+  69:				;
+  70:				; IOBYTE bit definitions.
+  71:     -	0003'         	IOB_CON_MASK        equ 0x03
+  72:     -	000C'         	IOB_RDR_MASK        equ 0x0c
+  73:     -	0030'         	IOB_PUN_MASK        equ 0x30
+  74:     -	00C0'         	IOB_LST_MASK        equ 0xc0
+  75:				;
+  76:				; BIOS option bits.
+  77:     -	        	BITDEF BIOS_OPT_DEBUG, 0                ; Enable BIOS debugging messages
+  78:     -	        	BITDEF BIOS_OPT_NOINTS, 1               ; Disables interrupts (use basic I/O mode)
+  79:     -	        	BITDEF BIOS_OPT_RAWCON, 2               ; Disables ADM-3A to VT-100 translation
+  80:				;
+  81:				;
+  82:				;
+  83:				; ***************
+  84:				; * Disk System *
+  85:				; ***************
+  86:				;
+  87:				;
+  88:				; Note: NUM_DISKS reduced to 9 from 16 in preparation for adding CP/M 3 support.
+  89:     -	0080'         	CPM_SECTOR_SIZE     equ 128             ; CP/M disk sector size
+  90:     -	0009'         	NUM_DISKS           equ 9               ; Number of disk drives
+  91:     -	0010'         	NUM_DISKS_MAX       equ 16              ; Maximum number of disk drives
+  92:     -	0000'         	CPM_SYS_SIZE        equ 1024 * 1024     ; System area size (bytes)
+  93:     -	0000'         	CPM_DISK_SIZE       equ 1024 * 1024     ; Disk size (bytes)
+  94:     -	0800'         	CPM_BLOCK_SIZE      equ 2048            ; Allocation block size (bytes)
+  95:     -	0200'         	CPM_DIR_ENTRIES     equ 512             ; Number of directory entries
+  96:     -	0008'         	FILENAME_SIZE       equ 8               ; Filename size
+  97:     -	0003'         	FILEEXT_SIZE        equ 3               ; File extension size
+  98:     -	001A'         	FILE_EOF            equ 0x1a            ; End of file (^Z)
+  99:     -	000F'         	MAX_USER            equ 15              ; Maximum user number
+ 100:				;
+ 101:     -	0001'         	BDOS_READ_SEQ_EOF   equ 1               ; Sequential read EOF error code
+ 102:				;
+ 103:				; CP/M 2.2 Disk Parameter Header (DPH) structure.
+ 104:     -	        	                STRUCT
+ 105:     -	        	                STR_WORD DPH_XLT        ; Address of sector translation table
+ 106:     -	        	                STR_WORD DPH_SCRATCH0   ; BDOS scratch area
+ 107:     -	        	                STR_WORD DPH_SCRATCH1
+ 108:     -	        	                STR_WORD DPH_SCRATCH2
+ 109:     -	        	                STR_WORD DPH_DIRBF      ; BDOS directory scratch area
+ 110:     -	        	                STR_WORD DPH_DPB        ; Pointer to DPB
+ 111:     -	        	                STR_WORD DPH_CSV        ; Pointer to the directory checksum vector
+ 112:     -	        	                STR_WORD DPH_ALV        ; Pointer to the allocation vector
+ 113:     -	        	                STR_END DPH_SIZE
+ 114:				;
+ 115:				;
+ 116:				; CP/M 2.2 Disk Parameter Block (DPB) structure.
+ 117:     -	        	                STRUCT
+ 118:     -	        	                STR_WORD DPB_SPT        ; Number of 128-byte records per track
+ 119:     -	        	                STR_BYTE DPB_BSH        ; Block shift. 3 => 1k, 4 => 2k, 5 => 4k....
+ 120:     -	        	                STR_BYTE DPB_BLM        ; Block mask. 7 => 1k, 0Fh => 2k, 1Fh => 4k...
+ 121:     -	        	                STR_BYTE DPB_EXM        ; Extent mask
+ 122:     -	        	                STR_WORD DPB_DSM        ; Maximum block number
+ 123:     -	        	                STR_WORD DPB_DRM        ; Maximum directory entry number
+ 124:     -	        	                STR_BYTE DPB_AL0        ; Directory allocation bitmap
+ 125:     -	        	                STR_BYTE DPB_AL1
+ 126:     -	        	                STR_WORD DPB_CKS        ; Checksum vector size, 0 for a fixed disc
+ 127:     -	        	                STR_WORD DPB_OFF        ; Offset, number of reserved tracks
+ 128:     -	        	                STR_END DPB_SIZE
+ 129:				;
+ 130:				;
+ 131:				; Directory entry structure.
+ 132:     -	        	                STRUCT
+ 133:     -	        	                STR_BYTE DIRE_USER      ; User number. 0xe5 if entry unused
+ 134:     -	        	                STR_BLOCK DIRE_NAME, FILENAME_SIZE  ; Filename
+ 135:     -	        	                STR_BLOCK DIRE_TYP, FILEEXT_SIZE    ; File type
+ 136:     -	        	                STR_BYTE DIRE_EX        ; Extent counter, low byte (0-31)
+ 137:     -	        	                STR_BYTE DIRE_S1        ; Reserved, set to 0
+ 138:     -	        	                STR_BYTE DIRE_S2        ; Extent counter, high byte
+ 139:     -	        	                STR_BYTE DIRE_RC        ; Record count (low byte)
+ 140:     -	        	                STR_BLOCK DIRE_ALLOC, 16 ; Associated block numbers
+ 141:     -	        	                STR_END DIRE_SIZE
+ 142:				;
+ 143:     -	0001'         	                assert DIRE_SIZE = 0x20
+ 144:				;
+ 145:				;
+ 146:				; File Control Block (FCB) structure.
+ 147:     -	        	                STRUCT
+ 148:     -	        	                STR_BYTE FCB_DRIVE      ; Drive. 0 for default, 1-16 for A-P
+ 149:     -	        	                STR_BLOCK FCB_NAME, FILENAME_SIZE   ; Filename in ASCII upper-case
+ 150:     -	        	                STR_BLOCK FCB_TYP, FILEEXT_SIZE     ; File type
+ 151:     -	        	                STR_BYTE FCB_EX         ; Current extent (*)
+ 152:     -	        	                STR_BYTE FCB_S1         ; Reserved (*)
+ 153:     -	        	                STR_BYTE FCB_S2         ; Extent high byte (*)
+ 154:     -	        	                STR_BYTE FCB_RC         ; Record count (*)
+ 155:     -	        	                STR_BLOCK FCB_ALLOC, 16 ; Associated block numbers
+ 156:     -	        	                STR_BYTE FCB_CR         ; Current record within extent
+ 157:     -	        	                STR_BLOCK FCB_RECORD, 3 ; Record number (low byte first)
+ 158:     -	        	                STR_END FCB_SIZE
+ 159:				;
+ 160:				; * - Set this to 0 when opening a file and then leave it to CP/M. You can
+ 161:				; rewind a file by setting EX, RC, S2 and CR to 0.
+ 162:				;
+ 163:				;
+ 164:				;
+ 165:				; **************
+ 166:				; * BIOS Calls *
+ 167:				; **************
+ 168:				;
+ 169:				;
+ 170:				; Calculate offsets into jump tables. Entries here must match the jump table in
+ 171:				; the BIOS. The base address of the BIOS must be added to these addresses. A
+ 172:				; call routine might look like:
+ 173:				;
+ 174:				; Call BIOS, allowing for its unknown base address.
+ 175:				; Call with:
+ 176:				; BC - operand (depends on BIOS function called)
+ 177:				; DE - operand (depends on BIOS function called)
+ 178:				; HL - offset for the routine (e.g. BIOS_CONIN)
+ 179:				; call_bios       push de
+ 180:				;                 ex de, hl
+ 181:				;                 ld hl, (1)              ; Find WBOOT (warm boot) address
+ 182:				;                 add hl, de              ; Add offset
+ 183:				;                 pop de
+ 184:				;                 jp (hl)                 ; Jump to BIOS then return to caller
+ 185:				;
+ 186:				; The above method is a bit clumsy, but then application code shouldn't normally
+ 187:				; call the BIOS directly.
+ 188:				;
+ 189:     -	        	    JPTBL_START 0                   ; Generate offsets as BIOS_START isn't always known
+ 190:				;
+ 191:				; Note - cold start routine omitted to align with use of address at (1) to find BIOS.
+ 192:     -	        	    JPTBL_ENTRY BIOS_WBOOT          ; Warm boot - reload command processor
+ 193:     -	        	    JPTBL_ENTRY BIOS_CONST          ; Console status
+ 194:     -	        	    JPTBL_ENTRY BIOS_CONIN          ; Console input
+ 195:     -	        	    JPTBL_ENTRY BIOS_CONOUT         ; Console output
+ 196:     -	        	    JPTBL_ENTRY BIOS_PLIST          ; Printer output
+ 197:     -	        	    JPTBL_ENTRY BIOS_PUNCH          ; Paper tape punch output
+ 198:     -	        	    JPTBL_ENTRY BIOS_READER         ; Paper tape reader input
+ 199:     -	        	    JPTBL_ENTRY BIOS_HOME           ; Move disc head to track 0
+ 200:     -	        	    JPTBL_ENTRY BIOS_SELDSK         ; Select disc drive
+ 201:     -	        	    JPTBL_ENTRY BIOS_SETTRK         ; Set track number
+ 202:     -	        	    JPTBL_ENTRY BIOS_SETSEC         ; Set sector number
+ 203:     -	        	    JPTBL_ENTRY BIOS_SETDMA         ; Set DMA address
+ 204:     -	        	    JPTBL_ENTRY BIOS_READ           ; Read a sector
+ 205:     -	        	    JPTBL_ENTRY BIOS_WRITE          ; Write a sector
+ 206:				; CP/M 2 functions.
+ 207:     -	        	    JPTBL_ENTRY BIOS_LISTST         ; Status of list device
+ 208:     -	        	    JPTBL_ENTRY BIOS_SECTRAN        ; Sector translation for skewing
+ 209:				; CP/M 3 functions. From https://www.seasip.info/Cpm/bios.html
+ 210:     -	        	    JPTBL_ENTRY BIOS_CONOST         ; Status of console output
+ 211:     -	        	    JPTBL_ENTRY BIOS_AUXIST         ; Status of auxiliary input
+ 212:     -	        	    JPTBL_ENTRY BIOS_AUXOST         ; Status of auxiliary output
+ 213:     -	        	    JPTBL_ENTRY BIOS_DEVTBL         ; Address of devices table
+ 214:     -	        	    JPTBL_ENTRY BIOS_DEVINI         ; Initialise a device
+ 215:     -	        	    JPTBL_ENTRY BIOS_DRVTBL         ; Address of discs table
+ 216:     -	        	    JPTBL_ENTRY BIOS_MULTIO         ; Read/write multiple sectors
+ 217:     -	        	    JPTBL_ENTRY BIOS_FLUSH          ; Flush host buffers
+ 218:     -	        	    JPTBL_ENTRY BIOS_MOVE           ; Move a block of memory
+ 219:     -	        	    JPTBL_ENTRY BIOS_TIME           ; Real time clock
+ 220:     -	        	    JPTBL_ENTRY BIOS_SELMEM         ; Select memory bank
+ 221:     -	        	    JPTBL_ENTRY BIOS_SETBNK         ; Select bank for DMA operation
+ 222:     -	        	    JPTBL_ENTRY BIOS_XMOVE          ; Preload banks for MOVE
+ 223:     -	        	    JPTBL_ENTRY BIOS_USERF          ; System-depedent functions
+ 224:     -	        	    JPTBL_ENTRY BIOS_RESERV1        ; Reserved
+ 225:     -	        	    JPTBL_ENTRY BIOS_RESERV2        ; Reserved
+ 226:				; ZARC-specific items.
+ 227:     -	        	    JPTBL_BLOCK BIOS_ID, 3          ; BIOS ID ("ZRC")
+ 228:     -	        	    JPTBL_BLOCK BIOS_VER, 3         ; Version (see below)
+ 229:     -	        	    JPTBL_ENTRY BIOS_STARTUP        ; CP/M startup entry point
+ 230:     -	        	    JPTBL_ENTRY BIOS_MON_CALL       ; Call monitor function
+ 231:     -	        	    JPTBL_ENTRY BIOS_SUPER          ; Set supervisor state
+ 232:     -	        	    JPTBL_ENTRY BIOS_INT_DISABLE    ; Disable interrupts and keep count
+ 233:     -	        	    JPTBL_ENTRY BIOS_INT_ENABLE     ; Enable interrupts if safe
+ 234:     -	        	    JPTBL_ENTRY BIOS_TIRD           ; Read time and date (ZARC format)
+ 235:     -	        	    JPTBL_ENTRY BIOS_SET_TIMER      ; Set timer
+ 236:     -	        	    JPTBL_ENTRY BIOS_GET_TIMER      ; Get timer
+ 237:				;
+ 238:     -	        	    JPTBL_END BIOS_JPTBL_NEXT
+ 239:				;
+ 240:				; BIOS_VER is <reserved (zero)>, <major version>, <minor version>. The reserved
+ 241:				; byte may flag capabilities at some point.
+ 242:				;
+ 243:				;
+ 244:				;
+ 245:				; **************
+ 246:				; * BDOS Calls *
+ 247:				; **************
+ 248:				;
+ 249:				;
+ 250:				; From http://www.gaby.de/cpm/manuals/archive/cpm22htm/ch5.htm#Section_5.2
+ 251:				; In general, the function number is passed in register C with the information
+ 252:				; address in the double byte pair DE. Single byte values are returned in register
+ 253:				; A, with double byte values returned in HL. A zero value is returned when the
+ 254:				; function number is out of range. For reasons of compatibility, register A = L
+ 255:				; and register B = H upon return in all cases. Example call:
+ 256:				;   ld c, BDOS_CONIN    ; Read next character
+ 257:				;   call BDOS           ; Return character in A
+ 258:				;
+ 259:     -	0005'         	BDOS        equ 5               ; BDOS entry point
+ 260:				;
+ 261:     -	0000'         	BDOS_SYS_RST        equ 0       ; System Reset
+ 262:     -	0001'         	BDOS_CON_IN         equ 1       ; Console Input
+ 263:     -	0002'         	BDOS_CON_OUT        equ 2       ; Console Output
+ 264:     -	0003'         	BDOS_RDR_IN         equ 3       ; Reader Input
+ 265:     -	0004'         	BDOS_PUN_OUT        equ 4       ; Punch Output
+ 266:     -	0005'         	BDOS_LST_OUT        equ 5       ; List Output
+ 267:     -	0006'         	BDOS_DIRECT_CON_IO  equ 6       ; Direct Console I/O
+ 268:     -	0007'         	BDOS_GET_IO_BYTE    equ 7       ; Get I/O Byte
+ 269:     -	0008'         	BDOS_SET_IO_BYTE    equ 8       ; Set I/O Byte
+ 270:     -	0009'         	BDOS_PRINT_STRING   equ 9       ; Print String
+ 271:     -	000A'         	BDOS_READ_CON_BUFF  equ 10      ; Read Console Buffer
+ 272:     -	000B'         	BDOS_GET_CON_STAT   equ 11      ; Get Console Status
+ 273:     -	000C'         	BDOS_VERSION        equ 12      ; Return Version Number
+ 274:     -	000D'         	BDOS_RESET_DISK_SYS equ 13      ; Reset Disk System
+ 275:     -	000E'         	BDOS_SEL_DISK       equ 14      ; Select Disk
+ 276:     -	000F'         	BDOS_OPEN_FILE      equ 15      ; Open File
+ 277:     -	0010'         	BDOS_CLOSE_FILE     equ 16      ; Close File
+ 278:     -	0011'         	BDOS_SEARCH_FIRST   equ 17      ; Search for first matching directory entry
+ 279:     -	0012'         	BDOS_SEARCH_NEXT    equ 18      ; Search for next matching directory entry
+ 280:     -	0013'         	BDOS_DELETE_FILE    equ 19      ; Delete File
+ 281:     -	0014'         	BDOS_READ_SEQ       equ 20      ; Read Sequential
+ 282:     -	0015'         	BDOS_WRITE_SEQ      equ 21      ; Write Sequential
+ 283:     -	0016'         	BDOS_MAKE_FILE      equ 22      ; Make File
+ 284:     -	0017'         	BDOS_RENAME_FILE    equ 23      ; Rename File
+ 285:     -	0018'         	BDOS_GET_LOGIN_VEC  equ 24      ; Return Login Vector
+ 286:     -	0019'         	BDOS_GET_CURR_DISK  equ 25      ; Return Current Disk
+ 287:     -	001A'         	BDOS_SET_DMA_ADDR   equ 26      ; Set DMA Address
+ 288:     -	001B'         	BDOS_GET_ALLOC_ADDR equ 27      ; Get Addr (Alloc)
+ 289:     -	001C'         	BDOS_WRITE_PROT     equ 28      ; Write Protect Disk
+ 290:     -	001D'         	BDOS_GET_RO_VEC     equ 29      ; Get R/O Vector
+ 291:     -	001E'         	BDOS_SET_FILE_ATTR  equ 30      ; Set File Attributes
+ 292:     -	001F'         	BDOS_GET_DPB        equ 31      ; Get Addr (Disk Parms)
+ 293:     -	0020'         	BDOS_GET_SET_USER   equ 32      ; Set/Get User Code
+ 294:     -	0021'         	BDOS_READ_RANDOM    equ 33      ; Read Random
+ 295:     -	0022'         	BDOS_WRITE_RANDOM   equ 34      ; Write Random
+ 296:     -	0023'         	BDOS_GET_FILE_SIZE  equ 35      ; Compute File Size
+ 297:     -	0024'         	BDOS_SET_RANDOM_REC equ 36      ; Set Random Record
+ 298:     -	0025'         	BDOS_RESET_DRIVES   equ 37      ; Selectively reset disc drives
+ 299:     -	0028'         	BDOS_WR_RND_ZFILL   equ 40      ; Write Random with Zero Fill
+ 300:     -	002C'         	BDOS_F_MULTISEC     equ 44      ; Set number of records to read/write at once
+ 301:     -	0031'         	BDOS_S_SYSVAR       equ 49      ; Access the System Control Block
+ 302:     -	0032'         	BDOS_S_BIOS         equ 50      ; Use the BIOS
+ 303:     -	003B'         	BDOS_P_LOAD         equ 59      ; Load overlay
+ 304:     -	003C'         	BDOS_CALL_RSX       equ 60      ; Call to RSX
+ 305:     -	0062'         	BDOS_DISK_CLEAN     equ 98      ; Clean up disc
+ 306:     -	0063'         	BDOS_F_TRUNCATE     equ 99      ; Truncate file
+ 307:     -	0068'         	BDOS_T_SET          equ 104     ; Set date and time
+ 308:     -	006C'         	BDOS_P_CODE         equ 108     ; Get/put program return code
+ 309:     -	006D'         	BDOS_C_MODE         equ 109     ; Set or get console mode
+ 310:     -	006E'         	BDOS_C_DELIMIT      equ 110     ; Get/set string delimiter
+ 311:     -	006F'         	BDOS_C_WRITEBLK     equ 111     ; Send block of text to console
+ 312:     -	0070'         	BDOS_L_WRITEBLK     equ 112     ; Send block of text to printer
+ 313:     -	0098'         	BDOS_F_PARSE        equ 152     ; Parse filename
+ 314:				;
+ 315:				; Functions 28 and 32 should be avoided in application programs to maintain upward
+ 316:				; compatibility with CP/M.
+ 317:				;
+ 318:				; Direct Console I/O (BDOS_DIRECT_CON_IO) command codes. There are additional
+ 319:				; codes supported by CP/M 3 (see cpm3.i).
+ 320:     -	00FF'         	DCONIO_GET_NO_WT    equ 0xff    ; Get character (no echo) else return zero
+ 321:     -	0000'         	DCONIO_PUT          equ 0x00    ; Put (write) character
+ 322:				;
+ 323:				; BDOS_S_BIOS (function 50) parameter block.
+ 324:     -	        	                STRUCT
+ 325:     -	        	                STR_BYTE SBM_FUNC       ; BIOS function (0-32)
+ 326:     -	        	                STR_BYTE SBM_A
+ 327:     -	        	                STR_BYTE SBM_C
+ 328:     -	        	                STR_BYTE SBM_B
+ 329:     -	        	                STR_BYTE SBM_E
+ 330:     -	        	                STR_BYTE SBM_D
+ 331:     -	        	                STR_BYTE SBM_L
+ 332:     -	        	                STR_BYTE SBM_H
+ 333:     -	        	                STR_END SBM_SIZE
+ 334:				;
+ 335:				;
+ 336:				
+**** sparse.z80 ****
+  28:				                include "cpm3.i"
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/cpm3.i ****
+   1:				; *******************************************************
+   2:				; * ZARC Monitor CP/M 3 Definitions                     *
+   3:				; * Written by: Merlin Skinner                          *
+   4:				; * Date Started: 26/5/2020                             *
+   5:				; *******************************************************
+   6:				;
+   7:				; Definitions related CP/M running under the monitor programme. It may also
+   8:				; be used for CP/M applications.
+   9:				;
+  10:				; This include file contains defintions specific to CP/M 3. It is not a
+  11:				; replacement for cpm.i, but rather an addition to it.
+  12:				;
+  13:				; Note that ld80 only considers the first six characters of labels significant.
+  14:				;
+  15:				; The following conditionals are intended to allow the same include file to be
+  16:				; used in the defining module and elsewhere as required. Some includes are used
+  17:				; for other applications than the monitor, such as the CP/M BIOS. In these cases,
+  18:				; the extern and public statements are not desirable.
+  19:				;
+  20:     -	0000'         	            ifdef monitor           ; Meaningful for monitor build only
+  31:				            endif
+  32:				;
+  33:				;
+  34:				;
+  35:				; ****************
+  36:				; * Memory Usage *
+  37:				; ****************
+  38:				;
+  39:				;
+  40:				; Note: memory banks are allocated by the monitor's initialisation code.
+  41:     -	0004'         	MMAP_CP3_BANKS      equ 4               ; Number of CP/M 3 banks
+  42:     -	000D'         	MMAP_CP3_PAGES      equ (3 * MMAP_CP3_BANKS) + 1    ; Number of 16 kB pages
+  43:     -	0000'         	MMAP_CP3_BK0_ST     equ 0               ; CP/M bank 0 first page
+  44:     -	0003'         	MMAP_CP3_BK1_ST     equ 3               ; CP/M bank 1 first page
+  45:     -	0006'         	MMAP_CP3_BK2_ST     equ 6               ; CP/M bank 2 first page
+  46:     -	0009'         	MMAP_CP3_BK3_ST     equ 9               ; CP/M bank 3 first page
+  47:     -	000C'         	MMAP_CP3_COMM_PG    equ 0xc             ; CP/M common bank
+  48:				;
+  49:				;
+  50:				;
+  51:				; ***************
+  52:				; * Disk System *
+  53:				; ***************
+  54:				;
+  55:				;
+  56:     -	0013'         	CPMLDR_START_SEC    equ 19              ; First MMC sector of CPMLDR
+  57:				; CPMLDR_MAX_SIZE must be a multiple of MMC_SECTOR_SIZE (512).
+  58:     -	2800'         	CPMLDR_MAX_SIZE     equ 10240           ; 10 KB allocation for CPMLDR
+  59:     -	0100'         	TPA_START           equ 0x0100          ; Transient Programme Area
+  60:     -	0008'         	CP3_NUM_DISKS       equ 8               ; Number of disk drives
+  61:     -	0010'         	CP3_NUM_DISKS_MAX   equ 16              ; Maximum number of disk drives
+  62:				; CP/M 3 drive A is CP/M 2.2 drive P to allow for initialisation.
+  63:     -	0008'         	CP3_DRIVE_A         equ 8               ; Drive A MB offset
+  64:     -	0001'         	CP3_DRIVE_B         equ 1               ; Drives B to H MB offset
+  65:     -	0023'         	CP3_XDPH_SIZE       equ CP3_DPH_SIZE + 10   ; Extended Disk Parameter Header size
+  66:     -	0008'         	DLBLE_NAME_SIZE     equ 8               ; Disk label name size
+  67:     -	0003'         	DLBLE_TYP_SIZE      equ 3               ; Disk label type size
+  68:     -	0008'         	DIR_PWD_SIZE        equ 8               ; Directory password size
+  69:				;
+  70:				;
+  71:				; CP/M 3 Disk Parameter Header (DPH) structure.
+  72:     -	        	                STRUCT
+  73:     -	        	                STR_WORD CP3_DPH_XLT        ; Address of sector translation table
+  74:     -	        	                STR_BLOCK CP3_DPH_SCRATCH, 9   ; BDOS scratch area
+  75:     -	        	                STR_BYTE CP3_DPH_MF         ; Media flag
+  76:     -	        	                STR_WORD CP3_DPH_DPB        ; Pointer to DPB
+  77:     -	        	                STR_WORD CP3_DPH_CSV        ; Pointer to the directory checksum vector
+  78:     -	        	                STR_WORD CP3_DPH_ALV        ; Pointer to the allocation vector
+  79:     -	        	                STR_WORD CP3_DPH_DIRBCB     ; Pointer to directory buffer chain
+  80:     -	        	                STR_WORD CP3_DPH_DTABCB     ; Pointer to data buffer chain
+  81:     -	        	                STR_WORD CP3_DPH_HASH       ; Address of hash buffer
+  82:     -	        	                STR_BYTE CP3_DPH_HBANK      ; Bank for hash buffer
+  83:     -	        	                STR_END CP3_DPH_SIZE
+  84:				;
+  85:				;
+  86:				; CP/M 3 Disk Parameter Block (DPB) structure.
+  87:     -	        	                STRUCT
+  88:     -	        	                STR_WORD CP3_DPB_SPT        ; Number of 128-byte records per track
+  89:     -	        	                STR_BYTE CP3_DPB_BSH        ; Block shift. 3 => 1k, 4 => 2k, 5 => 4k....
+  90:     -	        	                STR_BYTE CP3_DPB_BLM        ; Block mask. 7 => 1k, 0Fh => 2k, 1Fh => 4k...
+  91:     -	        	                STR_BYTE CP3_DPB_EXM        ; Extent mask
+  92:     -	        	                STR_WORD CP3_DPB_DSM        ; Maximum block number
+  93:     -	        	                STR_WORD CP3_DPB_DRM        ; Maximum directory entry number
+  94:     -	        	                STR_BYTE CP3_DPB_AL0        ; Directory allocation bitmap
+  95:     -	        	                STR_BYTE CP3_DPB_AL1
+  96:     -	        	                STR_WORD CP3_DPB_CKS        ; Checksum vector size, 0 for a fixed disc
+  97:     -	        	                STR_WORD CP3_DPB_OFF        ; Offset, number of reserved tracks
+  98:     -	        	                STR_BYTE CP3_DPB_PSH        ; Physical record shift factor
+  99:     -	        	                STR_BYTE CP3_DPB_PHM        ; Physical record mask
+ 100:     -	        	                STR_END CP3_DPB_SIZE
+ 101:				;
+ 102:				;
+ 103:				; Directory date stamp structure.
+ 104:     -	        	                STRUCT
+ 105:     -	        	                STR_WORD DSTAMP_DAY         ; Julien day number (1 = 1 Jan 78)
+ 106:     -	        	                STR_BYTE DSTAMP_HOUR        ; BCD hour
+ 107:     -	        	                STR_BYTE DSTAMP_MIN         ; BCD minute
+ 108:     -	        	                STR_END DSTAMP_SIZE 
+ 109:				;
+ 110:     -	0001'         	                assert DSTAMP_SIZE = 4
+ 111:				;
+ 112:				;
+ 113:				; Disk label structure.
+ 114:     -	        	                STRUCT
+ 115:     -	        	                STR_BYTE DLBLE_USER      ; "User number" (0x20)
+ 116:     -	        	                STR_BLOCK DLBLE_NAME, DLBLE_NAME_SIZE ; Name
+ 117:     -	        	                STR_BLOCK DLBLE_TYP, DLBLE_TYP_SIZE   ; Label type
+ 118:     -	        	                STR_BYTE DLBLE_LB        ; Label byte (flags)
+ 119:     -	        	                STR_BYTE DLBLE_PB        ; Password decode byte
+ 120:     -	        	                STR_BYTE DLBLE_RR0       ; Reserved, should be zero
+ 121:     -	        	                STR_BYTE DLBLE_RR1
+ 122:     -	        	                STR_BLOCK DLBLE_PWD, DIR_PWD_SIZE    ; Password
+ 123:     -	        	                STR_BLOCK DLBLE_CREATE_DATE, DSTAMP_SIZE ; Create date stamp
+ 124:     -	        	                STR_BLOCK DLBLE_UPDATE_DATE, DSTAMP_SIZE ; Update date stamp
+ 125:     -	        	                STR_END DLBLE_SIZE
+ 126:				;
+ 127:     -	0001'         	                assert DLBLE_SIZE = 0x20
+ 128:				;
+ 129:				;
+ 130:				; Date stamp directory entry structure.
+ 131:     -	        	                STRUCT
+ 132:     -	        	                STR_BYTE DSTE_USER      ; "User number" (0x21)
+ 133:     -	        	                STR_BLOCK DSTE_F1_DATE, DSTAMP_SIZE ; File 1 *
+ 134:     -	        	                STR_BLOCK DSTE_F1_UPD_DATE, DSTAMP_SIZE ; File 1 update date
+ 135:     -	        	                STR_BYTE DSTE_M1        ; File 1 password mode
+ 136:     -	        	                STR_BYTE DSTE_R0        ; Reserved, should be zero
+ 137:     -	        	                STR_BLOCK DSTE_F2_DATE, DSTAMP_SIZE ; File 2 *
+ 138:     -	        	                STR_BLOCK DSTE_F2_UPD_DATE, DSTAMP_SIZE ; File 2 update date
+ 139:     -	        	                STR_BYTE DSTE_M2        ; File 2 password mode
+ 140:     -	        	                STR_BYTE DSTE_R1        ; Reserved, should be zero
+ 141:     -	        	                STR_BLOCK DSTE_F3_DATE, DSTAMP_SIZE ; File 3 *
+ 142:     -	        	                STR_BLOCK DSTE_F3_UPD_DATE, DSTAMP_SIZE ; File 3 update date
+ 143:     -	        	                STR_BYTE DSTE_M3        ; File 3 password mode
+ 144:     -	        	                STR_BYTE DSTE_R2        ; Reserved, should be zero
+ 145:     -	        	                STR_BYTE DSTE_R3
+ 146:     -	        	                STR_END DSTE_SIZE
+ 147:				;
+ 148:				; * Create OR access date stamp.
+ 149:				;
+ 150:     -	0001'         	                assert DSTE_SIZE = 0x20
+ 151:				;
+ 152:				;
+ 153:				; Password directory entry structure.
+ 154:     -	        	                STRUCT
+ 155:     -	        	                STR_BYTE DPWDE_USER     ; User number
+ 156:     -	        	                STR_BLOCK DPWDE_NAME, FILENAME_SIZE ; Filename
+ 157:     -	        	                STR_BLOCK DPWDE_TYP, FILEEXT_SIZE   ; File type
+ 158:     -	        	                STR_BYTE DPWDE_PM       ; Mode byte
+ 159:     -	        	                STR_BYTE DPWDE_PB       ; Decode byte
+ 160:     -	        	                STR_BLOCK DPWDE_RESVD1, 2
+ 161:     -	        	                STR_BLOCK DPWDE_PWD, DIR_PWD_SIZE   ; Password
+ 162:     -	        	                STR_BLOCK DPWDE_RESVD2, 8
+ 163:     -	        	                STR_END DPWDE_SIZE
+ 164:				;
+ 165:     -	0001'         	                assert DPWDE_SIZE = 0x20
+ 166:				;
+ 167:				; DPWDE_PM bits.
+ 168:     -	        	BITDEF DPWDE_PM_DEL, 5                 ; Password required to delete file
+ 169:     -	        	BITDEF DPWDE_PM_WRITE, 6               ; Password required to write to file
+ 170:     -	        	BITDEF DPWDE_PM_READ, 7                ; Password required to read file
+ 171:				;
+ 172:				;
+ 173:				;
+ 174:				; ********
+ 175:				; * BIOS *
+ 176:				; ********
+ 177:				;
+ 178:				;
+ 179:				; PUNCH and READER are replaced by AUXOUT and AUXIN for CP/M 3. This allows the
+ 180:				; use of either name.
+ 181:     -	000F'         	BIOS_AUXOUT         equ BIOS_PUNCH
+ 182:     -	0012'         	BIOS_AUXIN          equ BIOS_READER
+ 183:				;
+ 184:				;
+ 185:				;
+ 186:				; ********
+ 187:				; * BDOS *
+ 188:				; ********
+ 189:				;
+ 190:				;
+ 191:				; Direct Console I/O (BDOS_DIRECT_CON_IO) command codes not supported by CP/M 2.
+ 192:     -	00FE'         	DCONIO_IN_STAT      equ 0xfe    ; Return console input status. Zero if no character is waiting, nonzero
+ 193:     -	00FD'         	DCONIO_GET_WT       equ 0xfd    ; Get character (no echo), wait if no key
+ 194:				;
+ 195:				;
+ 196:				;
+ 197:				; ***************
+ 198:				; * CMPLDR BIOS *
+ 199:				; ***************
+ 200:				;
+ 201:				;
+ 202:				; BIOS parameters structure. This is passed from the monitor to the CPMLDR
+ 203:				; BIOS and the CP/M 3 BIOS.
+ 204:     -	        	                STRUCT
+ 205:     -	        	                STR_BYTE BPS_OPTIONS    ; See BIOS_OPT_xxx definitions
+ 206:     -	        	                STR_BLOCK BPS_PAGES, MMAP_CP3_PAGES ; Memory page list
+ 207:     -	        	                STR_WORD BPS_PARTITION  ; Pointer to partition table entry
+ 208:     -	        	                STR_END BPS_SIZE
+ 209:				;
+**** sparse.z80 ****
+  29:				                include "memory.i"
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/memory.i ****
+   1:				; *******************************************
+   2:				; * ZARC Memory Include File                *
+   3:				; * Written by: Merlin Skinner              *
+   4:				; * Date Started: 24/11/2021                *
+   5:				; *******************************************
+   6:				;
+   7:				;
+   8:				; Note that ld80 only considers the first six characters of labels significant.
+   9:				;
+  10:				; The following conditionals are intended to allow the same include file to be
+  11:				; used in the defining module and elsewhere as required. Some includes are used
+  12:				; for other applications than the monitor, such as the CP/M BIOS. In these cases,
+  13:				; the extern and public statements are not desirable.
+  14:				;
+  15:     -	0000'         	            ifdef monitor           ; Meaningful for monitor build only
+  26:				            endif
+  27:				;
+  28:				; Physical memory constants are found in zarc.i
+  29:				;
+  30:     -	0004'         	MPA_NAME_LEN        equ 4               ; Page owner name length (bytes)
+  31:				;
+  32:				; Memory map
+  33:     -	4000'         	MMAP_PAGE_SIZE      equ 0x4000          ; Memory mapping bank / page size
+  34:     -	0004'         	MMAP_BANKS          equ 4               ; Number of 16 kB banks
+  35:     -	0040'         	MMAP_PAGES          equ 0x40            ; Number of 16 kB RAM pages
+  36:     -	0000'         	MMAP_BANK0_START    equ 0x0000
+  37:     -	3FFF'         	MMAP_BANK0_END      equ 0x3fff
+  38:     -	4000'         	MMAP_BANK1_START    equ 0x4000
+  39:     -	7FFF'         	MMAP_BANK1_END      equ 0x7fff
+  40:     -	8000'         	MMAP_BANK2_START    equ 0x8000
+  41:     -	BFFF'         	MMAP_BANK2_END      equ 0xbfff
+  42:     -	C000'         	MMAP_BANK3_START    equ 0xc000
+  43:     -	FFFF'         	MMAP_BANK3_END      equ 0xffff
+  44:				;
+  45:				;
+  46:				;
+  47:				; ****************
+  48:				; * Memory Usage *
+  49:				; ****************
+  50:				;
+  51:				;
+  52:				; Memory banks setup.
+  53:				; 0 (0000 - 3FFF): 3f read only, supervisor - monitor program
+  54:				; 1 (4000 - 7FFF): 3e writeable - monitor variables, stacks, buffers etc.
+  55:				; 2 (8000 - BFFF): (not used)
+  56:				; 3 (C000 - FFFF): (mapped as required)
+  57:				;
+  58:     -	003F'         	MMAP_MON_B0_PAGE    equ 0x3f        ; Page for bank 0
+  59:     -	003E'         	MMAP_MON_B1_PAGE    equ 0x3e        ; Page for bank 1
+  60:				;
+  61:				; This may seem large, but MMC sector writes for example require over 70 bytes
+  62:				; of stack!
+  63:     -	0080'         	STACKS_SIZE     equ 128             ; Space allocated to normal stacks
+  64:				;
+  65:     -	7FFF'         	HEAP_TOP        equ MMAP_BANK1_END  ; Top (end) of heap space.
+  66:				
+**** sparse.z80 ****
+  30:				                include "terminal.i"    ; Terminal constants
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/terminal.i ****
+   1:				; ***********************************
+   2:				; * ZARC Terminal Definitions       *
+   3:				; * Written by: Merlin Skinner      *
+   4:				; * Date Started: 16/5/2020         *
+   5:				; ***********************************
+   6:				;
+   7:				; Definitions associated with terminals connected to an RS-232 port.
+   8:				;
+   9:     -	0005'         	ASCII_ENQ           equ 0x05        ; Enquiry
+  10:     -	0008'         	ASCII_BS            equ 0x08        ; Backspace
+  11:     -	0009'         	ASCII_HT            equ 0x09
+  12:     -	000A'         	ASCII_LF            equ 0x0a        ; Line feed
+  13:     -	000B'         	ASCII_VT            equ 0x0b        ; Upline (ADM-3A)
+  14:     -	000C'         	ASCII_FF            equ 0x0c        ; Forward space (ADM-3A)
+  15:     -	000D'         	ASCII_CR            equ 0x0d        ; Carriage return
+  16:     -	0016'         	ASCII_SYN           equ 0x16        ; Synchronous idle
+  17:     -	001A'         	ASCII_SUB           equ 0x1a        ; Clear screen (ADM-3A)
+  18:     -	001B'         	ASCII_ESC           equ 0x1b        ; Escape
+  19:     -	001E'         	ASCII_RS            equ 0x1e        ; Home cursor (ADM-3A)
+  20:     -	007F'         	ASCII_DEL           equ 0x7f        ; Delete
+  21:				;
+  22:				; ZARC CP/M terminal input key codes. Some are copied from Amstrad PCW and
+  23:				; Spectrum +3, others are unique to ZARC. Delete seems very common.
+  24:     -	001F'         	ZKEY_CSR_UP         equ 0x1f        ; Cursor up
+  25:     -	001E'         	ZKEY_CSR_DOWN       equ 0x1e        ; Cursor down
+  26:     -	0006'         	ZKEY_CSR_RIGHT      equ 0x06        ; Cursor right
+  27:     -	0001'         	ZKEY_CSR_LEFT       equ 0x01        ; Cursor left
+  28:     -	0002'         	ZKEY_HOME           equ 0x02
+  29:     -	0016'         	ZKEY_INSERT         equ 0x16
+  30:     -	007F'         	ZKEY_DELETE         equ 0x7f
+  31:     -	0004'         	ZKEY_END            equ 0x04
+  32:     -	001D'         	ZKEY_PAGE_UP        equ 0x1d
+  33:     -	001C'         	ZKEY_PAGE_DOWN      equ 0x1c
+  34:				
+**** sparse.z80 ****
+  31:				                include "sparse.i"        ; Project include file
+**** sparse.i ****
+   1:				; *******************************************************
+   2:				; * CP/M File System Checker                            *
+   3:				; * Include file                                        *
+   4:				; * Written by: Merlin Skinner-Oakes                    *
+   5:				; * Date Started: 16/2/2022                             *
+   6:				; *******************************************************
+   7:				;
+   8:				;
+   9:				;
+  10:				; *************
+  11:				; * Constants *
+  12:				; *************
+  13:				;
+  14:				;
+  15:				; Version
+  16:     -	0001'         	MAJ_VER         equ 1
+  17:     -	0004'         	MIN_VER         equ 4
+  18:				;
+  19:				;DEBUG           equ 1                 ; Uncomment to enable debugging mode
+  20:				;
+  21:				; Command line option flags. The order must match clopt_list in fsck.z80.
+  22:     -	        	BITDEF CLOPT_BUILD, 0                   ; Show build time
+  23:				
+**** sparse.z80 ****
+  32:				                include "cpm_utility.i" ; CP/M utilities
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/cpm_utility.i ****
+   1:				; *******************************************************
+   2:				; * Utility Routines for CP/M Applications              *
+   3:				; * Version: V1.0                                       *
+   4:				; * Merlin Skinner, 16/12/2021                          *
+   5:				; *******************************************************
+   6:				;
+   7:				; Note that ld80 only considers the first six characters of labels significant.
+   8:				;
+   9:     -	0001'         	            ifndef CPMU         ; Inhibit for this module
+  10:				; CP/M specific.
+  11:				                extern init     ; Common initialisation code
+  12:				                extern conmod   ; Set console mode (BDOS or BIOS)
+  13:				                extern cpmver   ; CP/M version (packed BCD)
+  14:				                extern cbdos    ; Call BDOS with some registers saved
+  15:				                extern cbios    ; Call BIOS with some registers saved
+  16:				                extern panic    ; Fatal application error
+  17:				                extern zrcdet   ; Detect ZARC
+  18:				                extern z80det   ; Detect Z80 (instead of 8080 / 8085)
+  19:				                extern clopts   ; Read command line options
+  20:				;
+  21:				; Derived from the monitor's utility.z80.
+  22:				                extern conwch   ; Write character to console
+  23:				                extern conrch   ; Read character from the console
+  24:				                extern const    ; Fetch console input status
+  25:				                extern cwnwln   ; Write new line characters to console
+  26:				                extern conwms   ; Print "$" terminated string to the console
+  27:				                extern conwmn   ; Print message <n> in a list
+  28:				                extern skpspc   ; Step hl past spaces
+  29:				                extern toupca   ; Convert character in A to upper case
+  30:				                extern toloca   ; Convert character in A to lower case
+  31:				                extern cwvich   ; Print only visible 7-bit characters
+  32:				                extern cwpspc   ; Print a space
+  33:				                extern mtwdli   ; Match word in a string against list of options
+  34:				                extern cwphnb   ; Print least-significant nibble in A in hexadecimal
+  35:				                extern cwphby   ; Print A in hexadecimal
+  36:				                extern cwphwd   ; Print HL in hexadecimal
+  37:				                extern cwpdwd   ; Print HL in decimal. Leading zeros are suppressed
+  38:				                extern cwpdby   ; Print A in decimal. Leading zeros are suppressed
+  39:				                extern cwpdwd   ; Print HL in decimal. Leading zeros are suppressed
+  40:				                extern cwpdlo   ; Print DEHL in decimal. Leading zeros are suppressed
+  41:				                extern rdhxwd   ; Read a 16-bit hexadecimal number from a string
+  42:				                extern rdduwd   ; Read a 16-bit unsigned decimal number from a string
+  43:				                extern rddulo   ; Read a 32-bit unsigned decimal number from a string
+  44:				;
+  45:				            endif
+  46:				;
+  47:				;
+  48:				; mtwdli (match word in a string against list of options) option bits. Each bit
+  49:				; has the described effect if set.
+  50:     -	        	BITDEF MTWDLI_ABBREV, 0                 ; Enable "." abbreviation
+  51:     -	        	BITDEF MTWDLI_ICASE, 1                  ; Ignore case when matching
+  52:     -	        	BITDEF MTWDLI_TERM, 7                   ; Terminator found (internal use only)
+  53:				;
+  54:				;
+  55:				; Console mode (for conmod)
+  56:     -	0000'         	CONMOD_BDOS     equ 0x00                ; Use BDOS for console I/O
+  57:     -	0001'         	CONMOD_BIOS     equ 0x01                ; Use BIOS for console I/O
+  58:				
+**** sparse.z80 ****
+  33:				                include "cpm_terminal.i"; Terminal control
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/cpm_terminal.i ****
+   1:				; *******************************************************
+   2:				; * Terminal Control Routines for CP/M Applications     *
+   3:				; * Version: V1.0                                       *
+   4:				; * Merlin Skinner, 16/12/2021                          *
+   5:				; *******************************************************
+   6:				;
+   7:				; These routines provide more complex control over the terminal than is offered
+   8:				; by the simple generic character read / write used by the monitor and CP/M.
+   9:				;
+  10:				; Note that ld80 only considers the first six characters of labels significant.
+  11:				;
+  12:				; The following conditionals are intended to allow the same include file to be
+  13:				; used in the defining module and elsewhere as required. Some includes are used
+  14:				; for other applications than the monitor, such as the CP/M BIOS. In these cases,
+  15:				; the extern and public statements are not desirable.
+  16:				;
+  17:     -	0001'         	            ifndef cpm_terminal ; Inhibit for this module
+  18:				                extern concap   ; Console capabilities (CONCAP_xxx)
+  19:				                extern ccinit   ; Determine terminal capabilities
+  20:				                extern cldcur   ; Load cursor position
+  21:				                extern conuln   ; Set underline
+  22:				                extern conrev   ; Set reverse video
+  23:				                extern csrvis   ; Show or hide cursor
+  24:				                extern ccls     ; Clear screen
+  25:				                extern cscrup   ; Scroll screen up
+  26:				            endif
+  27:				;
+  28:				;
+  29:     -	0018'         	VT100_ROWS          equ 24
+  30:     -	0050'         	VT100_COLS          equ 80
+  31:				;
+  32:				;
+  33:				; The concap (determine terminal capabilities) routine returns a byte
+  34:				; indicating various capabilities of the attached terminal. The bits are
+  35:				; defined here.
+  36:     -	        	BITDEF CONCAP_ZARC, 0           ; ZARC BIOS present
+  37:     -	        	BITDEF CONCAP_ANSI, 1           ; ANSI control codes, e.g. VT100
+  38:     -	        	BITDEF CONCAP_UNICODE, 2        ; Terminal is capable of Unicode characters
+  39:				;
+  40:				; Note that Minicom by default emulates a VT102, and is capable of Unicode. If
+  41:				; this terminal is detected, both CONCAP_VT100 and CONCAP_UNICODE are set.
+  42:				;
+  43:				;
+  44:				; ANSI graphical rendition (SGR) codes. From https://en.wikipedia.org/wiki/ANSI_escape_code
+  45:     -	0000'         	ANSI_SGR_NORMAL     equ 0           ; All attributes off
+  46:     -	0001'         	ANSI_SGR_BOLD       equ 1           ; Bold or increased intensity
+  47:     -	0002'         	ANSI_SGR_FAINT      equ 2           ; Faint, decreased intensity, or dim
+  48:     -	0004'         	ANSI_SGR_ULINE      equ 4           ; Underline
+  49:     -	0005'         	ANSI_SGR_SBLINK     equ 5           ; Slow blink
+  50:     -	0006'         	ANSI_SGR_RBLINK     equ 6           ; Rapid blink
+  51:     -	0007'         	ANSI_SGR_REV        equ 7           ; Reverse video or invert
+  52:     -	0009'         	ANSI_SGR_STRIKE     equ 9           ; Characters legible but marked as if for deletion
+  53:     -	000A'         	ANSI_SGR_PRI_FONT   equ 10          ; Primary (default) font
+  54:     -	000B'         	ANSI_SGR_FONT_1     equ 11          ; Alternative fonts
+  55:     -	000C'         	ANSI_SGR_FONT_2     equ 12
+  56:     -	000D'         	ANSI_SGR_FONT_3     equ 13
+  57:     -	000E'         	ANSI_SGR_FONT_4     equ 14
+  58:     -	000F'         	ANSI_SGR_FONT_5     equ 15
+  59:     -	0010'         	ANSI_SGR_FONT_6     equ 16
+  60:     -	0011'         	ANSI_SGR_FONT_7     equ 17
+  61:     -	0012'         	ANSI_SGR_FONT_8     equ 18
+  62:     -	0013'         	ANSI_SGR_FONT_9     equ 19
+  63:     -	0014'         	ANSI_SGR_GOTHIC     equ 20          ; Fraktur (Gothic) (not widely supported)
+  64:     -	0015'         	ANSI_SGR_DULINE     equ 21          ; Doubly underlined *or* not bold
+  65:     -	0016'         	ANSI_SGR_NORM_INTEN equ 22          ; Normal intensity
+  66:     -	0017'         	ANSI_SGR_ITAL_OFF   equ 23          ; Neither italic, nor blackletter
+  67:     -	0018'         	ANSI_SGR_ULINE_OFF  equ 24          ; Underline off
+  68:     -	0019'         	ANSI_SGR_BLINK_OFF  equ 25          ; Blinking off
+  69:     -	001B'         	ANSI_SGR_REV_OFF    equ 27          ; Reverse image off
+  70:     -	001C'         	ANSI_SGR_HIDE_OFF   equ 28          ; Reveal (not concealed)
+  71:     -	001D'         	ANSI_SGR_STRIKE_OFF equ 29
+  72:				
+**** sparse.z80 ****
+  34:				                include "cpm_top.i"     ; CP/M dummy top module
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/cpm_top.i ****
+   1:				; *******************************************************
+   2:				; * Dummy Module to find the Last Location in Use.      *
+   3:				; * Version: V1.0                                       *
+   4:				; * Merlin Skinner, 16/12/2021                          *
+   5:				; *******************************************************
+   6:				;
+   7:				; Note that ld80 only considers the first six characters of labels significant.
+   8:				;
+   9:				                extern fstfre       ; First location after end of data segment
+  10:				
+**** sparse.z80 ****
+  35:				;
+  36:				;
+  37:				;
+  38:				; *************
+  39:				; * Externals *
+  40:				; *************
+  41:				;
+  42:				;
+  43:				; Variables
+  44:				                extern btime    ; Build time string
+  45:				;
+  46:				;
+  47:				;
+  48:				; *************
+  49:				; * Main Code *
+  50:				; *************
+  51:				;
+  52:				;
+  53:				; The CP/M transient area start address is set in the linker invocation (see
+  54:				; makefile).
+  55:				                cseg                    ; Code segment
+  56:				;
+  57:				; The default stack space is very small (8 deep), which would almost certainly
+  58:				; cause issues, particularly with interrupts running. The initial code should
+  59:				; not assume a Z80 so we can exit cleanly if this is run on an 8080, for
+  60:				; example.
+  61:    0+20	0000' ED730000	                ld (bdos_sp), sp
+  62:   20+10	0004' 318300  	                ld sp, app_stack_top    ; Switch to our stack space
+  63:				;
+  64:   30+17	0007' CD0000  	                call init               ; Common initialisation code
+  65:				;
+  66:				; We won't print the sign-on message yet so it can be suppressed by a q
+  67:				; ("quiet") option.
+  68:				;
+  69:				; Clear variables area
+  70:   47+10	000A' 210200  	                ld hl, clr_start        ; Start address
+  71:   57+7	000D' 0601    	                ld b, clr_end - clr_start
+  72:   64+4	000F' AF      	                xor a
+  73:   68+7	0010' 77      	clr_loop        ld (hl), a
+  74:   75+6	0011' 23      	                inc hl
+  75:   81+8+5	0012' 10FC    	                djnz clr_loop
+  76:				;
+  77:				; Examine the command tail, looking for operands. This is stored in the default
+  78:				; buffer. "The first byte at 0080H contains the length of the command tail,
+  79:				; while the command tail itself begins at 0081H. The command tail is terminated
+  80:				; by a byte containing a binary zero value."
+  81:				; (http://www.cpm.z80.de/manuals/cpm22-m.pdf appendix H).
+  82:   89+10	0014' 218100  	                ld hl, DEF_BUFFER + 1
+  83:   99+17	0017' CD0000  	                call skpspc             ; Skip spaces
+  84:				;
+  85:				; Check for options. These may begin with "[", "/" or "$", to match all
+  86:				; conventions I have found used with CP/M.
+  87:  116+10	001A' 11E700  	op_options      ld de, clopt_list       ; Null-terminated list of options
+  88:  126+17	001D' CD0000  	                call clopts             ; Read command line options
+  89:  143+7+5	0020' 3807    	                jr c, op_error          ; Error on bad options
+  90:  150+13	0022' 320200  	                ld (clopt_flags), a
+  91:				;
+  92:				; HL - points to first character after options and any trailing spaces.
+  93:				; The terminator should follow.
+  94:  163+7	0025' 7E      	                ld a, (hl)
+  95:  170+4	0026' A7      	                and a
+  96:  174+7+5	0027' 280C    	                jr z, clopt_term
+  97:				;
+  98:				; Go here if we don't like the operands supplied.
+  99:  181+10	0029' 21BB00  	op_error        ld hl, signon_msg       ; Sign on.
+ 100:  191+17	002C' CD0000  	                call conwms             ; Print $-terminated string to console
+ 101:				; As above, but with no sign-on.
+ 102:  208+10	002F' 21E900  	op_err_no_sign  ld hl, op_err_msg
+ 103:  218+10	0032' C3B300  	                jp msg_exit
+ 104:				;
+ 105:				; Command line terminator found. Sign on unless "quiet" is selected.
+ 106:  228+10	0035' 21BB00  	clopt_term      ld hl, signon_msg       ; Sign on.
+ 107:  238+17	0038' CD0000  	                call conwms             ; Print $-terminated string to console
+ 108:				;
+ 109:				; Show build information if requested, then exit.
+ 110:				; Note that the build time string will be overwritten once the programme starts
+ 111:				; storing data at fstfre, but this is OK as long as we exit after displaying
+ 112:				; the string.
+ 113:  255+13	003B' 3A0200  	                ld a, (clopt_flags)     ; Fetch command line options
+ 114:  268+7	003E' E601    	                and CLOPT_BUILD_MASK
+ 115:  275+7+5	0040' 280C    	                jr z, no_build
+ 116:				;
+ 117:  282+10	0042' 210000  	                ld hl, btime            ; Build time string
+ 118:  292+17	0045' CD0000  	                call conwms             ; Print $-terminated string to console
+ 119:  309+17	0048' CD0000  	                call cwnwln             ; Write new line characters to console
+ 120:  326+10	004B' C3B600  	                jp exit
+ 121:				;
+ 122:     -	004E'         	no_build        
+ 123:				;
+ 124:				; Delete any previous file.
+ 125:  336+10	004E' 118F01  	                ld de, fcb              ; File Control Block
+ 126:  346+7	0051' 0E13    	                ld c, BDOS_DELETE_FILE
+ 127:  353+17	0053' CD0000  	                call cbdos              ; Call BDOS with some registers saved
+ 128:				;
+ 129:				; Make output file.
+ 130:  370+10	0056' 118F01  	                ld de, fcb              ; File Control Block
+ 131:  380+7	0059' 0E16    	                ld c, BDOS_MAKE_FILE
+ 132:  387+17	005B' CD0000  	                call cbdos              ; Call BDOS with some registers saved
+ 133:  404+10	005E' 214B01  	                ld hl, nodir_msg        ; "No directory space"
+ 134:  414+4	0061' 3C      	                inc a                   ; 255 becomes 0
+ 135:  418+10	0062' CAB300  	                jp z, msg_exit          ; done if no dir space
+ 136:				;
+ 137:				; Set DMA address to point to test data.
+ 138:  428+10	0065' 11B301  	                ld de, test_data
+ 139:  438+7	0068' 0E1A    	                ld c, BDOS_SET_DMA_ADDR
+ 140:  445+17	006A' CD0000  	                call cbdos              ; Call BDOS with some registers saved
+ 141:				;
+ 142:				; Set record number.
+ 143:  462+10	006D' 21B001  	                ld hl, fcb + FCB_RECORD
+ 144:  472+10	0070' 3600    	                ld (hl), 0
+ 145:  482+6	0072' 23      	                inc hl
+ 146:  488+10	0073' 3600    	                ld (hl), 0
+ 147:  498+6	0075' 23      	                inc hl
+ 148:  504+10	0076' 3600    	                ld (hl), 0
+ 149:				;
+ 150:				; Write record.
+ 151:  514+10	0078' 118F01  	                ld de, fcb              ; File Control Block
+ 152:  524+7	007B' 0E22    	                ld c, BDOS_WRITE_RANDOM
+ 153:  531+17	007D' CD0000  	                call cbdos              ; Call BDOS with some registers saved
+ 154:  548+10	0080' 216F01  	                ld hl, wr_err_msg       ; "Write record error"
+ 155:  558+4	0083' 3C      	                inc a                   ; 255 becomes 0
+ 156:  562+10	0084' CAB300  	                jp z, msg_exit          ; done if no dir space
+ 157:				;
+ 158:				; Set record number.
+ 159:  572+10	0087' 21B001  	                ld hl, fcb + FCB_RECORD
+ 160:  582+10	008A' 3620    	                ld (hl), 32
+ 161:  592+6	008C' 23      	                inc hl
+ 162:  598+10	008D' 3600    	                ld (hl), 0
+ 163:  608+6	008F' 23      	                inc hl
+ 164:  614+10	0090' 3600    	                ld (hl), 0
+ 165:				;
+ 166:				; Write record.
+ 167:  624+10	0092' 118F01  	                ld de, fcb              ; File Control Block
+ 168:  634+7	0095' 0E22    	                ld c, BDOS_WRITE_RANDOM
+ 169:  641+17	0097' CD0000  	                call cbdos              ; Call BDOS with some registers saved
+ 170:  658+10	009A' 216F01  	                ld hl, wr_err_msg       ; "Write record error"
+ 171:  668+4	009D' 3C      	                inc a                   ; 255 becomes 0
+ 172:  672+10	009E' CAB300  	                jp z, msg_exit          ; done if no dir space
+ 173:				;
+ 174:				; Close file
+ 175:  682+10	00A1' 118F01  	                ld de, fcb              ; File Control Block
+ 176:  692+7	00A4' 0E10    	                ld c, BDOS_CLOSE_FILE
+ 177:  699+17	00A6' CD0000  	                call cbdos              ; Call BDOS with some registers saved
+ 178:  716+10	00A9' 215E01  	                ld hl, wrprot_msg       ; "Write protected?"
+ 179:  726+4	00AC' 3C      	                inc a                   ; 255 becomes 0
+ 180:  730+10	00AD' CAB300  	                jp z, msg_exit          ; Should not happen
+ 181:				;
+ 182:				; Normal exit
+ 183:  740+10	00B0' 218201  	                ld hl, normal_msg       ; "File created"
+ 184:				;
+ 185:				; Print message pointed to by HL, then exit.
+ 186:  750+17	00B3' CD0000  	msg_exit        call conwms             ; Print $-terminated string to console
+ 187:				;
+ 188:				; Return to CP/M.
+ 189:  767+20	00B6' ED7B0000	exit            ld sp, (bdos_sp)
+ 190:				; This is a small application so we can just return.
+ 191:  787+10	00BA' C9      	                ret                     ; Return to BDOS
+ 192:				;                jp 0                    ; Warm boot
+ 193:				;
+ 194:				;
+ 195:				;
+ 196:				; *************
+ 197:				; * Constants *
+ 198:				; *************
+ 199:				;
+ 200:				;
+ 201:     -	00BB' 2A2A2A20	signon_msg      byte "*** CP/M Sparse File Generator V"
+	              43502F4D
+	              20537061
+	              72736520
+	              46696C65
+	              2047656E
+	              65726174
+	              6F722056
+ 202:     -	00DB' 312E34  	                byte MAJ_VER + "0", ".", MIN_VER + "0"
+ 203:     -	00DE' 202A2A2A	                byte " ***", 0x0d, 0x0a
+	              0D0A
+ 204:     -	00E4' 0D0A24  	                byte 0x0d, 0x0a, "$"
+ 205:     -	00E7' 4200    	clopt_list      byte "B", 0        ; List of option characters 
+ 206:     -	00E9' 4F706572	op_err_msg      byte "Operand error. Expected format: sparse [/<options>]"
+	              616E6420
+	              6572726F
+	              722E2045
+	              78706563
+	              74656420
+	              666F726D
+	              61743A20
+	              73706172
+	              7365205B
+	              2F3C6F70
+	              74696F6E
+	              733E5D
+ 207:     -	011C' 0D0A    	                byte 0x0d, 0x0a
+ 208:     -	011E' 6F707469	                byte "options: B=show build information and exit"
+	              6F6E733A
+	              20423D73
+	              686F7720
+	              6275696C
+	              6420696E
+	              666F726D
+	              6174696F
+	              6E20616E
+	              64206578
+	              6974
+ 209:     -	0148' 0D0A24  	                byte 0x0d, 0x0a, "$"
+ 210:     -	014B' 4E6F2064	nodir_msg       byte "No directory space$"
+	              69726563
+	              746F7279
+	              20737061
+	              636524
+ 211:     -	015E' 57726974	wrprot_msg      byte "Write protected?$"
+	              65207072
+	              6F746563
+	              7465643F
+	              24
+ 212:     -	016F' 57726974	wr_err_msg      byte "Write record error$"
+	              65207265
+	              636F7264
+	              20657272
+	              6F7224
+ 213:     -	0182' 46696C65	normal_msg      byte "File created$"
+	              20637265
+	              61746564
+	              24
+ 214:				;
+ 215:     -	018F' 00535041	fcb             byte 0, "SPARSE  TST", 0, 0, 0, 0
+	              52534520
+	              20545354
+	              00000000
+ 216:     -	019F'..01AE'00	                dc 16, 0
+ 217:     -	01AF' 00      	                byte 0              ; Current record
+ 218:     -	01B0'..01B2'00	                dc 3, 0             ; Random record number
+ 219:     -	0001'         	                assert $ = fcb + FCB_SIZE
+ 220:				;
+ 221:     -	01B3' 4C6F7265	test_data       byte "Lorem ipsum dolor sit amet, consectetur adipiscing elit. "
+	              6D206970
+	              73756D20
+	              646F6C6F
+	              72207369
+	              7420616D
+	              65742C20
+	              636F6E73
+	              65637465
+	              74757220
+	              61646970
+	              69736369
+	              6E672065
+	              6C69742E
+	              20
+ 222:     -	01EC' 4E616D20	                byte "Nam imperdiet metus eget felis vulputate, sit amet "
+	              696D7065
+	              72646965
+	              74206D65
+	              74757320
+	              65676574
+	              2066656C
+	              69732076
+	              756C7075
+	              74617465
+	              2C207369
+	              7420616D
+	              657420
+ 223:     -	021F' 66657567	                byte "feugiat urna sapien."
+	              69617420
+	              75726E61
+	              20736170
+	              69656E2E
+ 224:     -	0001'         	                assert $ = test_data + CPM_SECTOR_SIZE
+ 225:				;
+ 226:				;
+ 227:				; *************
+ 228:				; * Variables *
+ 229:				; *************
+ 230:				;
+ 231:				;
+ 232:				; Note: linker "-c" option is used, so no data is initialised here.
+ 233:				                dseg                ; Data segment
+ 234:				;
+ 235:     -	0000"         	bdos_sp         defs 2              ; BDOS"s stack pointer
+ 236:				;
+ 237:     -	0002"         	clr_start                           ; Start of cleared variables area
+ 238:				;
+ 239:     -	0002"         	clopt_flags     defs 1              ; Command line options
+ 240:				;
+ 241:     -	0003"         	clr_end                             ; End of cleared variables area
+ 242:				;
+ 243:     -	0003"         	                defs STACKS_SIZE    ; Stack space
+ 244:     -	0083"         	app_stack_top
+ 245:				;
+ 246:     -	0083"         	                end
+
+
+
+Statistics:
+
+     4	passes
+     0	jr promotions
+   428	symbols
+   563	bytes
+
+   185	macro calls
+  2391	macro bytes
+     0	invented symbols
+
+
+
+Symbol Table:
+
+ANSI_SGR_BLINK_OFF=19        25
+ANSI_SGR_BOLD  =01        1
+ANSI_SGR_DULINE=15        21
+ANSI_SGR_FAINT =02        2
+ANSI_SGR_FONT_1=0B        11
+ANSI_SGR_FONT_2=0C        12
+ANSI_SGR_FONT_3=0D        13
+ANSI_SGR_FONT_4=0E        14
+ANSI_SGR_FONT_5=0F        15
+ANSI_SGR_FONT_6=10        16
+ANSI_SGR_FONT_7=11        17
+ANSI_SGR_FONT_8=12        18
+ANSI_SGR_FONT_9=13        19
+ANSI_SGR_GOTHIC=14        20
+ANSI_SGR_HIDE_OFF=1C        28
+ANSI_SGR_ITAL_OFF=17        23
+ANSI_SGR_NORMAL=00        0
+ANSI_SGR_NORM_INTEN=16        22
+ANSI_SGR_PRI_FONT=0A        10
+ANSI_SGR_RBLINK=06        6
+ANSI_SGR_REV   =07        7
+ANSI_SGR_REV_OFF=1B        27
+ANSI_SGR_SBLINK=05        5
+ANSI_SGR_STRIKE=09        9
+ANSI_SGR_STRIKE_OFF=1D        29
+ANSI_SGR_ULINE =04        4
+ANSI_SGR_ULINE_OFF=18        24
+ASCII_BS       =08        8
+ASCII_CR       =0D        13
+ASCII_DEL      =7F        127
+ASCII_ENQ      =05        5
+ASCII_ESC      =1B        27
+ASCII_FF       =0C        12
+ASCII_HT       =09        9
+ASCII_LF       =0A        10
+ASCII_RS       =1E        30
+ASCII_SUB      =1A        26
+ASCII_SYN      =16        22
+ASCII_VT       =0B        11
+BDOS           =05        5
+BDOS_CALL_RSX  =3C        60
+BDOS_CLOSE_FILE=10        16
+BDOS_CON_IN    =01        1
+BDOS_CON_OUT   =02        2
+BDOS_C_DELIMIT =6E        110
+BDOS_C_MODE    =6D        109
+BDOS_C_WRITEBLK=6F        111
+BDOS_DELETE_FILE=13        19
+BDOS_DIRECT_CON_IO=06        6
+BDOS_DISK_CLEAN=62        98
+BDOS_F_MULTISEC=2C        44
+BDOS_F_PARSE   =98        152
+BDOS_F_TRUNCATE=63        99
+BDOS_GET_ALLOC_ADDR=1B        27
+BDOS_GET_CON_STAT=0B        11
+BDOS_GET_CURR_DISK=19        25
+BDOS_GET_DPB   =1F        31
+BDOS_GET_FILE_SIZE=23        35
+BDOS_GET_IO_BYTE=07        7
+BDOS_GET_LOGIN_VEC=18        24
+BDOS_GET_RO_VEC=1D        29
+BDOS_GET_SET_USER=20        32
+BDOS_LST_OUT   =05        5
+BDOS_L_WRITEBLK=70        112
+BDOS_MAKE_FILE =16        22
+BDOS_OPEN_FILE =0F        15
+BDOS_PRINT_STRING=09        9
+BDOS_PUN_OUT   =04        4
+BDOS_P_CODE    =6C        108
+BDOS_P_LOAD    =3B        59
+BDOS_RDR_IN    =03        3
+BDOS_READ_CON_BUFF=0A        10
+BDOS_READ_RANDOM=21        33
+BDOS_READ_SEQ  =14        20
+BDOS_READ_SEQ_EOF=01        1
+BDOS_RENAME_FILE=17        23
+BDOS_RESET_DISK_SYS=0D        13
+BDOS_RESET_DRIVES=25        37
+BDOS_SEARCH_FIRST=11        17
+BDOS_SEARCH_NEXT=12        18
+BDOS_SEL_DISK  =0E        14
+BDOS_SET_DMA_ADDR=1A        26
+BDOS_SET_FILE_ATTR=1E        30
+BDOS_SET_IO_BYTE=08        8
+BDOS_SET_RANDOM_REC=24        36
+BDOS_START     =DE06      56838
+BDOS_SYS_RST   =00        0
+BDOS_S_BIOS    =32        50
+BDOS_S_SYSVAR  =31        49
+BDOS_T_SET     =68        104
+BDOS_VERSION   =0C        12
+BDOS_WRITE_PROT=1C        28
+BDOS_WRITE_RANDOM=22        34
+BDOS_WRITE_SEQ =15        21
+BDOS_WR_RND_ZFILL=28        40
+BIOS_AUXIN     =12        18
+BIOS_AUXIST    =33        51
+BIOS_AUXOST    =36        54
+BIOS_AUXOUT    =0F        15
+BIOS_CONIN     =06        6
+BIOS_CONOST    =30        48
+BIOS_CONOUT    =09        9
+BIOS_CONST     =03        3
+BIOS_CPM_START_SEC=2C        44
+BIOS_DEVINI    =3C        60
+BIOS_DEVTBL    =39        57
+BIOS_DRVTBL    =3F        63
+BIOS_FLUSH     =45        69
+BIOS_GET_TIMER =7B        123
+BIOS_HOME      =15        21
+BIOS_ID        =60        96
+BIOS_INT_DISABLE=6F        111
+BIOS_INT_ENABLE=72        114
+BIOS_JPTBL_NEXT=7E        126
+BIOS_LISTST    =2A        42
+BIOS_MAX_SIZE  =1000      4096
+BIOS_MON_CALL  =69        105
+BIOS_MOVE      =48        72
+BIOS_MULTIO    =42        66
+BIOS_OPT_DEBUG_BIT=00        0
+BIOS_OPT_DEBUG_MASK=01        1
+BIOS_OPT_NOINTS_BIT=01        1
+BIOS_OPT_NOINTS_MASK=02        2
+BIOS_OPT_RAWCON_BIT=02        2
+BIOS_OPT_RAWCON_MASK=04        4
+BIOS_PLIST     =0C        12
+BIOS_PUNCH     =0F        15
+BIOS_READ      =24        36
+BIOS_READER    =12        18
+BIOS_RESERV1   =5A        90
+BIOS_RESERV2   =5D        93
+BIOS_SECTRAN   =2D        45
+BIOS_SELDSK    =18        24
+BIOS_SELMEM    =4E        78
+BIOS_SETBNK    =51        81
+BIOS_SETDMA    =21        33
+BIOS_SETSEC    =1E        30
+BIOS_SETTRK    =1B        27
+BIOS_SET_TIMER =78        120
+BIOS_START     =EC00      60416
+BIOS_STARTUP   =66        102
+BIOS_SUPER     =6C        108
+BIOS_TIME      =4B        75
+BIOS_TIRD      =75        117
+BIOS_USERF     =57        87
+BIOS_VER       =63        99
+BIOS_WBOOT     =00        0
+BIOS_WRITE     =27        39
+BIOS_XMOVE     =54        84
+BPS_OPTIONS    =00        0
+BPS_PAGES      =01        1
+BPS_PARTITION  =0E        14
+BPS_SIZE       =10        16
+CCP_START      =D600      54784
+CDISK          =04        4
+CLOPT_BUILD_BIT=00        0
+CLOPT_BUILD_MASK=01        1
+CONCAP_ANSI_BIT=01        1
+CONCAP_ANSI_MASK=02        2
+CONCAP_UNICODE_BIT=02        2
+CONCAP_UNICODE_MASK=04        4
+CONCAP_ZARC_BIT=00        0
+CONCAP_ZARC_MASK=01        1
+CONMOD_BDOS    =00        0
+CONMOD_BIOS    =01        1
+CP3_DPB_AL0    =09        9
+CP3_DPB_AL1    =0A        10
+CP3_DPB_BLM    =03        3
+CP3_DPB_BSH    =02        2
+CP3_DPB_CKS    =0B        11
+CP3_DPB_DRM    =07        7
+CP3_DPB_DSM    =05        5
+CP3_DPB_EXM    =04        4
+CP3_DPB_OFF    =0D        13
+CP3_DPB_PHM    =10        16
+CP3_DPB_PSH    =0F        15
+CP3_DPB_SIZE   =11        17
+CP3_DPB_SPT    =00        0
+CP3_DPH_ALV    =10        16
+CP3_DPH_CSV    =0E        14
+CP3_DPH_DIRBCB =12        18
+CP3_DPH_DPB    =0C        12
+CP3_DPH_DTABCB =14        20
+CP3_DPH_HASH   =16        22
+CP3_DPH_HBANK  =18        24
+CP3_DPH_MF     =0B        11
+CP3_DPH_SCRATCH=02        2
+CP3_DPH_SIZE   =19        25
+CP3_DPH_XLT    =00        0
+CP3_DRIVE_A    =08        8
+CP3_DRIVE_B    =01        1
+CP3_NUM_DISKS  =08        8
+CP3_NUM_DISKS_MAX=10        16
+CP3_XDPH_SIZE  =23        35
+CPMLDR_MAX_SIZE=2800      10240
+CPMLDR_START_SEC=13        19
+CPM_BIAS       =A200      41472
+CPM_BLOCK_SIZE = 800      2048
+CPM_DIR_ENTRIES= 200      512
+CPM_DISK_SIZE  =00100000  1048576
+CPM_SECTOR_SIZE=80        128
+CPM_SYS_SIZE   =00100000  1048576
+DCONIO_GET_NO_WT=FF        255
+DCONIO_GET_WT  =FD        253
+DCONIO_IN_STAT =FE        254
+DCONIO_PUT     =00        0
+DEF_BUFFER     =80        128
+DEF_BUFFER_SIZE=80        128
+DIRE_ALLOC     =10        16
+DIRE_EX        =0C        12
+DIRE_NAME      =01        1
+DIRE_RC        =0F        15
+DIRE_S1        =0D        13
+DIRE_S2        =0E        14
+DIRE_SIZE      =20        32
+DIRE_TYP       =09        9
+DIRE_USER      =00        0
+DIR_PWD_SIZE   =08        8
+DLBLE_CREATE_DATE=18        24
+DLBLE_LB       =0C        12
+DLBLE_NAME     =01        1
+DLBLE_NAME_SIZE=08        8
+DLBLE_PB       =0D        13
+DLBLE_PWD      =10        16
+DLBLE_RR0      =0E        14
+DLBLE_RR1      =0F        15
+DLBLE_SIZE     =20        32
+DLBLE_TYP      =09        9
+DLBLE_TYP_SIZE =03        3
+DLBLE_UPDATE_DATE=1C        28
+DLBLE_USER     =00        0
+DPB_AL0        =09        9
+DPB_AL1        =0A        10
+DPB_BLM        =03        3
+DPB_BSH        =02        2
+DPB_CKS        =0B        11
+DPB_DRM        =07        7
+DPB_DSM        =05        5
+DPB_EXM        =04        4
+DPB_OFF        =0D        13
+DPB_SIZE       =0F        15
+DPB_SPT        =00        0
+DPH_ALV        =0E        14
+DPH_CSV        =0C        12
+DPH_DIRBF      =08        8
+DPH_DPB        =0A        10
+DPH_SCRATCH0   =02        2
+DPH_SCRATCH1   =04        4
+DPH_SCRATCH2   =06        6
+DPH_SIZE       =10        16
+DPH_XLT        =00        0
+DPWDE_NAME     =01        1
+DPWDE_PB       =0D        13
+DPWDE_PM       =0C        12
+DPWDE_PM_DEL_BIT=05        5
+DPWDE_PM_DEL_MASK=20        32
+DPWDE_PM_READ_BIT=07        7
+DPWDE_PM_READ_MASK=80        128
+DPWDE_PM_WRITE_BIT=06        6
+DPWDE_PM_WRITE_MASK=40        64
+DPWDE_PWD      =10        16
+DPWDE_RESVD1   =0E        14
+DPWDE_RESVD2   =18        24
+DPWDE_SIZE     =20        32
+DPWDE_TYP      =09        9
+DPWDE_USER     =00        0
+DSTAMP_DAY     =00        0
+DSTAMP_HOUR    =02        2
+DSTAMP_MIN     =03        3
+DSTAMP_SIZE    =04        4
+DSTE_F1_DATE   =01        1
+DSTE_F1_UPD_DATE=05        5
+DSTE_F2_DATE   =0B        11
+DSTE_F2_UPD_DATE=0F        15
+DSTE_F3_DATE   =15        21
+DSTE_F3_UPD_DATE=19        25
+DSTE_M1        =09        9
+DSTE_M2        =13        19
+DSTE_M3        =1D        29
+DSTE_R0        =0A        10
+DSTE_R1        =14        20
+DSTE_R2        =1E        30
+DSTE_R3        =1F        31
+DSTE_SIZE      =20        32
+DSTE_USER      =00        0
+FCB1           =5C        92
+FCB2           =6C        108
+FCB_ALLOC      =10        16
+FCB_CR         =20        32
+FCB_DRIVE      =00        0
+FCB_EX         =0C        12
+FCB_NAME       =01        1
+FCB_RC         =0F        15
+FCB_RECORD     =21        33
+FCB_S1         =0D        13
+FCB_S2         =0E        14
+FCB_SIZE       =24        36
+FCB_TYP        =09        9
+FILEEXT_SIZE   =03        3
+FILENAME_SIZE  =08        8
+FILE_EOF       =1A        26
+HEAP_TOP       =7FFF      32767
+INT_VEC_TABLE  =FFE0      65504
+IOBYTE         =03        3
+IOB_CON_MASK   =03        3
+IOB_LST_MASK   =C0        192
+IOB_PUN_MASK   =30        48
+IOB_RDR_MASK   =0C        12
+MAJ_VER        =01        1
+MAX_USER       =0F        15
+MIN_VER        =04        4
+MMAP_BANK0_END =3FFF      16383
+MMAP_BANK0_START=00        0
+MMAP_BANK1_END =7FFF      32767
+MMAP_BANK1_START=4000      16384
+MMAP_BANK2_END =BFFF      49151
+MMAP_BANK2_START=8000      32768
+MMAP_BANK3_END =FFFF      65535
+MMAP_BANK3_START=C000      49152
+MMAP_BANKS     =04        4
+MMAP_CP3_BANKS =04        4
+MMAP_CP3_BK0_ST=00        0
+MMAP_CP3_BK1_ST=03        3
+MMAP_CP3_BK2_ST=06        6
+MMAP_CP3_BK3_ST=09        9
+MMAP_CP3_COMM_PG=0C        12
+MMAP_CP3_PAGES =0D        13
+MMAP_CPM_PAGES =04        4
+MMAP_MON_B0_PAGE=3F        63
+MMAP_MON_B1_PAGE=3E        62
+MMAP_PAGES     =40        64
+MMAP_PAGE_SIZE =4000      16384
+MPA_NAME_LEN   =04        4
+MTWDLI_ABBREV_BIT=00        0
+MTWDLI_ABBREV_MASK=01        1
+MTWDLI_ICASE_BIT=01        1
+MTWDLI_ICASE_MASK=02        2
+MTWDLI_TERM_BIT=07        7
+MTWDLI_TERM_MASK=80        128
+NUM_DISKS      =09        9
+NUM_DISKS_MAX  =10        16
+SBM_A          =01        1
+SBM_B          =03        3
+SBM_C          =02        2
+SBM_D          =05        5
+SBM_E          =04        4
+SBM_FUNC       =00        0
+SBM_H          =07        7
+SBM_L          =06        6
+SBM_SIZE       =08        8
+STACKS_SIZE    =80        128
+TPA_START      = 100      256
+VT100_COLS     =50        80
+VT100_ROWS     =18        24
+ZKEY_CSR_DOWN  =1E        30
+ZKEY_CSR_LEFT  =01        1
+ZKEY_CSR_RIGHT =06        6
+ZKEY_CSR_UP    =1F        31
+ZKEY_DELETE    =7F        127
+ZKEY_END       =04        4
+ZKEY_HOME      =02        2
+ZKEY_INSERT    =16        22
+ZKEY_PAGE_DOWN =1C        28
+ZKEY_PAGE_UP   =1D        29
+app_stack_top   83"       131
+bdos_sp         00"       0
+btime           00        0 (extern)
+cbdos           00        0 (extern)
+cbios           00        0 (extern)
+ccinit          00        0 (extern)
+ccls            00        0 (extern)
+cldcur          00        0 (extern)
+clopt_flags     02"       2
+clopt_list      E7'       231
+clopt_term      35'       53
+clopts          00        0 (extern)
+clr_end         03"       3
+clr_loop        10'       16
+clr_start       02"       2
+concap          00        0 (extern)
+conmod          00        0 (extern)
+conrch          00        0 (extern)
+conrev          00        0 (extern)
+const           00        0 (extern)
+conuln          00        0 (extern)
+conwch          00        0 (extern)
+conwmn          00        0 (extern)
+conwms          00        0 (extern)
+cpmver          00        0 (extern)
+cscrup          00        0 (extern)
+csrvis          00        0 (extern)
+cwnwln          00        0 (extern)
+cwpdby          00        0 (extern)
+cwpdlo          00        0 (extern)
+cwpdwd          00        0 (extern)
+cwphby          00        0 (extern)
+cwphnb          00        0 (extern)
+cwphwd          00        0 (extern)
+cwpspc          00        0 (extern)
+cwvich          00        0 (extern)
+exit            B6'       182
+fcb              18F'     399
+fstfre          00        0 (extern)
+init            00        0 (extern)
+jptbl_addr     =7E        126
+msg_exit        B3'       179
+mtwdli          00        0 (extern)
+no_build        4E'       78
+nodir_msg        14B'     331
+normal_msg       182'     386
+op_err_msg      E9'       233
+op_err_no_sign  2F'       47
+op_error        29'       41
+op_options      1A'       26
+panic           00        0 (extern)
+rddulo          00        0 (extern)
+rdduwd          00        0 (extern)
+rdhxwd          00        0 (extern)
+signon_msg      BB'       187
+skpspc          00        0 (extern)
+str_offset     =10        16
+test_data        1B3'     435
+toloca          00        0 (extern)
+toupca          00        0 (extern)
+wr_err_msg       16F'     367
+wrprot_msg       15E'     350
+z80det          00        0 (extern)
+zrcdet          00        0 (extern)

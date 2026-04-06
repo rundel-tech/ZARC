@@ -26,7 +26,7 @@
   26:				;
   27:				;
   28:				                include "macros.i"
-**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/macros.i ****
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes//macros.i ****
    1:				; ***********************************
    2:				; * ZARC Macro Definitions          *
    3:				; * Written by: Merlin Skinner      *
@@ -226,7 +226,7 @@
  197:				
 **** cpm_utility.z80 ****
   29:				                include "z80.i"
-**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/z80.i ****
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes//z80.i ****
    1:				; ***********************************
    2:				; * ZARC Z80 Definitions            *
    3:				; * Written by: Merlin Skinner      *
@@ -248,7 +248,7 @@
   19:				
 **** cpm_utility.z80 ****
   30:				                include "terminal.i"    ; Terminal constants
-**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/terminal.i ****
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes//terminal.i ****
    1:				; ***********************************
    2:				; * ZARC Terminal Definitions       *
    3:				; * Written by: Merlin Skinner      *
@@ -285,7 +285,7 @@
   34:				
 **** cpm_utility.z80 ****
   31:				                include "cpm.i"
-**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/cpm.i ****
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes//cpm.i ****
    1:				; *******************************************************
    2:				; * ZARC Monitor CP/M 2.2 Definitions                   *
    3:				; * Written by: Merlin Skinner                          *
@@ -612,7 +612,7 @@
  336:				
 **** cpm_utility.z80 ****
   32:				                include "cpm_utility.i"
-**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/cpm_utility.i ****
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes//cpm_utility.i ****
    1:				; *******************************************************
    2:				; * Utility Routines for CP/M Applications              *
    3:				; * Version: V1.0                                       *
@@ -707,7 +707,7 @@
  100:				;
  101:				; 8080 / 8085 detected. Print message and exit. We can't use conwms as this
  102:				; assumes a Z80.
- 103:   49+10	0008' 11BD04  	                ld de, no_z80_msg       ; "Z80 CPU required"
+ 103:   49+10	0008' 11C004  	                ld de, no_z80_msg       ; "Z80 CPU required"
  104:				; Display message in DE and return to CP/M.
  105:   59+7	000B' 0E09    	it_msg_exit     ld c, BDOS_PRINT_STRING ; Print String
  106:   66+17	000D' CD0500  	                call BDOS
@@ -740,7 +740,7 @@
  133:				;
  134:				; Go here if we don't like or can't recognise the operating system we are
  135:				; running on.
- 136:  231+10	0034' 11D004  	os_error        ld de, unsupp_os_msg
+ 136:  231+10	0034' 11D304  	os_error        ld de, unsupp_os_msg
  137:  241+12	0037' 18D2    	                jr it_msg_exit          ; Display message and exit
  138:				;
  139:				; We are running on a system we know about.
@@ -756,10 +756,10 @@
  149:  296+11	003F' D5      	conmod          push de
  150:  307+11	0040' E5      	                push hl
  151:				;
- 152:  318+10	0041' 21F804  	                ld hl, con_bdos_funcs   ; Point to list of BDOS routines
+ 152:  318+10	0041' 21FB04  	                ld hl, con_bdos_funcs   ; Point to list of BDOS routines
  153:  328+7	0044' FE00    	                cp CONMOD_BDOS
  154:  335+7+5	0046' 280A    	                jr z, cm_set
- 155:  342+10	0048' 210005  	                ld hl, con_bios_funcs   ; Point to list of BIOS routines
+ 155:  342+10	0048' 210305  	                ld hl, con_bios_funcs   ; Point to list of BIOS routines
  156:  352+7	004B' FE01    	                cp CONMOD_BIOS
  157:  359+7+5	004D' 2803    	                jr z, cm_set
  158:  366+17	004F' CDC800  	                call panic              ; Panic if value is bad
@@ -873,11 +873,11 @@
  292:				; Unrecoverable application error! Halt the application to prevent further
  293:				; damage. Call this routine in case of a serious error.
  294:				; Note: call is preferred (rather than jump) as it preserves the PC.
- 295: 1005+10	00C8' 219A04  	panic           ld hl, panic_1_msg      ; "*** Software panic at PC="
+ 295: 1005+10	00C8' 219D04  	panic           ld hl, panic_1_msg      ; "*** Software panic at PC="
  296: 1015+17	00CB' CD7301  	                call conwms             ; Print $-terminated string to console
  297: 1032+10	00CE' E1      	                pop hl                  ; Fetch PC
  298: 1042+17	00CF' CDE801  	                call cwphwd             ; Print HL in hexadecimal
- 299: 1059+10	00D2' 21B604  	                ld hl, panic_2_msg      ; " ***"
+ 299: 1059+10	00D2' 21B904  	                ld hl, panic_2_msg      ; " ***"
  300: 1069+17	00D5' CD7301  	                call conwms             ; Print $-terminated string to console
  301: 1086+10	00D8' C30000  	                jp 0                    ; Warm boot
  302:				;
@@ -1706,7 +1706,7 @@
 1125: 5532+7	043E' 7E      	                ld a, (hl)
 1126: 5539+4	043F' 47      	                ld b, a                 ; Save for later
 1127: 5543+4	0440' A7      	                and a
-1128: 5547+7+5	0441' 284E    	                jr z, clo_end_opts      ; Jump if no options 
+1128: 5547+7+5	0441' 2851    	                jr z, clo_end_opts      ; Jump if no options 
 1129: 5554+7	0443' FE5B    	                cp "["
 1130: 5561+7+5	0445' 280B    	                jr z, clo_op_loop
 1131: 5568+7	0447' FE2F    	                cp "/"
@@ -1716,7 +1716,7 @@
 1135:				; We have found a character, but it isn't an option introducer. We return with
 1136:				; HL pointing to this character we didn't recognise.
 1137: 5596+4	044F' A7      	                and a
-1138: 5600+12	0450' 1840    	                jr clo_exit             ; Exit with no options
+1138: 5600+12	0450' 1843    	                jr clo_exit             ; Exit with no options
 1139:				;
 1140:				; Option loop. Attempt to match each option character with the list of options.
 1141:				; B - option introducer character
@@ -1732,89 +1732,90 @@
 1151: 5636+7+5	0457' 200E    	                jr nz, clo_not_brktd    ; Jump if we didn't start with "["
 1152:				; Options started with a "[" so must finish with a "]".
 1153: 5643+4	0459' A7      	                and a
-1154: 5647+7+5	045A' 2832    	                jr z, clo_err
+1154: 5647+7+5	045A' 2835    	                jr z, clo_err
 1155: 5654+7	045C' FE20    	                cp " "
-1156: 5661+7+5	045E' 282E    	                jr z, clo_err
+1156: 5661+7+5	045E' 2831    	                jr z, clo_err
 1157: 5668+7	0460' FE5D    	                cp "]"
 1158: 5675+7+5	0462' 200A    	                jr nz, clo_do_opt
 1159: 5682+6	0464' 23      	                inc hl                  ; Step past "]"
-1160: 5688+12	0465' 182A    	                jr clo_end_opts         ; Exit
+1160: 5688+12	0465' 182D    	                jr clo_end_opts         ; Exit
 1161:				; Options were started with "/" or "$" so there is no explicit terminator.
 1162: 5700+4	0467' A7      	clo_not_brktd   and a
-1163: 5704+7+5	0468' 2827    	                jr z, clo_end_opts
+1163: 5704+7+5	0468' 282A    	                jr z, clo_end_opts
 1164: 5711+7	046A' FE20    	                cp " "
-1165: 5718+7+5	046C' 2823    	                jr z, clo_end_opts
+1165: 5718+7+5	046C' 2826    	                jr z, clo_end_opts
 1166:				;
 1167:				; Process option character.
 1168: 5725+7	046E' 7E      	clo_do_opt      ld a, (hl)              ; Re-fetch character
-1169: 5732+11	046F' D5      	                push de                 ; Save address of option characters
-1170: 5743+4	0470' EB      	                ex de, hl
-1171: 5747+11	0471' C5      	                push bc                 ; Save introducer and flags
-1172: 5758+4	0472' 4F      	                ld c, a
-1173: 5762+7	0473' 0601    	                ld b, 1                 ; Flag bit mask
-1174:				; B - flag bit mask
-1175:				; C - option character
-1176:				; HL - points to a null terminated list of option characters.
-1177:				; DE - pointer to command line
-1178: 5769+7	0475' 7E      	clo_ch_loop     ld a, (hl)              ; Fetch option character
-1179: 5776+4	0476' A7      	                and a
-1180: 5780+7+5	0477' 2813    	                jr z, clo_miss          ; Jump if terminator found
-1181: 5787+6	0479' 23      	                inc hl
-1182: 5793+4	047A' B9      	                cp c
-1183: 5797+7+5	047B' 2807    	                jr z, clo_match
-1184: 5804+8	047D' CB00    	                rlc b                   ; Update mask
-1185: 5812+10+7	047F' DCC800  	                call c, panic           ; Panic if too many options
-1186: 5822+12	0482' 18F1    	                jr clo_ch_loop
-1187:				;
-1188:				; Match found.
-1189: 5834+4	0484' EB      	clo_match       ex de, hl
-1190: 5838+4	0485' 78      	                ld a, b                 ; Mask
-1191: 5842+10	0486' C1      	                pop bc                  ; Fetch introducer and flags
-1192: 5852+4	0487' B1      	                or c                    ; Update flags
-1193: 5856+4	0488' 4F      	                ld c, a
-1194: 5860+10	0489' D1      	                pop de                  ; Restore pointer to start of list
-1195: 5870+12	048A' 18C6    	                jr clo_op_loop          ; Process next character
-1196:				;
-1197:				; We found the terminator while searching the list of possible options.
-1198: 5882+10	048C' C1      	clo_miss        pop bc                  ; Fetch introducer and flags 
-1199: 5892+10	048D' D1      	                pop de                  ; Restore pointer to start of list
-1200:				;
-1201:				; Return with error.
-1202: 5902+4	048E' 37      	clo_err         scf                     ; Flag error
-1203: 5906+12	048F' 1801    	                jr clo_exit
-1204:				;
-1205:				; Normal return.
-1206: 5918+4	0491' A7      	clo_end_opts    and a                   ; Flag OK
-1207: 5922+4	0492' 79      	clo_exit        ld a, c                 ; Move option flags to A
-1208: 5926+10	0493' C1      	                pop bc
-1209:				; Skip any trailing spaces.
-1210: 5936+11	0494' F5      	                push af
-1211: 5947+17	0495' CD9101  	                call skpspc             ; Skip spaces
-1212: 5964+10	0498' F1      	                pop af
-1213: 5974+10	0499' C9      	                ret
-1214:				;
+1169: 5732+17	046F' CD9801  	                call toupca             ; Convert to upper case
+1170: 5749+11	0472' D5      	                push de                 ; Save address of option characters
+1171: 5760+4	0473' EB      	                ex de, hl
+1172: 5764+11	0474' C5      	                push bc                 ; Save introducer and flags
+1173: 5775+4	0475' 4F      	                ld c, a
+1174: 5779+7	0476' 0601    	                ld b, 1                 ; Flag bit mask
+1175:				; B - flag bit mask
+1176:				; C - option character
+1177:				; HL - points to a null terminated list of option characters.
+1178:				; DE - pointer to command line
+1179: 5786+7	0478' 7E      	clo_ch_loop     ld a, (hl)              ; Fetch option character
+1180: 5793+4	0479' A7      	                and a
+1181: 5797+7+5	047A' 2813    	                jr z, clo_miss          ; Jump if terminator found
+1182: 5804+6	047C' 23      	                inc hl
+1183: 5810+4	047D' B9      	                cp c
+1184: 5814+7+5	047E' 2807    	                jr z, clo_match
+1185: 5821+8	0480' CB00    	                rlc b                   ; Update mask
+1186: 5829+10+7	0482' DCC800  	                call c, panic           ; Panic if too many options
+1187: 5839+12	0485' 18F1    	                jr clo_ch_loop
+1188:				;
+1189:				; Match found.
+1190: 5851+4	0487' EB      	clo_match       ex de, hl
+1191: 5855+4	0488' 78      	                ld a, b                 ; Mask
+1192: 5859+10	0489' C1      	                pop bc                  ; Fetch introducer and flags
+1193: 5869+4	048A' B1      	                or c                    ; Update flags
+1194: 5873+4	048B' 4F      	                ld c, a
+1195: 5877+10	048C' D1      	                pop de                  ; Restore pointer to start of list
+1196: 5887+12	048D' 18C3    	                jr clo_op_loop          ; Process next character
+1197:				;
+1198:				; We found the terminator while searching the list of possible options.
+1199: 5899+10	048F' C1      	clo_miss        pop bc                  ; Fetch introducer and flags 
+1200: 5909+10	0490' D1      	                pop de                  ; Restore pointer to start of list
+1201:				;
+1202:				; Return with error.
+1203: 5919+4	0491' 37      	clo_err         scf                     ; Flag error
+1204: 5923+12	0492' 1801    	                jr clo_exit
+1205:				;
+1206:				; Normal return.
+1207: 5935+4	0494' A7      	clo_end_opts    and a                   ; Flag OK
+1208: 5939+4	0495' 79      	clo_exit        ld a, c                 ; Move option flags to A
+1209: 5943+10	0496' C1      	                pop bc
+1210:				; Skip any trailing spaces.
+1211: 5953+11	0497' F5      	                push af
+1212: 5964+17	0498' CD9101  	                call skpspc             ; Skip spaces
+1213: 5981+10	049B' F1      	                pop af
+1214: 5991+10	049C' C9      	                ret
 1215:				;
 1216:				;
-1217:				; *************
-1218:				; * Constants *
-1219:				; *************
-1220:				;
+1217:				;
+1218:				; *************
+1219:				; * Constants *
+1220:				; *************
 1221:				;
-1222:     -	049A' 0D0A2A2A	panic_1_msg     byte 0x0d, 0x0a, "*** Software panic at PC=", "$"
+1222:				;
+1223:     -	049D' 0D0A2A2A	panic_1_msg     byte 0x0d, 0x0a, "*** Software panic at PC=", "$"
 	              2A20536F
 	              66747761
 	              72652070
 	              616E6963
 	              20617420
 	              50433D24
-1223:     -	04B6' 202A2A2A	panic_2_msg     byte " ***", 0x0d, 0x0a, "$"
+1224:     -	04B9' 202A2A2A	panic_2_msg     byte " ***", 0x0d, 0x0a, "$"
 	              0D0A24
-1224:     -	04BD' 5A383020	no_z80_msg      byte "Z80 CPU required", 0x0d, 0x0a, "$"
+1225:     -	04C0' 5A383020	no_z80_msg      byte "Z80 CPU required", 0x0d, 0x0a, "$"
 	              43505520
 	              72657175
 	              69726564
 	              0D0A24
-1225:     -	04D0' 4F706572	unsupp_os_msg   byte "Operating system not supported", 0x0d, 0x0a, "$"
+1226:     -	04D3' 4F706572	unsupp_os_msg   byte "Operating system not supported", 0x0d, 0x0a, "$"
 	              6174696E
 	              67207379
 	              7374656D
@@ -1823,55 +1824,55 @@
 	              706F7274
 	              65640D0A
 	              24
-1226:     -	04F1' 5B42444F	bdos_msg        byte "[BDOS $"
+1227:     -	04F4' 5B42444F	bdos_msg        byte "[BDOS $"
 	              532024
-1227:				; CP/M 2 and 3 BDOS function names list for debugging. CP/M 3-only functions are
-1228:				; prefixed with "3". Where functions differ between versions, the CP/M 2
-1229:				; function is listed first followed by the CP/M 3 one. Functions not valid for
-1230:				; either system are indicated with "". Function 152 (F_PARSE) is not included
-1231:				; as it would extend the table a lot and is not something I plan to use.
-1232:     -	0000'         	                ifdef DEBUG
-1263:				                endif
-1264:				;
+1228:				; CP/M 2 and 3 BDOS function names list for debugging. CP/M 3-only functions are
+1229:				; prefixed with "3". Where functions differ between versions, the CP/M 2
+1230:				; function is listed first followed by the CP/M 3 one. Functions not valid for
+1231:				; either system are indicated with "". Function 152 (F_PARSE) is not included
+1232:				; as it would extend the table a lot and is not something I plan to use.
+1233:     -	0000'         	                ifdef DEBUG
+1264:				                endif
 1265:				;
-1266:				; Pointers to BDOS console routines to be copied to con_vecs when BDOS is
-1267:				; selected.
-1268:     -	04F8' 2801    	con_bdos_funcs  word conwch_bdos
-1269:     -	04FA' 8101    	                word conwms_bdos
-1270:     -	04FC' 4401    	                word conrch_bdos
-1271:     -	04FE' 6801    	                word const_bdos
-1272:				;
-1273:				; As above, but for the BIOS routines.
-1274:     -	0500' 2E01    	con_bios_funcs  word conwch_bios
-1275:     -	0502' 8601    	                word conwms_bios
-1276:     -	0504' 4901    	                word conrch_bios
-1277:     -	0506' 6D01    	                word const_bios
-1278:				;
+1266:				;
+1267:				; Pointers to BDOS console routines to be copied to con_vecs when BDOS is
+1268:				; selected.
+1269:     -	04FB' 2801    	con_bdos_funcs  word conwch_bdos
+1270:     -	04FD' 8101    	                word conwms_bdos
+1271:     -	04FF' 4401    	                word conrch_bdos
+1272:     -	0501' 6801    	                word const_bdos
+1273:				;
+1274:				; As above, but for the BIOS routines.
+1275:     -	0503' 2E01    	con_bios_funcs  word conwch_bios
+1276:     -	0505' 8601    	                word conwms_bios
+1277:     -	0507' 4901    	                word conrch_bios
+1278:     -	0509' 6D01    	                word const_bios
 1279:				;
 1280:				;
-1281:				; *************
-1282:				; * Variables *
-1283:				; *************
-1284:				;
-1285:				; Note: linker "-c" option is used, so no data is initialised here.
-1286:				                dseg                ; Data segment
-1287:				;
-1288:     -	0000"         	gldn_x1         defs 4              ; Read long decimal temporary store
-1289:				; cwpdlo (32-bit decimal print) variables
-1290:     -	0004"         	pdl_reg         defs 4              ; Working store
-1291:     -	0008"         	pdl_lz_flag     defs 1              ; Leading zero flag
-1292:     -	0009"         	pdl_ascii       defs 1              ; ASCII digit
-1293:     -	000A"         	cpmver          defs 1              ; CP/M version (packed BCD)
-1294:     -	000B"         	cbios_params    defs SBM_SIZE       ; BDOS_S_BIOS parameter block
-1295:				;
-1296:				; Console routine vectors. The order must match that in con_bdos_funcs and
-1297:				; con_bios_funcs.
-1298:     -	0013"         	conwch_vec      defs 2              ; Vector to console write routine
-1299:     -	0015"         	conwms_vec      defs 2              ; Vector to console message write routine
-1300:     -	0017"         	conrch_vec      defs 2              ; Vector to console read routine
-1301:     -	0019"         	const_vec       defs 2              ; Vector to console status routine
-1302:				;
-1303:     -	001B"         	                end
+1281:				;
+1282:				; *************
+1283:				; * Variables *
+1284:				; *************
+1285:				;
+1286:				; Note: linker "-c" option is used, so no data is initialised here.
+1287:				                dseg                ; Data segment
+1288:				;
+1289:     -	0000"         	gldn_x1         defs 4              ; Read long decimal temporary store
+1290:				; cwpdlo (32-bit decimal print) variables
+1291:     -	0004"         	pdl_reg         defs 4              ; Working store
+1292:     -	0008"         	pdl_lz_flag     defs 1              ; Leading zero flag
+1293:     -	0009"         	pdl_ascii       defs 1              ; ASCII digit
+1294:     -	000A"         	cpmver          defs 1              ; CP/M version (packed BCD)
+1295:     -	000B"         	cbios_params    defs SBM_SIZE       ; BDOS_S_BIOS parameter block
+1296:				;
+1297:				; Console routine vectors. The order must match that in con_bdos_funcs and
+1298:				; con_bios_funcs.
+1299:     -	0013"         	conwch_vec      defs 2              ; Vector to console write routine
+1300:     -	0015"         	conwms_vec      defs 2              ; Vector to console message write routine
+1301:     -	0017"         	conrch_vec      defs 2              ; Vector to console read routine
+1302:     -	0019"         	const_vec       defs 2              ; Vector to console status routine
+1303:				;
+1304:     -	001B"         	                end
 
 
 
@@ -1880,7 +1881,7 @@ Statistics:
      4	passes
      0	jr promotions
    349	symbols
-  1288	bytes
+  1291	bytes
 
    104	macro calls
   2391	macro bytes
@@ -2115,26 +2116,26 @@ ZKEY_HOME      =02        2
 ZKEY_INSERT    =16        22
 ZKEY_PAGE_DOWN =1C        28
 ZKEY_PAGE_UP   =1D        29
-bdos_msg         4F1'     1265
+bdos_msg         4F4'     1268
 cbdos           5D'       93 (public)
 cbios           69'       105 (public)
 cbios_direct    C1'       193
 cbios_div_lp    AF'       175
 cbios_params    0B"       11
 cbios_raw       75'       117
-clo_ch_loop      475'     1141
+clo_ch_loop      478'     1144
 clo_do_opt       46E'     1134
-clo_end_opts     491'     1169
-clo_err          48E'     1166
-clo_exit         492'     1170
-clo_match        484'     1156
-clo_miss         48C'     1164
+clo_end_opts     494'     1172
+clo_err          491'     1169
+clo_exit         495'     1173
+clo_match        487'     1159
+clo_miss         48F'     1167
 clo_not_brktd    467'     1127
 clo_op_loop      452'     1106
 clopts           438'     1080 (public)
 cm_set          52'       82
-con_bdos_funcs   4F8'     1272
-con_bios_funcs   500'     1280
+con_bdos_funcs   4FB'     1275
+con_bios_funcs   503'     1283
 conmod          3F'       63 (public)
 conrch           135'     309 (public)
 conrch_bdos      144'     324
@@ -2198,11 +2199,11 @@ mw_next_lwd      333'     819
 mw_no_match      346'     838
 mw_str_tm_dn     313'     787
 mw_sword_end     311'     785
-no_z80_msg       4BD'     1213
+no_z80_msg       4C0'     1216
 os_error        34'       52
 panic           C8'       200 (public)
-panic_1_msg      49A'     1178
-panic_2_msg      4B6'     1206
+panic_1_msg      49D'     1181
+panic_2_msg      4B9'     1209
 pdl_ascii       09"       9
 pdl_digit        28F'     655
 pdl_digloop      294'     660
@@ -2231,7 +2232,7 @@ sks_loop         193'     403
 str_offset     =08        8
 toloca           1A1'     417 (public)
 toupca           198'     408 (public)
-unsupp_os_msg    4D0'     1232
+unsupp_os_msg    4D3'     1235
 z80det          FF'       255 (public)
 z8d_exit         113'     275
 z8d_not_z80      115'     277

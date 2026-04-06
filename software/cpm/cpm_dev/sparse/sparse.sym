@@ -1,0 +1,41 @@
+Addr  Length Typ Name       Module   File
+=====================================================================
+0100   0233   P  -          SPARSE   sparse.rel
+0333   001d   P  -          BTIME.   btime.rel
+0350   050b   P  -          CPM_UT   ../shared/cpm_utility.rel
+085b   0083   D  -          SPARSE   sparse.rel
+08de   001b   D  -          CPM_UT   ../shared/cpm_utility.rel
+
+Symbol   Value Module   File
+======================================================================
+BTIME    0333  BTIME.   btime.rel
+CBDOS    03ad  CPM_UT   ../shared/cpm_utility.rel
+CBIOS    03b9  CPM_UT   ../shared/cpm_utility.rel
+CLOPTS   0788  CPM_UT   ../shared/cpm_utility.rel
+CONMOD   038f  CPM_UT   ../shared/cpm_utility.rel
+CONRCH   0485  CPM_UT   ../shared/cpm_utility.rel
+CONST    04a9  CPM_UT   ../shared/cpm_utility.rel
+CONWCH   0469  CPM_UT   ../shared/cpm_utility.rel
+CONWMN   0624  CPM_UT   ../shared/cpm_utility.rel
+CONWMS   04c3  CPM_UT   ../shared/cpm_utility.rel
+CPMVER   08e8  CPM_UT   ../shared/cpm_utility.rel
+CWNWLN   049f  CPM_UT   ../shared/cpm_utility.rel
+CWPDBY   0540  CPM_UT   ../shared/cpm_utility.rel
+CWPDLO   0587  CPM_UT   ../shared/cpm_utility.rel
+CWPDWD   054a  CPM_UT   ../shared/cpm_utility.rel
+CWPHBY   052c  CPM_UT   ../shared/cpm_utility.rel
+CWPHNB   051f  CPM_UT   ../shared/cpm_utility.rel
+CWPHWD   0538  CPM_UT   ../shared/cpm_utility.rel
+CWPSPC   04fa  CPM_UT   ../shared/cpm_utility.rel
+CWVICH   04ff  CPM_UT   ../shared/cpm_utility.rel
+INIT     0350  CPM_UT   ../shared/cpm_utility.rel
+MTWDLI   0648  CPM_UT   ../shared/cpm_utility.rel
+PANIC    0418  CPM_UT   ../shared/cpm_utility.rel
+RDDULO   0718  CPM_UT   ../shared/cpm_utility.rel
+RDDUWD   06e0  CPM_UT   ../shared/cpm_utility.rel
+RDHXWD   06a2  CPM_UT   ../shared/cpm_utility.rel
+SKPSPC   04e1  CPM_UT   ../shared/cpm_utility.rel
+TOLOCA   04f1  CPM_UT   ../shared/cpm_utility.rel
+TOUPCA   04e8  CPM_UT   ../shared/cpm_utility.rel
+Z80DET   044f  CPM_UT   ../shared/cpm_utility.rel
+ZRCDET   042b  CPM_UT   ../shared/cpm_utility.rel

@@ -14,7 +14,7 @@
 ;
 ; Version
 MAJ_VER         equ 1
-MIN_VER         equ 3
+MIN_VER         equ 4
 ;
 ;DEBUG           equ 1                 ; Uncomment to enable debugging mode
 ;
@@ -60,6 +60,7 @@ BITDEF FIF_FFLG_PEXT, 2                 ; Set if file has at least one physical 
                 STR_BYTE FI_FLAGS                   ; FIF_xxx flags
                 STR_WORD FI_LAST_PEXT               ; Highest physical extent number found
                 STR_BYTE FI_LAST_RC                 ; RC associated with the extent in FI_LAST_PEXT
+                STR_BYTE FI_LAST_S1                 ; S1 associated with the extent in FI_LAST_PEXT
                 STR_BYTE FI_EX_FL_LEN               ; No. of extent flag bytes
                 STR_BLOCK FI_EX_FLAGS, 0            ; Start of extent flags
                 STR_END FI_SIZE

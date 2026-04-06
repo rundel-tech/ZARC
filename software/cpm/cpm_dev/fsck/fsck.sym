@@ -1,79 +1,42 @@
 Addr  Length Typ Name       Module   File
 =====================================================================
-<<<<<<< HEAD
-0100   104d   P  -          FSCK.Z   fsck.rel
-114d   001d   P  -          BTIME.   btime.rel
-116a   0508   P  -          CPM_UT   ../shared/cpm_utility.rel
-1672   00fa   D  -          FSCK.Z   fsck.rel
-176c   001b   D  -          CPM_UT   ../shared/cpm_utility.rel
+0100   115c   P  -          FSCK.Z   fsck.rel
+125c   001d   P  -          BTIME.   btime.rel
+1279   050b   P  -          CPM_UT   ../shared/cpm_utility.rel
+1784   00fa   D  -          FSCK.Z   fsck.rel
+187e   001b   D  -          CPM_UT   ../shared/cpm_utility.rel
 
 Symbol   Value Module   File
 ======================================================================
-BTIME    114d  BTIME.   btime.rel
-CBDOS    11c7  CPM_UT   ../shared/cpm_utility.rel
-CBIOS    11d3  CPM_UT   ../shared/cpm_utility.rel
-CLOPTS   15a2  CPM_UT   ../shared/cpm_utility.rel
-CONMOD   11a9  CPM_UT   ../shared/cpm_utility.rel
-CONRCH   129f  CPM_UT   ../shared/cpm_utility.rel
-CONST    12c3  CPM_UT   ../shared/cpm_utility.rel
-CONWCH   1283  CPM_UT   ../shared/cpm_utility.rel
-CONWMN   143e  CPM_UT   ../shared/cpm_utility.rel
-CONWMS   12dd  CPM_UT   ../shared/cpm_utility.rel
-CPMVER   1776  CPM_UT   ../shared/cpm_utility.rel
-CWNWLN   12b9  CPM_UT   ../shared/cpm_utility.rel
-CWPDBY   135a  CPM_UT   ../shared/cpm_utility.rel
-CWPDLO   13a1  CPM_UT   ../shared/cpm_utility.rel
-CWPDWD   1364  CPM_UT   ../shared/cpm_utility.rel
-CWPHBY   1346  CPM_UT   ../shared/cpm_utility.rel
-CWPHNB   1339  CPM_UT   ../shared/cpm_utility.rel
-CWPHWD   1352  CPM_UT   ../shared/cpm_utility.rel
-CWPSPC   1314  CPM_UT   ../shared/cpm_utility.rel
-CWVICH   1319  CPM_UT   ../shared/cpm_utility.rel
-FSTFRE   1787  CPM_TO   ../shared/cpm_top.rel
-INIT     116a  CPM_UT   ../shared/cpm_utility.rel
-MTWDLI   1462  CPM_UT   ../shared/cpm_utility.rel
-PANIC    1232  CPM_UT   ../shared/cpm_utility.rel
-RDDULO   1532  CPM_UT   ../shared/cpm_utility.rel
-RDDUWD   14fa  CPM_UT   ../shared/cpm_utility.rel
-RDHXWD   14bc  CPM_UT   ../shared/cpm_utility.rel
-SKPSPC   12fb  CPM_UT   ../shared/cpm_utility.rel
-TOLOCA   130b  CPM_UT   ../shared/cpm_utility.rel
-TOUPCA   1302  CPM_UT   ../shared/cpm_utility.rel
-Z80DET   1269  CPM_UT   ../shared/cpm_utility.rel
-ZRCDET   1245  CPM_UT   ../shared/cpm_utility.rel
-=======
-0100   0a2c   P  -          FSCK.Z   fsck.rel
-0b2c   0387   P  -          CPM_UT   ../shared/cpm_utility.rel
-0eb3   0071   D  -          FSCK.Z   fsck.rel
-0f24   000a   D  -          CPM_UT   ../shared/cpm_utility.rel
-
-Symbol   Value Module   File
-======================================================================
-CBDOS    0b2c  CPM_UT   ../shared/cpm_utility.rel
-CBIOS    0b38  CPM_UT   ../shared/cpm_utility.rel
-CONRCH   0bab  CPM_UT   ../shared/cpm_utility.rel
-CONST    0bc2  CPM_UT   ../shared/cpm_utility.rel
-CONWCH   0b9d  CPM_UT   ../shared/cpm_utility.rel
-CONWMN   0d22  CPM_UT   ../shared/cpm_utility.rel
-CONWMS   0bcf  CPM_UT   ../shared/cpm_utility.rel
-CWNWLN   0bb8  CPM_UT   ../shared/cpm_utility.rel
-CWPDBY   0c3e  CPM_UT   ../shared/cpm_utility.rel
-CWPDLO   0c85  CPM_UT   ../shared/cpm_utility.rel
-CWPDWD   0c48  CPM_UT   ../shared/cpm_utility.rel
-CWPHBY   0c2a  CPM_UT   ../shared/cpm_utility.rel
-CWPHNB   0c1d  CPM_UT   ../shared/cpm_utility.rel
-CWPHWD   0c36  CPM_UT   ../shared/cpm_utility.rel
-CWPSPC   0bf8  CPM_UT   ../shared/cpm_utility.rel
-CWVICH   0bfd  CPM_UT   ../shared/cpm_utility.rel
-FSTFRE   0f2e  CPM_TO   ../shared/cpm_top.rel
-MTWDLI   0d46  CPM_UT   ../shared/cpm_utility.rel
-PANIC    0b4c  CPM_UT   ../shared/cpm_utility.rel
-RDDULO   0e16  CPM_UT   ../shared/cpm_utility.rel
-RDDUWD   0dde  CPM_UT   ../shared/cpm_utility.rel
-RDHXWD   0da0  CPM_UT   ../shared/cpm_utility.rel
-SKPSPC   0bdf  CPM_UT   ../shared/cpm_utility.rel
-TOLOCA   0bef  CPM_UT   ../shared/cpm_utility.rel
-TOUPCA   0be6  CPM_UT   ../shared/cpm_utility.rel
-Z80DET   0b83  CPM_UT   ../shared/cpm_utility.rel
-ZRCDET   0b5f  CPM_UT   ../shared/cpm_utility.rel
->>>>>>> refs/remotes/origin/main
+BTIME    125c  BTIME.   btime.rel
+CBDOS    12d6  CPM_UT   ../shared/cpm_utility.rel
+CBIOS    12e2  CPM_UT   ../shared/cpm_utility.rel
+CLOPTS   16b1  CPM_UT   ../shared/cpm_utility.rel
+CONMOD   12b8  CPM_UT   ../shared/cpm_utility.rel
+CONRCH   13ae  CPM_UT   ../shared/cpm_utility.rel
+CONST    13d2  CPM_UT   ../shared/cpm_utility.rel
+CONWCH   1392  CPM_UT   ../shared/cpm_utility.rel
+CONWMN   154d  CPM_UT   ../shared/cpm_utility.rel
+CONWMS   13ec  CPM_UT   ../shared/cpm_utility.rel
+CPMVER   1888  CPM_UT   ../shared/cpm_utility.rel
+CWNWLN   13c8  CPM_UT   ../shared/cpm_utility.rel
+CWPDBY   1469  CPM_UT   ../shared/cpm_utility.rel
+CWPDLO   14b0  CPM_UT   ../shared/cpm_utility.rel
+CWPDWD   1473  CPM_UT   ../shared/cpm_utility.rel
+CWPHBY   1455  CPM_UT   ../shared/cpm_utility.rel
+CWPHNB   1448  CPM_UT   ../shared/cpm_utility.rel
+CWPHWD   1461  CPM_UT   ../shared/cpm_utility.rel
+CWPSPC   1423  CPM_UT   ../shared/cpm_utility.rel
+CWVICH   1428  CPM_UT   ../shared/cpm_utility.rel
+FSTFRE   1899  CPM_TO   ../shared/cpm_top.rel
+INIT     1279  CPM_UT   ../shared/cpm_utility.rel
+MTWDLI   1571  CPM_UT   ../shared/cpm_utility.rel
+PANIC    1341  CPM_UT   ../shared/cpm_utility.rel
+RDDULO   1641  CPM_UT   ../shared/cpm_utility.rel
+RDDUWD   1609  CPM_UT   ../shared/cpm_utility.rel
+RDHXWD   15cb  CPM_UT   ../shared/cpm_utility.rel
+SKPSPC   140a  CPM_UT   ../shared/cpm_utility.rel
+TOLOCA   141a  CPM_UT   ../shared/cpm_utility.rel
+TOUPCA   1411  CPM_UT   ../shared/cpm_utility.rel
+Z80DET   1378  CPM_UT   ../shared/cpm_utility.rel
+ZRCDET   1354  CPM_UT   ../shared/cpm_utility.rel

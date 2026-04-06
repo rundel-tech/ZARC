@@ -1,0 +1,2 @@
+# Sparse File Generator
+This programme generates a single "sparse" file call SPARSE.TST. This allows the behaviour of CP/M and its associated utilities to be investigated with such files. The main purpose is to allow debugging of my FSCK application. Though written for my ZARC retro-computer project, this should run on any CP/M system. Simply copy [SPARSE.COM](SPARSE.COM) to a disk and run it for the default behaviour. Changing the file name or blocks written requires changing the source and re-assembly.

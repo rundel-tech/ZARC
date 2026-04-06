@@ -1,7 +1,7 @@
 ; *******************************************************
 ; * CP/M File System Checker                            *
 ; * Version: V1.3                                       *
-; * Merlin Skinner-Oakes, 18/7/2023                     *
+; * Merlin Skinner-Oakes, 14/3/2026                     *
 ; *******************************************************
 ;
 ; V1.0 - 16/2/2022, initial version.
@@ -12,6 +12,8 @@
 ;        hardware with 8" disks.
 ; V1.3 - 18/7/2023, added CP/M 3 support. Improved illegal character detection
 ;        in filenames. Use BDOS for console I/O.
+; V1.4 - 14/3/2026, make command line case insensitive to ease use with
+;        replacement CCPs. Implement S1 checks for CP/M 3.
 ;
 ;
 ; CP/M 2.2 and 3 file system checker. It is intended for ZARC but avoids using
@@ -122,6 +124,7 @@ clr_loop        ld (hl), a
                 ld a, (hl)
                 and a
                 jr z, op_error          ; Error if no operands.
+                call toupca             ; Convert to upper case
                 sub "A"                 ; Convert to a number
 ; If this carries, the byte is not a letter. It may be options.
                 jr c, op_options
@@ -617,15 +620,15 @@ sl_phys_extent  ld l, (iy + DIRE_S2)        ; Extent counter, high byte
 ; HL is (32 * S2) + EX
                 ld c, (ix + DPB_EXM)    ; Extent mask
 ; A is 0, 1, 3, 7 or 15. We need to divide by one greater than each of these.
-sl_calc_ext_lp  ld a, c
+slp_calc_ext_lp ld a, c
                 and a
-                jr z, sl_calc_ext_dn
+                jr z, slp_calc_ext_dn
                 srl h                   ; Divide by two
                 rr l
                 srl c                   ; Reduce mask
-                jr sl_calc_ext_lp
+                jr slp_calc_ext_lp
 ; HL - physical extent
-sl_calc_ext_dn  ld (phys_extent), hl    ; Save calculated extent
+slp_calc_ext_dn ld (phys_extent), hl    ; Save calculated extent
 ;
                 ifdef DEBUG
                     ld hl, phys_ext_msg     ; "Physical extent: "
@@ -667,12 +670,6 @@ sl_calc_ext_dn  ld (phys_extent), hl    ; Save calculated extent
                 cp 32
                 call nc, sl_err_cont    ; Report any error and continue
 ;
-; Check S1.
-                ld de, bad_s1_msg       ; "bad S1"
-                ld a, (iy + DIRE_S1)    ; Reserved, set to 0
-                and a
-                call nz, sl_err_cont    ; Report any error and continue
-;
 ; Find file information structure or create a new one if it doesn't exist.
                 call find_fi
 ; IX - pointer to file information structure.
@@ -691,67 +688,67 @@ sl_calc_ext_dn  ld (phys_extent), hl    ; Save calculated extent
 ;
 ; Mark the blocks used. Entries may be 8 or 16-bit, depending on the number of
 ; blocks on the disk.
-slf_ext_done    ld ix, (dpb)
+slp_ext_done    ld ix, (dpb)
                 ld c, 0                 ; Reset flags (ALLCF_xxx) and counter
 ; IX - pointer to DPB (DPB_xxx)
 ; IY - pointer to directory entry structure (DIRE_xxx)
 ; C - flags and counter
                 ld a, (ix + DPB_DSM + 1)    ; Fetch MS byte of DSM
                 and a
-                jr z, slf_bytes         ; Jump if < 256 blocks
+                jr z, slp_bytes         ; Jump if < 256 blocks
 ;
 ; The maximum block number is >= 256, so the allocation list is in words.
                 ld b, 8
-slf_wd_alu_lp   ld l, (iy + DIRE_ALLOC) ; Fetch next allocation
+slp_wd_alu_lp   ld l, (iy + DIRE_ALLOC) ; Fetch next allocation
                 ld h, (iy + DIRE_ALLOC + 1)
                 ld a, h
                 or l
-                jr nz, slf_wd_alu_used
+                jr nz, slp_wd_alu_used
 ; Unused entry.
                 set ALLCF_UNUSED_BIT, c ; Flag unused entry found
-                jr slf_wd_alu_dn
+                jr slp_wd_alu_dn
 ; Used entry.
-slf_wd_alu_used inc c                   ; Keep count
+slp_wd_alu_used inc c                   ; Keep count
                 call flag_block         ; Mark block used
                 jp c, sl_err_stop       ; Error if already used
                 bit ALLCF_UNUSED_BIT, c
-                jr z, slf_wd_alu_dn     ; Jump if no unused entries encountered
+                jr z, slp_wd_alu_dn     ; Jump if no unused entries encountered
 ; This used entry is preceded by an unused one. This means we have a holed, or
 ; "sparse" file.
                 set ALLCF_SPARSE_BIT, c ; Hole detected
 ;
 ; Allocation entry done.
-slf_wd_alu_dn   inc iy
+slp_wd_alu_dn   inc iy
                 inc iy
-                djnz slf_wd_alu_lp
-                jr slf_alu_dn
+                djnz slp_wd_alu_lp
+                jr slp_alu_dn
 ;
 ; The maximum block number is < 256, so the allocation list is in bytes.
-slf_bytes       ld b, 16
-slf_by_alu_lp   ld a, (iy + DIRE_ALLOC) ; Fetch next allocation
+slp_bytes       ld b, 16
+slp_by_alu_lp   ld a, (iy + DIRE_ALLOC) ; Fetch next allocation
                 and a
-                jr nz, slf_by_alu_used
+                jr nz, slp_by_alu_used
 ; Unused entry.
                 set ALLCF_UNUSED_BIT, c ; Flag unused entry found
-                jr slf_by_alu_dn
+                jr slp_by_alu_dn
 ; Used entry.
-slf_by_alu_used inc c                   ; Keep count
+slp_by_alu_used inc c                   ; Keep count
                 ld h, 0
                 ld l, a
                 call flag_block         ; Mark block used
                 jp c, sl_err_stop       ; Error if already used
                 bit ALLCF_UNUSED_BIT, c
-                jr z, slf_by_alu_dn     ; Jump if no unused entries encountered
+                jr z, slp_by_alu_dn     ; Jump if no unused entries encountered
 ; This used entry is preceded by an unused one. This means we have a holed, or
 ; "sparse" file.
                 set ALLCF_SPARSE_BIT, c ; Hole detected
 ;
 ; Allocation entry done.
-slf_by_alu_dn   inc iy
-                djnz slf_by_alu_lp
+slp_by_alu_dn   inc iy
+                djnz slp_by_alu_lp
 ;
 ; Blocks flagged appropriately.
-slf_alu_dn      ld iy, (dire)           ; Restore pointer to directory entry structure
+slp_alu_dn      ld iy, (dire)           ; Restore pointer to directory entry structure
                 bit ALLCF_SPARSE_BIT, c
 ; A sparse file (one with a hole) is not necessarily an error, as discussed in
 ; http://www.gaby.de/cpm/manuals/archive/cpm22htm/ch5.htm function 35 (description).
@@ -764,10 +761,11 @@ slf_alu_dn      ld iy, (dire)           ; Restore pointer to directory entry str
                 ld de, no_alloc_msg     ; "no allocations in physical extent [warning]"
                 call z, sl_err_cont     ; Error if no allocations
 ;
-; Checking record count (RC). This should be 0x80 (128 * 128 = 18 KB) for
-; anything but the last extent. Note that FI_LAST_PEXT could be derived from
-; the bitmap, but it is easier to store it.
-; Note: the illegal case PEXT = FI_LAST_PEXT will be picked up in the extent
+; RC and S1 checks differ depending on whether or not this is the last physical
+; extent. While scanning the directory, there is no way of knowing when we have
+; encountered the last, but we can check whenever we encounter an earlier one.
+; Note that FI_LAST_PEXT could be derived from the bitmap, but it is easier to
+; store it. The illegal case PEXT = FI_LAST_PEXT will be picked up in the extent
 ; flagging code.
                 ld ix, (fie)            ; Fetch pointer to file information structure
 ; IX - pointer to file information structure (FI_xxx)
@@ -777,34 +775,38 @@ slf_alu_dn      ld iy, (dire)           ; Restore pointer to directory entry str
                 ld d, (ix + FI_LAST_PEXT + 1)
                 and a
                 sbc hl, de
-                jr nc, slfrc_not_last
-; Not the highest extent found so far, so RC should be 0x80.
-                ld a, (iy + DIRE_ALLOC)
-                cp 0x80
-                ld de, bad_rc_msg       ; "RC not 0x80 in intermediate extent"
-                call nz, sl_err_cont
-                jr slfrc_done
+                jr nc, slp_phys_high
+;
+; Not the highest extent found so far. Check RC and S1.
+                ld h, (iy + DIRE_RC)    ; Fetch RC
+                ld l, (iy + DIRE_S1)    ; Fetch S1
+                call chk_nl_rc_s1       ; Check RC and S1
+                jr slp_rcs1_done
 ;
 ; This is the highest extent encountered so far or it is the first extent
 ; encountered (FI_LAST_PEXT = 0).
-slfrc_not_last  ld a, (ix + FI_LAST_PEXT)   ; Last extent
+slp_phys_high   ld a, (ix + FI_LAST_PEXT)   ; Last extent
                 or (ix + FI_LAST_PEXT + 1)
-                jr z, slfrc_update
+                jr z, slp_phys_update
 ;
-; This isn’t the first extent, so the previous one should have RC = 0x80.
-                ld a, (ix + FI_LAST_RC)
-                cp 0x80
-                ld de, bad_rc_msg       ; "RC not 0x80 in intermediate extent"
-                call nz, sl_err_cont
+; We have already found at least one extent, and the current one is later than
+; the one stored. We should check the values in the stored entry as these are
+; now known to be associated with a physical extent that isn't the last one.
+                ld h, (ix + FI_LAST_RC) ; Fetch RC
+                ld l, (ix + FI_LAST_S1) ; Fetch S1
+                call chk_nl_rc_s1       ; Check RC and S1
 ;
 ; RC checks complete. Update the FI_LAST_PEXT and FI_LAST_RC fields for next
 ; time.
-slfrc_update    ld hl, (phys_extent)    ; Set FI_LAST_PEXT = PEXTENT
+slp_phys_update ld hl, (phys_extent)    ; Set FI_LAST_PEXT = PEXTENT
                 ld (ix + FI_LAST_PEXT), l
                 ld (ix + FI_LAST_PEXT + 1), h
                 ld a, (iy + DIRE_RC)    ; Set FI_LAST_RC = RC
                 ld (ix + FI_LAST_RC), a
-slfrc_done
+                ld a, (iy + DIRE_S1)    ; Set FI_LAST_S1 = S1
+                ld (ix + FI_LAST_S1), a ; S1 associated with last extent
+slp_rcs1_done
+;
 ;
 ; Entry scanned.
 sl_entry_done   ld ix, (dpb)
@@ -828,9 +830,11 @@ sl_err_stop     call sl_err_cont
                 jr sl_entry_done
 ;
 ;
-; *** All directory entries scanned ***
+; All directory entries scanned
 ;
-; Examine each file in files_info, performing further checks.
+; *** Examine each file in files_info ***
+;
+; We perform further checks now that we have all of the data for each file.
 scan_done       ld iy, (files_info)
 ;
 spck_loop       ld de, (free_start)     ; First free location
@@ -858,7 +862,7 @@ spck_loop       ld de, (free_start)     ; First free location
                 call spck_error         ; Error if no extents at all
                 jp spck_mext_done
 ;
-; File as at least one extent.
+; File has at least one extent.
 spck_not_empty  ld c, a
                 ld b, 0                 ; Error flag
 ;
@@ -914,6 +918,50 @@ spck_mext_done  bit FIF_FFLG_PWD_BIT, (iy + FI_FLAGS)
                 call spck_error         ; Error if no extents at all
 spck_opwd_done
 ;
+; Skip RC and S1 checks if there were no physical extents (i.e. the only file
+; reference is a password entry).
+                bit FIF_FFLG_PEXT_BIT, (iy + FI_FLAGS)
+                jr z, spck_rc_s1_done   ; Jump if no physical extent present
+;
+; For the last physical extent, RC can reasonably have any value so no
+; additional checks are performed.
+;
+; Check S1. With CP/M 2.x, this should be zero. With CP/M 3.x, it is the last
+; record byte count. The exact usage of this seems to be a bit of a mess. See
+; https://www.seasip.info/Cpm/bytelen.html#lrbc
+                ld a, (iy + FI_LAST_S1) ; S1 associated with last extent
+                ld hl, flags
+                bit FLG_CPM3_BIT, (hl)
+                jr nz, spck_s1_cpm3     ; Jump if CP/M 3 features enabled
+; CP/M 2 rules.
+                and a
+                jr z, spck_s1_done
+                ld de, bad_s1_cpm2_msg  ; "... not supported ..."
+                call spck_error         ; Error if no extents at all
+; Follow up with "(expected 0x00, found 0x??)
+                ld h, 0x00              ; Expected value
+                ld l, (iy + FI_LAST_S1) ; S1 associated with last extent
+                call val_exp_found
+                jr spck_s1_done
+;
+spck_s1_cpm3    cp 128 + 1              ; 0 to 128 is valid
+                jr c, spck_s1_done
+                ld de, bad_lst_s1_msg  ; "Last record byte count (S1) > 128"
+                call spck_error         ; Error if no extents at all
+; Follow up with "(found 0x..)
+                ld a, "("
+                call conwch             ; Write character to console
+                ld hl, val_fnd_msg      ; "found 0x"
+                call conwms             ; Print $-terminated string to console
+                ld a, (iy + FI_LAST_S1) ; S1 associated with last extent
+                call cwphby             ; Print A in hexadecimal
+                ld a, ")"
+                call conwch             ; Write character to console
+                call cwnwln             ; Write new line characters to console
+spck_s1_done
+;
+spck_rc_s1_done
+;
 ; File checks complete. Advance pointer by the length of this structure. We must
 ; include the length of the extent flags section (FI_EX_FL_LEN).
                 ld e, (iy + FI_EX_FL_LEN)
@@ -922,7 +970,7 @@ spck_opwd_done
                 add iy, de              ; Add length to base
                 ld de, FI_SIZE
                 add iy, de              ; Add structure size
-                jr spck_loop
+                jp spck_loop
 ;
 ;
 ; *** End of scan checks ***
@@ -1390,6 +1438,57 @@ exit            ld sp, (bdos_sp)
 ; ***************
 ; * Subroutines *
 ; ***************
+;
+;
+; Check RC and S1 from a physical extent known not to be the last one. Call
+; with:
+; H - RC
+; L - S1
+; IX and IY are preserved. No other registers are saved.
+chk_nl_rc_s1
+; Checking record count (RC). This should be 0x80 (128 * 128 = 16 KB)
+                ld a, h
+                cp 0x80
+                jr z, crcs1_chk_s1
+; Report error.
+                push hl
+                ld de, bad_rc_msg       ; "RC not 0x80 in intermediate extent"
+                call sl_err_cont
+                ld l, h                 ; Found value
+                ld h, 0x80              ; Expected value
+                call val_exp_found      ; Display "expected ... found ..."
+                pop hl
+;
+; Checking S1. This should be 0x00.
+crcs1_chk_s1    ld a, l
+                and a
+                ret z                   ; Return if all is well
+; Report error.
+                ld de, bad_s1_msg       ; "S1 not 0x80 in intermediate extent"
+                call sl_err_cont
+                ld h, 0x00              ; Expected value
+                jp val_exp_found        ; Display "expected ... found ..."
+;
+;
+; Display "(expected 0x.., found 0x..)" text. Call with:
+; H - expected value
+; L - found value
+val_exp_found   push hl
+;
+                ld hl, val_exp_msg      ; "(expected 0x"
+                call conwms             ; Print $-terminated string to console
+                pop hl
+                push hl
+                ld a, h
+                call cwphby             ; Print A in hexadecimal
+                ld hl, val_c_fnd_msg    ; ", found 0x"
+                call conwms             ; Print $-terminated string to console
+                pop hl
+                ld a, l
+                call cwphby             ; Print A in hexadecimal
+                ld a, ")"
+                call conwch             ; Write character to console
+                jp cwnwln               ; Write new line characters to console
 ;
 ;
 ; Look for the file in the file information structure buffer. Call with:
@@ -2564,14 +2663,19 @@ dire_type_msg   byte "unrecognised directory entry type$"
 bad_name_msg    byte "bad file name$"
 ; bad_attr_msg    byte "bad file name attributes$"
 bad_ex_cnt_msg  byte "bad extent count$"
-bad_s1_msg      byte "bad S1$"
+bad_s1_cpm2_msg byte "Last record byte count (S1) not supported on CP/M 2.x$"
+bad_lst_s1_msg  byte "Last record byte count (S1) > 128$"
+bad_s1_msg      byte "S1 not 0x00 in intermediate extent$"
+bad_rc_msg      byte "RC not 0x80 in intermediate extent$"
+val_exp_msg     byte "(expected 0x$"
+val_c_fnd_msg   byte ", "
+val_fnd_msg     byte "found 0x$"
 bad_label_msg   byte "bad disk label$"
 ext_dup_msg     byte "duplicated physical extent$"
 dble_blk_msg    byte "block not unique$"
 sparse_msg      byte "is sparse (holed) [warning]$"
 blk_too_big_msg byte "block number out of range$"
 no_alloc_msg    byte "no allocations in physical extent [warning]$"
-bad_rc_msg      byte "RC not 0x80 in intermediate extent$"
 empty_msg       byte "has no data [warning]$"
 label_msg       byte "Disk labels not supported on CP/M 2.x$"
 date_msg        byte "Date stamps not supported on CP/M 2.x$"

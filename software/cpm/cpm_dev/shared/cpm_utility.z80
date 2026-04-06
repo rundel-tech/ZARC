@@ -1166,6 +1166,7 @@ clo_not_brktd   and a
 ;
 ; Process option character.
 clo_do_opt      ld a, (hl)              ; Re-fetch character
+                call toupca             ; Convert to upper case
                 push de                 ; Save address of option characters
                 ex de, hl
                 push bc                 ; Save introducer and flags
