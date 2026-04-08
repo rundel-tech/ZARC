@@ -470,7 +470,7 @@ const_bios      ld hl, BIOS_CONST       ; Console status
 conwms          push bc
                 push de
 ;
-                ex de, hl               ; Move pointer to HL
+                ex de, hl               ; Move pointer to DE
                 ld hl, cwm_ret          ; Return to this address
                 push hl
                 ld hl, (conwms_vec)

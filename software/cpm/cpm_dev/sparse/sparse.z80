@@ -4,7 +4,8 @@
 ; * Merlin Skinner-Oakes, 5/4/2026                      *
 ; *******************************************************
 ;
-; V1.0 - 16/2/2022, initial version.
+; V1.0 - 5/4/2026, initial version.
+; V1.1 - 8/4/2026, added /l option and the ability to specify the filename.
 ;
 ;
 ; This programme generates a single "sparse" file call SPARSE.TST. This allows
@@ -63,8 +64,8 @@
 ;
                 call init               ; Common initialisation code
 ;
-; We won't print the sign-on message yet so it can be suppressed by a q
-; ("quiet") option.
+                ld hl, signon_msg       ; Sign on.
+                call conwms             ; Print $-terminated string to console
 ;
 ; Clear variables area
                 ld hl, clr_start        ; Start address
@@ -82,6 +83,27 @@ clr_loop        ld (hl), a
                 ld hl, DEF_BUFFER + 1
                 call skpspc             ; Skip spaces
 ;
+                ld a, (hl)
+                and a
+                jr z, op_error          ; Jump if no operands at all
+; Skip forward there is no filename but we do have options.
+                cp "["
+                jr z, op_options
+                cp "/"
+                jr z, op_options
+                cp "$"
+                jr z, op_options
+;
+; We are likely pointing at a filename. If so, skip until we meet a space or the
+; end of the command.
+op_skip_fn      ld a, (hl)
+                cp " "
+                jr z, op_options        ; Space separator found
+                and a
+                jr z, op_options        ; End of line found
+                inc hl
+                jr op_skip_fn
+;
 ; Check for options. These may begin with "[", "/" or "$", to match all
 ; conventions I have found used with CP/M.
 op_options      ld de, clopt_list       ; Null-terminated list of options
@@ -96,15 +118,11 @@ op_options      ld de, clopt_list       ; Null-terminated list of options
                 jr z, clopt_term
 ;
 ; Go here if we don't like the operands supplied.
-op_error        ld hl, signon_msg       ; Sign on.
-                call conwms             ; Print $-terminated string to console
-; As above, but with no sign-on.
-op_err_no_sign  ld hl, op_err_msg
+op_error        ld hl, op_err_msg
                 jp msg_exit
 ;
-; Command line terminator found. Sign on unless "quiet" is selected.
-clopt_term      ld hl, signon_msg       ; Sign on.
-                call conwms             ; Print $-terminated string to console
+; Command line terminator found.
+clopt_term      
 ;
 ; Show build information if requested, then exit.
 ; Note that the build time string will be overwritten once the programme starts
@@ -119,15 +137,19 @@ clopt_term      ld hl, signon_msg       ; Sign on.
                 call cwnwln             ; Write new line characters to console
                 jp exit
 ;
-no_build        
+; Crude check to see that there is a filename in the command.
+no_build        ld hl, FCB1 + FCB_NAME  ; Point to name in default FCB
+                ld a, (hl)
+                call chk_fn_char        ; Check char valid in a filename
+                jr c, op_error
 ;
 ; Delete any previous file.
-                ld de, fcb              ; File Control Block
+                ld de, FCB1              ; File Control Block
                 ld c, BDOS_DELETE_FILE
                 call cbdos              ; Call BDOS with some registers saved
 ;
 ; Make output file.
-                ld de, fcb              ; File Control Block
+                ld de, FCB1              ; File Control Block
                 ld c, BDOS_MAKE_FILE
                 call cbdos              ; Call BDOS with some registers saved
                 ld hl, nodir_msg        ; "No directory space"
@@ -140,7 +162,7 @@ no_build
                 call cbdos              ; Call BDOS with some registers saved
 ;
 ; Set record number.
-                ld hl, fcb + FCB_RECORD
+                ld hl, FCB1 + FCB_RECORD
                 ld (hl), 0
                 inc hl
                 ld (hl), 0
@@ -148,23 +170,41 @@ no_build
                 ld (hl), 0
 ;
 ; Write record.
-                ld de, fcb              ; File Control Block
+                ld de, FCB1              ; File Control Block
                 ld c, BDOS_WRITE_RANDOM
                 call cbdos              ; Call BDOS with some registers saved
                 ld hl, wr_err_msg       ; "Write record error"
                 inc a                   ; 255 becomes 0
                 jp z, msg_exit          ; done if no dir space
 ;
-; Set record number.
-                ld hl, fcb + FCB_RECORD
-                ld (hl), 32
+; The next record depends on whether we are creating a large or small file.
+                ld a, (clopt_flags)     ; Fetch command line options
+                and CLOPT_LARGE_MASK
+                jr nz, large_file
+
+; Set record number for a small file. This means that both records will be in
+; a single physical extent.
+                ld hl, small_msg        ; "Creating small file ..."
+                call conwms             ; Print $-terminated string to console
+                ld hl, FCB1 + FCB_RECORD
+                ld (hl), 32             ; LS byte
                 inc hl
                 ld (hl), 0
                 inc hl
                 ld (hl), 0
+                jr write_rec2
+
+large_file      ld hl, large_msg        ; "Creating large file ..."
+                call conwms             ; Print $-terminated string to console
+                ld hl, FCB1 + FCB_RECORD
+                ld (hl), 0              ; LS byte
+                inc hl
+                ld (hl), 0
+                inc hl
+                ld (hl), 1
 ;
 ; Write record.
-                ld de, fcb              ; File Control Block
+write_rec2      ld de, FCB1              ; File Control Block
                 ld c, BDOS_WRITE_RANDOM
                 call cbdos              ; Call BDOS with some registers saved
                 ld hl, wr_err_msg       ; "Write record error"
@@ -172,7 +212,7 @@ no_build
                 jp z, msg_exit          ; done if no dir space
 ;
 ; Close file
-                ld de, fcb              ; File Control Block
+                ld de, FCB1              ; File Control Block
                 ld c, BDOS_CLOSE_FILE
                 call cbdos              ; Call BDOS with some registers saved
                 ld hl, wrprot_msg       ; "Write protected?"
@@ -187,9 +227,27 @@ msg_exit        call conwms             ; Print $-terminated string to console
 ;
 ; Return to CP/M.
 exit            ld sp, (bdos_sp)
-; This is a small application so we can just return.
+; This is a small programme and we are most unlikely to have overwritten the
+; CCP, so we can just return.
                 ret                     ; Return to BDOS
 ;                jp 0                    ; Warm boot
+;
+;
+;
+; ***************
+; * Subroutines *
+; ***************
+;
+;
+; Check that character is likely to be valid in a filename.
+; Call with:
+; A - character to check.
+; Returns with carry flag set if not printable, clear otherwise.
+chk_fn_char     cp " " + 1              ; Space or control char?
+                ret c                   ; Return with C set if so
+                cp 0x7f
+                ccf
+                ret                     ; Return with C set if >= 0x7f
 ;
 ;
 ;
@@ -202,26 +260,29 @@ signon_msg      byte "*** CP/M Sparse File Generator V"
                 byte MAJ_VER + "0", ".", MIN_VER + "0"
                 byte " ***", 0x0d, 0x0a
                 byte 0x0d, 0x0a, "$"
-clopt_list      byte "B", 0        ; List of option characters 
-op_err_msg      byte "Operand error. Expected format: sparse [/<options>]"
+clopt_list      byte "BL", 0        ; List of option characters 
+op_err_msg      byte "Operand error. Expected format: sparse FILE.TXT [/<options>]"
                 byte 0x0d, 0x0a
-                byte "options: B=show build information and exit"
+                byte "options: B=show build information and exit, L=create large file."
+                byte 0x0d, 0x0a, "$"
+small_msg       byte "Creating small file. This writes two records such that "
+                byte "the blocks are mapped in", 0x0d, 0x0a
+                byte "a single physical extent."
+                byte 0x0d, 0x0a, "$"
+large_msg       byte "Creating large file. This writes two records such that "
+                byte "the blocks are mapped in", 0x0d, 0x0a
+                byte "separate physical extents."
                 byte 0x0d, 0x0a, "$"
 nodir_msg       byte "No directory space$"
 wrprot_msg      byte "Write protected?$"
 wr_err_msg      byte "Write record error$"
 normal_msg      byte "File created$"
 ;
-fcb             byte 0, "SPARSE  TST", 0, 0, 0, 0
-                dc 16, 0
-                byte 0              ; Current record
-                dc 3, 0             ; Random record number
-                assert $ = fcb + FCB_SIZE
-;
 test_data       byte "Lorem ipsum dolor sit amet, consectetur adipiscing elit. "
                 byte "Nam imperdiet metus eget felis vulputate, sit amet "
                 byte "feugiat urna sapien."
                 assert $ = test_data + CPM_SECTOR_SIZE
+;
 ;
 ;
 ; *************

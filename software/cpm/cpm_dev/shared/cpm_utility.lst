@@ -26,7 +26,7 @@
   26:				;
   27:				;
   28:				                include "macros.i"
-**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes//macros.i ****
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/macros.i ****
    1:				; ***********************************
    2:				; * ZARC Macro Definitions          *
    3:				; * Written by: Merlin Skinner      *
@@ -226,7 +226,7 @@
  197:				
 **** cpm_utility.z80 ****
   29:				                include "z80.i"
-**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes//z80.i ****
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/z80.i ****
    1:				; ***********************************
    2:				; * ZARC Z80 Definitions            *
    3:				; * Written by: Merlin Skinner      *
@@ -248,7 +248,7 @@
   19:				
 **** cpm_utility.z80 ****
   30:				                include "terminal.i"    ; Terminal constants
-**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes//terminal.i ****
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/terminal.i ****
    1:				; ***********************************
    2:				; * ZARC Terminal Definitions       *
    3:				; * Written by: Merlin Skinner      *
@@ -285,7 +285,7 @@
   34:				
 **** cpm_utility.z80 ****
   31:				                include "cpm.i"
-**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes//cpm.i ****
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/cpm.i ****
    1:				; *******************************************************
    2:				; * ZARC Monitor CP/M 2.2 Definitions                   *
    3:				; * Written by: Merlin Skinner                          *
@@ -612,7 +612,7 @@
  336:				
 **** cpm_utility.z80 ****
   32:				                include "cpm_utility.i"
-**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes//cpm_utility.i ****
+**** /home/merlin/Dropbox/ZARC_Z80_Box/git_cpm3_dev/software/includes/cpm_utility.i ****
    1:				; *******************************************************
    2:				; * Utility Routines for CP/M Applications              *
    3:				; * Version: V1.0                                       *
@@ -1051,7 +1051,7 @@
  470: 1919+11	0173' C5      	conwms          push bc
  471: 1930+11	0174' D5      	                push de
  472:				;
- 473: 1941+4	0175' EB      	                ex de, hl               ; Move pointer to HL
+ 473: 1941+4	0175' EB      	                ex de, hl               ; Move pointer to DE
  474: 1945+10	0176' 217E01  	                ld hl, cwm_ret          ; Return to this address
  475: 1955+11	0179' E5      	                push hl
  476: 1966+16	017A' 2A1500  	                ld hl, (conwms_vec)
