@@ -11,10 +11,10 @@ The most significant features are:
 * Zilog Z80 CPU running at 8 MHz.
 * Physical front panel with LEDs (“blinkenlights”) and switches.
 * 1 MB of battery-backed static RAM with write protection. This simulates core memory, allowing use of techniques previously used on such machines.
-* A flexible memory mapping system is used to map the RAM into the 16-bit space directly addressable by the CPU.
+* A flexible memory mapping system is used to map the RAM into the 16-bit address space directly addressable by the CPU.
 * The core computer is a mixture of CMOS and TTL with no programmable logic.
 * I/O is implemented in an Altera Cyclone II FPGA.
-* NMI-based single-step for software debugging, including the capability of debugging interrupt routines.
+* NMI-based single-step for software debugging, including the capability of debugging interrupt routines and CP/M system functions.
 
 I/O includes:
 
@@ -25,7 +25,7 @@ I/O includes:
 Software features include:
 
 * Monitor with disassembler and memory page management.
-* CP/M 2.2 using MMC card for file storage.
+* CP/M 2.2 and CP/M 3.1 using MMC card for file storage.
 * File system checker (fsck)
 * File transfer over serial link (stran)
 * ZX81 emulator (zx81)
