@@ -1385,7 +1385,7 @@
   15:				;
   16:				; BIOS version
   17:     -	0001'         	BIOS_MAJ_VER        equ 1
-  18:     -	0000'         	BIOS_MIN_VER        equ 0
+  18:     -	0001'         	BIOS_MIN_VER        equ 1
   19:				;
   20:     -	0040'         	STACK_SIZE      equ 64                  ; Stack space allocation
   21:				; The interrupt stack need only be deep enough to meet the requirements of the
@@ -1589,7 +1589,7 @@
  182:				
  183:				; ZARC-specific items follow.
  184:     -	0063' 5A5243  	                byte "ZRC"              ; ZARC BIOS ID *1
- 185:     -	0066' 000100  	                byte 0, BIOS_MAJ_VER, BIOS_MIN_VER  ; BIOS_VER (version)
+ 185:     -	0066' 000101  	                byte 0, BIOS_MAJ_VER, BIOS_MIN_VER  ; BIOS_VER (version)
  186:  330+10	0069' C30000  	                jp strtup               ; ZARC CP/M startup (not used)
  187:  340+10	006C' C30000  	                jp mcall                ; Call monitor function
  188:  350+10	006F' C30000  	                jp super                ; Set supervisor state
@@ -2461,7 +2461,7 @@ BIOS_JPTBL_NEXT=7E        126
 BIOS_LISTST    =2A        42
 BIOS_MAJ_VER   =01        1
 BIOS_MAX_SIZE  =1000      4096
-BIOS_MIN_VER   =00        0
+BIOS_MIN_VER   =01        1
 BIOS_MON_CALL  =69        105
 BIOS_MOVE      =48        72
 BIOS_MULTIO    =42        66

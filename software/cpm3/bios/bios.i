@@ -15,7 +15,7 @@ BIOS_CPM_VER        equ 3               ; Supported CP/M version
 ;
 ; BIOS version
 BIOS_MAJ_VER        equ 1
-BIOS_MIN_VER        equ 0
+BIOS_MIN_VER        equ 1
 ;
 STACK_SIZE      equ 64                  ; Stack space allocation
 ; The interrupt stack need only be deep enough to meet the requirements of the

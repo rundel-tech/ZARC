@@ -1315,7 +1315,7 @@
   15:				;
   16:				; BIOS version
   17:     -	0001'         	BIOS_MAJ_VER        equ 1
-  18:     -	0000'         	BIOS_MIN_VER        equ 0
+  18:     -	0001'         	BIOS_MIN_VER        equ 1
   19:				;
   20:     -	0040'         	STACK_SIZE      equ 64                  ; Stack space allocation
   21:				; The interrupt stack need only be deep enough to meet the requirements of the
@@ -1395,326 +1395,301 @@
   54:				                extern ?pmsg,?conin
   55:				                extern @civec,@covec,@aivec,@aovec,@lovec
   56:				                extern @cbnk,?bnksl
-  57:				;
-  58:				; Functions
-  59:				                public bpanic           ; BIOS panic
-  60:				                public bpar             ; BIOS parameter block (from monitor)
-  61:				                public intdis           ; Disable interrupt and keep count
-  62:				                public inten            ; Enable interrupts if safe
-  63:				                public intsv            ; Set interrupt vector
-  64:				;
-  65:				                extern mmmon            ; Select monitor memory map
-  66:				                extern ticini           ; Cold start time
-  67:				                extern tiini            ; Initialise time
-  68:				; Stacks
-  69:				                public cpmsp            ; CP/M environment stack pointer
-  70:				                public intbsp           ; Background stack pointer (ints)
-  71:				;
-  72:				; Variables
-  73:				                public itdsct           ; DI nest count
-  74:				                extern movxfl           ; Non-zero indicates inter-bank move
-  75:				                extern supflg           ; Supervisor mode flag
-  76:				                extern btime            ; Build time string
-  77:				;
+  57:				                extern ?xmove,?move     ; select move bank, and block move
+  58:				;
+  59:				; Functions
+  60:				                public bpanic           ; BIOS panic
+  61:				                public bpar             ; BIOS parameter block (from monitor)
+  62:				                public intdis           ; Disable interrupt and keep count
+  63:				                public inten            ; Enable interrupts if safe
+  64:				                public intsv            ; Set interrupt vector
+  65:				;
+  66:				                extern mmmon            ; Select monitor memory map
+  67:				                extern ticini           ; Cold start time
+  68:				                extern tiini            ; Initialise time
+  69:				; Stacks
+  70:				                public cpmsp            ; CP/M environment stack pointer
+  71:				                public intbsp           ; Background stack pointer (ints)
+  72:				;
+  73:				; Variables
+  74:				                public itdsct           ; DI nest count
+  75:				                extern movxfl           ; Non-zero indicates inter-bank move
+  76:				                extern supflg           ; Supervisor mode flag
+  77:				                extern btime            ; Build time string
   78:				;
   79:				;
-  80:				; *************
-  81:				; * Constants *
-  82:				; *************
-  83:				;
+  80:				;
+  81:				; *************
+  82:				; * Constants *
+  83:				; *************
   84:				;
-  85:     -	0005'         	bdos            equ 5
-  86:				;
+  85:				;
+  86:     -	0005'         	bdos            equ 5
   87:				;
   88:				;
-  89:				; *************
-  90:				; * Main Code *
-  91:				; *************
-  92:				;
+  89:				;
+  90:				; *************
+  91:				; * Main Code *
+  92:				; *************
   93:				;
-  94:     -	FFFF'         	    if banked
-  95:     -	0001'         	tpa$bank    equ 1
-  96:				    else
-  98:				    endif
-  99:				
- 100:				    dseg    ; init done from banked memory
- 101:				;
+  94:				;
+  95:     -	FFFF'         	    if banked
+  96:     -	0001'         	tpa$bank    equ 1
+  97:				    else
+  99:				    endif
+ 100:				
+ 101:				    dseg    ; init done from banked memory
  102:				;
- 103:				; General initialisation and signon. Called by BIOSKRNL once when the system
- 104:				; is started.
- 105:				; IX - pointer to BIOS parameters structure
- 106:				; IX is set by the monitor and points to a parameter structure in the monitor's
- 107:				; variables space (page 0x3e). IX should not be affected by DRI's code as
- 108:				; this is 8080 code.
- 109:     -	0000" CD0000  	?init:          call mmmon              ; Swap to monitor memory map
- 110:				;
- 111:				; Monitor context selected. Copy parameter structure to the BIOS variables area
- 112:				; so we can access it when the monitor is paged out.
- 113:     -	0003" DDE5    	                push ix
- 114:     -	0005" E1      	                pop hl                  ; Source address from monitor
- 115:				
- 116:     -	0006" 110001  	                ld de, bpar             ; Destination
- 117:     -	0009" 011000  	                ld bc, BPS_SIZE
- 118:     -	000C" EDB0    	                ldir
- 119:				; Switch back to the CP/M context.
- 120:     -	000E" 3A0000  	                ld a, (@cbnk)
- 121:     -	0011" CD0000  	                call ?bnksl
- 122:				;
- 123:				; Converted from DRI's 8080 code:
- 124:				; Assign console to ZARC port 1.
- 125:     -	0014" 210080  	                ld hl, 0x8000           ; lxi h,08000h
- 126:     -	0017" 220000  	                ld (@civec), hl         ; shld @civec
- 127:     -	001A" 220000  	                ld (@covec), hl         ; shld @covec
- 128:				; Assign printer to nothing:
- 129:     -	001D" 210000  	                ld hl, 0x0000           ; lxi h,04000h
- 130:     -	0020" 220000  	                ld (@lovec), hl         ; shld @lovec
- 131:				; Assign AUX to ZARC port 2.
- 132:     -	0023" 210040  	                ld hl, 0x4000           ; lxi h,02000h
- 133:     -	0026" 220000  	                ld (@aivec), hl         ; shld @aivec
- 134:     -	0029" 220000  	                ld (@aovec), hl         ; shld @aovec
- 135:				;
- 136:				; Set up misc hardware
- 137:     -	002C" AF      	                xor a
- 138:     -	002D" 320000  	                ld (movxfl), a          ; No inter-bank move initially
- 139:     -	0030" 320000  	                ld (supflg), a          ; No supervisor mode
- 140:				;
- 141:     -	0033" AF      	                xor a
- 142:     -	0034" D308    	                out (IOA_INT_EN)        ; Disable all interrupts initially
- 143:				
- 144:     -	0036" CD0000  	                call ticini             ; Cold start time
- 145:				;
- 146:     -	0039" AF      	                xor a
- 147:     -	003A" 323501  	                ld (itdsct), a          ; Reset DI nest count
- 148:				; Set Z80 interrupt registers appropriately for the mode we want to use.
- 149:     -	003D" ED5E    	                im 2
- 150:     -	003F" 3EFF    	                ld a, high (INT_VEC_TABLE)
- 151:     -	0041" ED47    	                ld i, a
- 152:     -	0043" FB      	                ei                      ; Global enable
- 153:				; Interrupts are now running.
- 154:				;
- 155:				; Print sign on message
- 156:     -	0044" 21C400  	                ld hl, signon$msg
- 157:     -	0047" CD0000  	                call ?pmsg
- 158:     -	004A" 210000  	                ld hl, btime            ; Build time string
- 159:     -	004D" CD0000  	                call ?pmsg
- 160:     -	0050" 21DC00  	                ld hl, crlf_msg         ; New line
- 161:     -	0053" CD0000  	                call ?pmsg
- 162:				;
- 163:     -	0056" CD0000  	                call tiini              ; Warm start time
- 164:				;
- 165:     -	0059" C9      	                ret
- 166:				;
+ 103:				;
+ 104:				; General initialisation and signon. Called by BIOSKRNL once when the system
+ 105:				; is started.
+ 106:				; IX - pointer to BIOS parameters structure
+ 107:				; IX is set by the monitor and points to a parameter structure in the monitor's
+ 108:				; variables space (page 0x3e). IX should not be affected by DRI's code as
+ 109:				; this is 8080 code.
+ 110:     -	0000" CD0000  	?init:          call mmmon              ; Swap to monitor memory map
+ 111:				;
+ 112:				; Monitor context selected. Copy parameter structure to the BIOS variables area
+ 113:				; so we can access it when the monitor is paged out.
+ 114:     -	0003" DDE5    	                push ix
+ 115:     -	0005" E1      	                pop hl                  ; Source address from monitor
+ 116:				
+ 117:     -	0006" 11F200  	                ld de, bpar             ; Destination
+ 118:     -	0009" 011000  	                ld bc, BPS_SIZE
+ 119:     -	000C" EDB0    	                ldir
+ 120:				; Switch back to the CP/M context.
+ 121:     -	000E" 3A0000  	                ld a, (@cbnk)
+ 122:     -	0011" CD0000  	                call ?bnksl
+ 123:				;
+ 124:				; Converted from DRI's 8080 code:
+ 125:				; Assign console to ZARC port 1.
+ 126:     -	0014" 210080  	                ld hl, 0x8000           ; lxi h,08000h
+ 127:     -	0017" 220000  	                ld (@civec), hl         ; shld @civec
+ 128:     -	001A" 220000  	                ld (@covec), hl         ; shld @covec
+ 129:				; Assign printer to nothing:
+ 130:     -	001D" 210000  	                ld hl, 0x0000           ; lxi h,04000h
+ 131:     -	0020" 220000  	                ld (@lovec), hl         ; shld @lovec
+ 132:				; Assign AUX to ZARC port 2.
+ 133:     -	0023" 210040  	                ld hl, 0x4000           ; lxi h,02000h
+ 134:     -	0026" 220000  	                ld (@aivec), hl         ; shld @aivec
+ 135:     -	0029" 220000  	                ld (@aovec), hl         ; shld @aovec
+ 136:				;
+ 137:				; Set up misc hardware
+ 138:     -	002C" AF      	                xor a
+ 139:     -	002D" 320000  	                ld (movxfl), a          ; No inter-bank move initially
+ 140:     -	0030" 320000  	                ld (supflg), a          ; No supervisor mode
+ 141:				;
+ 142:     -	0033" AF      	                xor a
+ 143:     -	0034" D308    	                out (IOA_INT_EN)        ; Disable all interrupts initially
+ 144:				
+ 145:     -	0036" CD0000  	                call ticini             ; Cold start time
+ 146:				;
+ 147:     -	0039" AF      	                xor a
+ 148:     -	003A" 322701  	                ld (itdsct), a          ; Reset DI nest count
+ 149:				; Set Z80 interrupt registers appropriately for the mode we want to use.
+ 150:     -	003D" ED5E    	                im 2
+ 151:     -	003F" 3EFF    	                ld a, high (INT_VEC_TABLE)
+ 152:     -	0041" ED47    	                ld i, a
+ 153:     -	0043" FB      	                ei                      ; Global enable
+ 154:				; Interrupts are now running.
+ 155:				;
+ 156:				; Print sign on message
+ 157:     -	0044" 21B600  	                ld hl, signon$msg
+ 158:     -	0047" CD0000  	                call ?pmsg
+ 159:     -	004A" 210000  	                ld hl, btime            ; Build time string
+ 160:     -	004D" CD0000  	                call ?pmsg
+ 161:     -	0050" 21CE00  	                ld hl, crlf_msg         ; New line
+ 162:     -	0053" CD0000  	                call ?pmsg
+ 163:				;
+ 164:     -	0056" CD0000  	                call tiini              ; Warm start time
+ 165:				;
+ 166:     -	0059" C9      	                ret
  167:				;
- 168:				    cseg    ; boot loading most be done from resident memory
- 169:				    
- 170:				; This version of the boot loader loads the CCP from a file called CCP.COM on
- 171:				; the system drive (A:).
- 172:				
- 173:				; First time, load the A:CCP.COM file into TPA
- 174:     -	0000'         	?ldccp:
- 175:				; xra a ! sta ccp$fcb+15        ; zero extent
- 176:  433+4	0000' AF      	                xor a
- 177:  437+13	0001' 322101  	                ld (ccp$fcb+15), a
- 178:				; lxi h,0 ! shld fcb$nr        ; start at beginning of file
- 179:  450+10	0004' 210000  	                ld hl, 0
- 180:  460+16	0007' 223201  	                ld (fcb$nr), hl
- 181:				; lxi d,ccp$fcb ! call open    ; open file containing CCP
- 182:  476+10	000A' 111201  	                ld de, ccp$fcb
- 183:  486+17	000D' CD6F00  	                call open
- 184:				; inr a ! jz no$CCP        ; error if no file...
- 185:  503+4	0010' 3C      	                inc a
- 186:  507+7+5	0011' 2835    	                jr z, no$CCP
- 187:				; lxi d,0100h ! call setdma    ; start of TPA
- 188:  514+10	0013' 110001  	                ld de, 0x0100
- 189:  524+17	0016' CD7400  	                call setdma
- 190:				; lxi d,128 ! call setmulti    ; allow up to 16k bytes
- 191:  541+10	0019' 118000  	                ld de, 128
- 192:  551+17	001C' CD7900  	                call setmulti
- 193:				; lxi d,ccp$fcb ! call read    ; load the thing
- 194:  568+10	001F' 111201  	                ld de, ccp$fcb
- 195:  578+17	0022' CD7E00  	                call read
- 196:				; now, copy CCP to bank 0 for reloading
- 197:				; lxi h,0100h ! lxi b,0C80h    ; clone 3K, just in case
- 198:  595+10	0025' 210001  	                ld hl, 0x0100
- 199:  605+10	0028' 01800C  	                ld bc, 0x0c80
- 200:				; lda @cbnk ! push psw        ; save current bank
- 201:  615+13	002B' 3A0000  	                ld a, (@cbnk)
- 202:  628+11	002E' F5      	                push af
- 203:				;
- 204:     -	002F'         	ld$1:
- 205:				; mvi a,tpa$bank ! call ?bnksl    ; select TPA
- 206:  639+7	002F' 3E01    	                ld a, tpa$bank
- 207:  646+17	0031' CD0000  	                call ?bnksl
- 208:				; mov a,m ! push psw        ; get a byte
- 209:  663+7	0034' 7E      	                ld a, (hl)
- 210:  670+11	0035' F5      	                push af
- 211:				; mvi a,2 ! call ?bnksl        ; select extra bank
- 212:  681+7	0036' 3E02    	                ld a, 2
- 213:  688+17	0038' CD0000  	                call ?bnksl
- 214:				; pop psw ! mov m,a        ; save the byte
- 215:  705+10	003B' F1      	                pop af
- 216:  715+7	003C' 77      	                ld (hl), a
- 217:				; inx h ! dcx b            ; bump pointer, drop count
- 218:  722+6	003D' 23      	                inc hl
- 219:  728+6	003E' 0B      	                dec bc
- 220:				; mov a,b ! ora c            ; test for done
- 221:  734+4	003F' 78      	                ld a, b
- 222:  738+4	0040' B1      	                or c
- 223:				; jnz ld$1
- 224:  742+7+5	0041' 20EC    	                jr nz, ld$1
- 225:				; pop psw ! call ?bnksl        ; restore original bank
- 226:  749+10	0043' F1      	                pop af
- 227:  759+17	0044' CD0000  	                call ?bnksl
- 228:  776+10	0047' C9      	                ret
- 229:				
- 230:     -	0048'         	no$CCP:            ; here if we couldn't find the file
- 231:				; lxi h,ccp$msg ! call ?pmsg    ; report this...
- 232:  786+10	0048' 21DF00  	                ld hl, ccp$msg
- 233:  796+17	004B' CD0000  	                call ?pmsg
- 234:				; call ?conin            ; get a response
- 235:  813+17	004E' CD0000  	                call ?conin
- 236:				; jmp ?ldccp            ; and try again
- 237:  830+10	0051' C30000  	                jp ?ldccp
- 238:				
- 239:     -	0054'         	?rlccp:
- 240:				; lxi h,0100h ! lxi b,0C00h    ; clone 3K
- 241:  840+10	0054' 210001  	                ld hl, 0x0100
- 242:  850+10	0057' 01800C  	                ld bc, 0x0c80   ; Length extended to match save code above
- 243:     -	005A'         	rl$1:
- 244:				; mvi a,2 ! call ?bnksl        ; select extra bank
- 245:  860+7	005A' 3E02    	                ld a, 2
- 246:  867+17	005C' CD0000  	                call ?bnksl
- 247:				; mov a,m ! push psw        ; get a byte
- 248:  884+7	005F' 7E      	                ld a, (hl)
- 249:  891+11	0060' F5      	                push af
- 250:				; mvi a,tpa$bank ! call ?bnksl    ; select TPA
- 251:  902+7	0061' 3E01    	                ld a, tpa$bank
- 252:  909+17	0063' CD0000  	                call ?bnksl
- 253:				; pop psw ! mov m,a        ; save the byte
- 254:  926+10	0066' F1      	                pop af
- 255:  936+7	0067' 77      	                ld (hl), a
- 256:				; inx h ! dcx b            ; bump pointer, drop count
- 257:  943+6	0068' 23      	                inc hl
- 258:  949+6	0069' 0B      	                dec bc
- 259:				; mov a,b ! ora c            ; test for done
- 260:  955+4	006A' 78      	                ld a, b
- 261:  959+4	006B' B1      	                or c
- 262:				; jnz rl$1
- 263:  963+7+5	006C' 20EC    	                jr nz, rl$1
- 264:  970+10	006E' C9      	                ret
- 265:				;
+ 168:				;
+ 169:				    cseg    ; boot loading most be done from resident memory
+ 170:				    
+ 171:				; This version of the boot loader loads the CCP from a file called CCP.COM on
+ 172:				; the system drive (A:).
+ 173:				
+ 174:				; First time, load the A:CCP.COM file into TPA
+ 175:     -	0000'         	?ldccp:
+ 176:				; xra a ! sta ccp$fcb+15        ; zero extent
+ 177:  433+4	0000' AF      	                xor a
+ 178:  437+13	0001' 321301  	                ld (ccp$fcb+15), a
+ 179:				; lxi h,0 ! shld fcb$nr        ; start at beginning of file
+ 180:  450+10	0004' 210000  	                ld hl, 0
+ 181:  460+16	0007' 222401  	                ld (fcb$nr), hl
+ 182:				; lxi d,ccp$fcb ! call open    ; open file containing CCP
+ 183:  476+10	000A' 110401  	                ld de, ccp$fcb
+ 184:  486+17	000D' CD6100  	                call open
+ 185:				; inr a ! jz no$CCP        ; error if no file...
+ 186:  503+4	0010' 3C      	                inc a
+ 187:  507+7+5	0011' 282E    	                jr z, no$CCP
+ 188:				; lxi d,0100h ! call setdma    ; start of TPA
+ 189:  514+10	0013' 110001  	                ld de, 0x0100
+ 190:  524+17	0016' CD6600  	                call setdma
+ 191:				; lxi d,128 ! call setmulti    ; allow up to 16k bytes
+ 192:  541+10	0019' 118000  	                ld de, 128
+ 193:  551+17	001C' CD6B00  	                call setmulti
+ 194:				; lxi d,ccp$fcb ! call read    ; load the thing
+ 195:  568+10	001F' 110401  	                ld de, ccp$fcb
+ 196:  578+17	0022' CD7000  	                call read
+ 197:				;
+ 198:				; now, copy CCP to bank 0 for reloading
+ 199:				; lda @cbnk ! push psw        ; save current bank
+ 200:  595+13	0025' 3A0000  	                ld a, (@cbnk)
+ 201:  608+11	0028' F5      	                push af
+ 202:				;
+ 203:				; The DRI code copied one byte at a time and was very slow. My MOVE code can
+ 204:				; do this much more efficiently.
+ 205:  619+7	0029' 0E01    	                ld c, tpa$bank          ; Source bank
+ 206:  626+7	002B' 0602    	                ld b, 2                 ; Destination ("extra") bank
+ 207:  633+17	002D' CD0000  	                call ?xmove             ; Set banks for MOVE
+ 208:				; lxi h,0100h ! lxi b,0C80h    ; clone 3K, just in case
+ 209:  650+10	0030' 110001  	                ld de, 0x0100           ; Source address
+ 210:  660+10	0033' 210001  	                ld hl, 0x0100           ; Destination address
+ 211:  670+10	0036' 01800C  	                ld bc, 0x0c80           ; Length
+ 212:  680+17	0039' CD0000  	                call ?move              ; Move a block of memory
+ 213:				;
+ 214:				; pop psw ! call ?bnksl        ; restore original bank
+ 215:  697+10	003C' F1      	                pop af
+ 216:  707+17	003D' CD0000  	                call ?bnksl
+ 217:  724+10	0040' C9      	                ret
+ 218:				
+ 219:     -	0041'         	no$CCP:            ; here if we couldn't find the file
+ 220:				; lxi h,ccp$msg ! call ?pmsg    ; report this...
+ 221:  734+10	0041' 21D100  	                ld hl, ccp$msg
+ 222:  744+17	0044' CD0000  	                call ?pmsg
+ 223:				; call ?conin            ; get a response
+ 224:  761+17	0047' CD0000  	                call ?conin
+ 225:				; jmp ?ldccp            ; and try again
+ 226:  778+10	004A' C30000  	                jp ?ldccp
+ 227:				
+ 228:     -	004D'         	?rlccp:
+ 229:				; The DRI code copied one byte at a time and was very slow. My MOVE code can
+ 230:				; do this much more efficiently.
+ 231:  788+7	004D' 0E02    	                ld c, 2                 ; Source ("extra") bank
+ 232:  795+7	004F' 0601    	                ld b, tpa$bank          ; Destination bank
+ 233:  802+17	0051' CD0000  	                call ?xmove             ; Set banks for MOVE
+ 234:				; lxi h,0100h ! lxi b,0C00h    ; clone 3K
+ 235:  819+10	0054' 110001  	                ld de, 0x0100           ; Source address
+ 236:  829+10	0057' 210001  	                ld hl, 0x0100           ; Destination address
+ 237:  839+10	005A' 01800C  	                ld bc, 0x0c80           ; Length extended to match save code above
+ 238:  849+17	005D' CD0000  	                call ?move              ; Move a block of memory
+ 239:  866+10	0060' C9      	                ret
+ 240:				;
+ 241:				;
+ 242:				; CP/M BDOS Function Interfaces
+ 243:				
+ 244:     -	0061'         	open:
+ 245:				; mvi c,15 ! jmp bdos        ; open file control block
+ 246:  876+7	0061' 0E0F    	                ld c, 15
+ 247:  883+10	0063' C30500  	                jp bdos
+ 248:				;
+ 249:				;
+ 250:     -	0066'         	setdma:
+ 251:				; mvi c,26 ! jmp bdos        ; set data transfer address
+ 252:  893+7	0066' 0E1A    	                ld c, 26
+ 253:  900+10	0068' C30500  	                jp bdos
+ 254:				;
+ 255:				;
+ 256:     -	006B'         	setmulti:
+ 257:				; mvi c,44 ! jmp bdos        ; set record count
+ 258:  910+7	006B' 0E2C    	                ld c, 44
+ 259:  917+10	006D' C30500  	                jp bdos
+ 260:				;
+ 261:				;
+ 262:     -	0070'         	read:
+ 263:				; mvi c,20 ! jmp bdos        ; read records
+ 264:  927+7	0070' 0E14    	                ld c, 20
+ 265:  934+10	0072' C30500  	                jp bdos
  266:				;
- 267:				; CP/M BDOS Function Interfaces
- 268:				
- 269:     -	006F'         	open:
- 270:				; mvi c,15 ! jmp bdos        ; open file control block
- 271:  980+7	006F' 0E0F    	                ld c, 15
- 272:  987+10	0071' C30500  	                jp bdos
+ 267:				;
+ 268:				;
+ 269:				; ***************
+ 270:				; * Subroutines *
+ 271:				; ***************
+ 272:				;
  273:				;
- 274:				;
- 275:     -	0074'         	setdma:
- 276:				; mvi c,26 ! jmp bdos        ; set data transfer address
- 277:  997+7	0074' 0E1A    	                ld c, 26
- 278: 1004+10	0076' C30500  	                jp bdos
- 279:				;
- 280:				;
- 281:     -	0079'         	setmulti:
- 282:				; mvi c,44 ! jmp bdos        ; set record count
- 283: 1014+7	0079' 0E2C    	                ld c, 44
- 284: 1021+10	007B' C30500  	                jp bdos
- 285:				;
- 286:				;
- 287:     -	007E'         	read:
- 288:				; mvi c,20 ! jmp bdos        ; read records
- 289: 1031+7	007E' 0E14    	                ld c, 20
- 290: 1038+10	0080' C30500  	                jp bdos
- 291:				;
- 292:				;
- 293:				;
- 294:				; ***************
- 295:				; * Subroutines *
- 296:				; ***************
- 297:				;
- 298:				;
- 299:				; Jump to the monitor's "panic" code to return to the debugger in case of a
- 300:				; serious error. Go here with a call instruction as this leaves the caller
- 301:				; address on the stack, which may be useful when debugging. State is preserved
- 302:				; as much as is practical. This is simpler if the stack is already in the
- 303:				; common block.
- 304: 1048+16	0083' 223801  	bpanic          ld (bpan_hl), hl        ; Save HL without using the stack
- 305: 1064+10	0086' 21803F  	                ld hl, MMAP_PAGE_SIZE - STACKS_SIZE
- 306: 1074+11	0089' 39      	                add hl, sp
- 307: 1085+7+5	008A' 3809    	                jr c, bp_comm_stk       ; Jump if stack is in common area
- 308:				; The stack is in the CP/M banked area, so we have to move it before calling
- 309:				; the monitor. This will inevitably complicate debugging, but as the original
- 310:				; SP is saved all of the evidence is there. At least the correct PC will be
- 311:				; shown, but anyone looking at the stack has to cope with this complication.
- 312: 1092+10	008C' E1      	                pop hl                  ; Fetch fault address (PC)
- 313: 1102+20	008D' ED731001	                ld (cpmsp), sp
- 314: 1122+10	0091' 3180FE  	                ld sp, MC_STK_TOP_P1    ; Use monitor call stack space
- 315: 1132+11	0094' E5      	                push hl                 ; Put PC on new stack
- 316: 1143+17	0095' CD0000  	bp_comm_stk     call mmmon              ; Swap to monitor memory map
- 317: 1160+16	0098' 2A3801  	                ld hl, (bpan_hl)        ; Fetch saved HL
- 318:				; Monitor context selected.
- 319: 1176+10	009B' C36C00  	                jp MCALL_PANIC          ; System error monitor entry
- 320:				;
- 321:				;
- 322:				; Enable interrupts if safe. This allows nested disable / enable pairs,
- 323:				; with interrupts only enabled at the lowest level.
- 324: 1186+13	009E' 3A3501  	inten           ld a, (itdsct)
- 325:				; Each itena call should be preceded by one or more calls to itdis,
- 326:				; so itena with itdsct = 0 is an error.
- 327: 1199+4	00A1' A7      	                and a
- 328: 1203+10+7	00A2' CC8300  	                call z, bpanic          ; System panic on underflow
- 329: 1213+4	00A5' 3D      	                dec a
- 330: 1217+13	00A6' 323501  	                ld (itdsct), a
- 331: 1230+5+6	00A9' C0      	                ret nz                  ; Exit if not at lowest level
- 332: 1235+4	00AA' FB      	                ei
- 333: 1239+10	00AB' C9      	                ret
- 334:				;
- 335:				;
- 336:				; Disable interrupt and keep count.
- 337: 1249+4	00AC' F3      	intdis          di
- 338: 1253+13	00AD' 3A3501  	                ld a, (itdsct)
- 339: 1266+4	00B0' 3C      	                inc a
- 340: 1270+10+7	00B1' CC8300  	                call z, bpanic          ; System panic on overflow
- 341: 1280+13	00B4' 323501  	                ld (itdsct), a
- 342: 1293+10	00B7' C9      	                ret
+ 274:				; Jump to the monitor's "panic" code to return to the debugger in case of a
+ 275:				; serious error. Go here with a call instruction as this leaves the caller
+ 276:				; address on the stack, which may be useful when debugging. State is preserved
+ 277:				; as much as is practical. This is simpler if the stack is already in the
+ 278:				; common block.
+ 279:  944+16	0075' 222A01  	bpanic          ld (bpan_hl), hl        ; Save HL without using the stack
+ 280:  960+10	0078' 21803F  	                ld hl, MMAP_PAGE_SIZE - STACKS_SIZE
+ 281:  970+11	007B' 39      	                add hl, sp
+ 282:  981+7+5	007C' 3809    	                jr c, bp_comm_stk       ; Jump if stack is in common area
+ 283:				; The stack is in the CP/M banked area, so we have to move it before calling
+ 284:				; the monitor. This will inevitably complicate debugging, but as the original
+ 285:				; SP is saved all of the evidence is there. At least the correct PC will be
+ 286:				; shown, but anyone looking at the stack has to cope with this complication.
+ 287:  988+10	007E' E1      	                pop hl                  ; Fetch fault address (PC)
+ 288:  998+20	007F' ED730201	                ld (cpmsp), sp
+ 289: 1018+10	0083' 3180FE  	                ld sp, MC_STK_TOP_P1    ; Use monitor call stack space
+ 290: 1028+11	0086' E5      	                push hl                 ; Put PC on new stack
+ 291: 1039+17	0087' CD0000  	bp_comm_stk     call mmmon              ; Swap to monitor memory map
+ 292: 1056+16	008A' 2A2A01  	                ld hl, (bpan_hl)        ; Fetch saved HL
+ 293:				; Monitor context selected.
+ 294: 1072+10	008D' C36C00  	                jp MCALL_PANIC          ; System error monitor entry
+ 295:				;
+ 296:				;
+ 297:				; Enable interrupts if safe. This allows nested disable / enable pairs,
+ 298:				; with interrupts only enabled at the lowest level.
+ 299: 1082+13	0090' 3A2701  	inten           ld a, (itdsct)
+ 300:				; Each itena call should be preceded by one or more calls to itdis,
+ 301:				; so itena with itdsct = 0 is an error.
+ 302: 1095+4	0093' A7      	                and a
+ 303: 1099+10+7	0094' CC7500  	                call z, bpanic          ; System panic on underflow
+ 304: 1109+4	0097' 3D      	                dec a
+ 305: 1113+13	0098' 322701  	                ld (itdsct), a
+ 306: 1126+5+6	009B' C0      	                ret nz                  ; Exit if not at lowest level
+ 307: 1131+4	009C' FB      	                ei
+ 308: 1135+10	009D' C9      	                ret
+ 309:				;
+ 310:				;
+ 311:				; Disable interrupt and keep count.
+ 312: 1145+4	009E' F3      	intdis          di
+ 313: 1149+13	009F' 3A2701  	                ld a, (itdsct)
+ 314: 1162+4	00A2' 3C      	                inc a
+ 315: 1166+10+7	00A3' CC7500  	                call z, bpanic          ; System panic on overflow
+ 316: 1176+13	00A6' 322701  	                ld (itdsct), a
+ 317: 1189+10	00A9' C9      	                ret
+ 318:				;
+ 319:				;
+ 320:				; Set interrupt vector to point to a new service routine. Ensure that the
+ 321:				; relevant interrupt is disabled before calling this routine.
+ 322:				; Call with:
+ 323:				; A - number of vector to change
+ 324:				; DE - points to the new service routine
+ 325: 1199+11	00AA' E5      	intsv           push hl
+ 326: 1210+10	00AB' 21E0FF  	                ld hl, INT_VEC_TABLE    ; Base of vector table
+ 327: 1220+4	00AE' 87      	                add a                   ; Each entry is two bytes long
+ 328: 1224+4	00AF' 85      	                add l
+ 329: 1228+4	00B0' 6F      	                ld l, a
+ 330:				; HL - vector address
+ 331: 1232+7	00B1' 73      	                ld (hl), e              ; LS byte of address
+ 332: 1239+6	00B2' 23      	                inc hl
+ 333: 1245+7	00B3' 72      	                ld (hl), d              ; MS byte of address
+ 334: 1252+10	00B4' E1      	                pop hl
+ 335: 1262+10	00B5' C9      	                ret
+ 336:				;
+ 337:				;
+ 338:				;
+ 339:				; *************
+ 340:				; * Constants *
+ 341:				; *************
+ 342:				;
  343:				;
- 344:				;
- 345:				; Set interrupt vector to point to a new service routine. Ensure that the
- 346:				; relevant interrupt is disabled before calling this routine.
- 347:				; Call with:
- 348:				; A - number of vector to change
- 349:				; DE - points to the new service routine
- 350: 1303+11	00B8' E5      	intsv           push hl
- 351: 1314+10	00B9' 21E0FF  	                ld hl, INT_VEC_TABLE    ; Base of vector table
- 352: 1324+4	00BC' 87      	                add a                   ; Each entry is two bytes long
- 353: 1328+4	00BD' 85      	                add l
- 354: 1332+4	00BE' 6F      	                ld l, a
- 355:				; HL - vector address
- 356: 1336+7	00BF' 73      	                ld (hl), e              ; LS byte of address
- 357: 1343+6	00C0' 23      	                inc hl
- 358: 1349+7	00C1' 72      	                ld (hl), d              ; MS byte of address
- 359: 1356+10	00C2' E1      	                pop hl
- 360: 1366+10	00C3' C9      	                ret
- 361:				;
- 362:				;
- 363:				;
- 364:				; *************
- 365:				; * Constants *
- 366:				; *************
- 367:				;
- 368:				;
- 369:     -	00C4' 5A415243	signon$msg      byte "ZARC CP/M 3 BIOS V"
+ 344:     -	00B6' 5A415243	signon$msg      byte "ZARC CP/M 3 BIOS V"
 	              2043502F
 	              4D203320
 	              42494F53
 	              2056
- 370:     -	00D6' 312E30  	                byte BIOS_MAJ_VER + "0", ".", BIOS_MIN_VER + "0"
- 371:     -	00D9' 2C2000  	                byte ", ", 0
- 372:     -	00DC' 0D0A00  	crlf_msg        byte ASCII_CR, ASCII_LF, 0
- 373:     -	00DF' 0D0A4249	ccp$msg         byte 13,10,'BIOS Err on A: No CCP.COM file',0
+ 345:     -	00C8' 312E31  	                byte BIOS_MAJ_VER + "0", ".", BIOS_MIN_VER + "0"
+ 346:     -	00CB' 2C2000  	                byte ", ", 0
+ 347:     -	00CE' 0D0A00  	crlf_msg        byte ASCII_CR, ASCII_LF, 0
+ 348:     -	00D1' 0D0A4249	ccp$msg         byte 13,10,'BIOS Err on A: No CCP.COM file',0
 	              4F532045
 	              7272206F
 	              6E20413A
@@ -1723,27 +1698,27 @@
 	              434F4D20
 	              66696C65
 	              00
- 374:				;
- 375:				;
- 376:				;
- 377:				; *************
- 378:				; * Variables *
- 379:				; *************
- 380:				;
- 381:				;
- 382:     -	0100'         	bpar            defs BPS_SIZE       ; BIOS parameter block (from monitor)
- 383:     -	0110'         	cpmsp           defs 2              ; CP/M environment stack pointer
- 384:     -	0112' 01434350	ccp$fcb         byte 1,'CCP     ','COM',0,0,0,0
+ 349:				;
+ 350:				;
+ 351:				;
+ 352:				; *************
+ 353:				; * Variables *
+ 354:				; *************
+ 355:				;
+ 356:				;
+ 357:     -	00F2'         	bpar            defs BPS_SIZE       ; BIOS parameter block (from monitor)
+ 358:     -	0102'         	cpmsp           defs 2              ; CP/M environment stack pointer
+ 359:     -	0104' 01434350	ccp$fcb         byte 1,'CCP     ','COM',0,0,0,0
 	              20202020
 	              20434F4D
 	              00000000
- 385:     -	0122'         	                ds 16
- 386:     -	0132' 000000  	fcb$nr          byte 0,0,0
- 387:     -	0135'         	itdsct          defs 1              ; DI nest count
- 388:     -	0136'         	intbsp          defs 2              ; Background stack pointer (ints)
- 389:     -	0138'         	bpan_hl         defs 2              ; Saved HL for bpanic
- 390:				;
- 391:     -	013A'         	                end
+ 360:     -	0114'         	                ds 16
+ 361:     -	0124' 000000  	fcb$nr          byte 0,0,0
+ 362:     -	0127'         	itdsct          defs 1              ; DI nest count
+ 363:     -	0128'         	intbsp          defs 2              ; Background stack pointer (ints)
+ 364:     -	012A'         	bpan_hl         defs 2              ; Saved HL for bpanic
+ 365:				;
+ 366:     -	012C'         	                end
 
 
 
@@ -1752,7 +1727,7 @@ Statistics:
      4	passes
      0	jr promotions
    654	symbols
-   365	bytes
+   351	bytes
 
    342	macro calls
   2391	macro bytes
@@ -1766,8 +1741,10 @@ Symbol Table:
 ?conin          00        0 (extern)
 ?init           00"       0 (public)
 ?ldccp          00'       0 (public)
+?move           00        0 (extern)
 ?pmsg           00        0 (extern)
-?rlccp          54'       84 (public)
+?rlccp          4D'       77 (public)
+?xmove          00        0 (extern)
 @aivec          00        0 (extern)
 @aovec          00        0 (extern)
 @cbnk           00        0 (extern)
@@ -1865,7 +1842,7 @@ BIOS_JPTBL_NEXT=7E        126
 BIOS_LISTST    =2A        42
 BIOS_MAJ_VER   =01        1
 BIOS_MAX_SIZE  =1000      4096
-BIOS_MIN_VER   =00        0
+BIOS_MIN_VER   =01        1
 BIOS_MON_CALL  =69        105
 BIOS_MOVE      =48        72
 BIOS_MULTIO    =42        66
@@ -2376,25 +2353,24 @@ baud$7200      =0D        13
 baud$75        =02        2
 baud$9600      =0E        14
 baud$none      =00        0
-bp_comm_stk     95'       149
-bpan_hl          138'     312
-bpanic          83'       131 (public)
-bpar             100'     256 (public)
+bp_comm_stk     87'       135
+bpan_hl          12A'     298
+bpanic          75'       117 (public)
+bpar            F2'       242 (public)
 btime           00        0 (extern)
-ccp$fcb          112'     274
-ccp$msg         DF'       223
-cpmsp            110'     272 (public)
-crlf_msg        DC'       220
+ccp$fcb          104'     260
+ccp$msg         D1'       209
+cpmsp            102'     258 (public)
+crlf_msg        CE'       206
 enum_counter   =02        2
 false          =00        0
-fcb$nr           132'     306
-intbsp           136'     310 (public)
-intdis          AC'       172 (public)
-inten           9E'       158 (public)
-intsv           B8'       184 (public)
-itdsct           135'     309 (public)
+fcb$nr           124'     292
+intbsp           128'     296 (public)
+intdis          9E'       158 (public)
+inten           90'       144 (public)
+intsv           AA'       170 (public)
+itdsct           127'     295 (public)
 jptbl_addr     =7E        126
-ld$1            2F'       47
 mb$in$out      =03        3
 mb$input       =01        1
 mb$output      =02        2
@@ -2403,13 +2379,12 @@ mb$soft$baud   =04        4
 mb$xon$xoff    =10        16
 mmmon           00        0 (extern)
 movxfl          00        0 (extern)
-no$CCP          48'       72
-open            6F'       111
-read            7E'       126
-rl$1            5A'       90
-setdma          74'       116
-setmulti        79'       121
-signon$msg      C4'       196
+no$CCP          41'       65
+open            61'       97
+read            70'       112
+setdma          66'       102
+setmulti        6B'       107
+signon$msg      B6'       182
 str_offset     =10        16
 supflg          00        0 (extern)
 ticini          00        0 (extern)

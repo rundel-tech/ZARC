@@ -54,6 +54,7 @@ banked          equ true
                 extern ?pmsg,?conin
                 extern @civec,@covec,@aivec,@aovec,@lovec
                 extern @cbnk,?bnksl
+                extern ?xmove,?move     ; select move bank, and block move
 ;
 ; Functions
                 public bpanic           ; BIOS panic
@@ -193,35 +194,23 @@ tpa$bank    equ 0
 ; lxi d,ccp$fcb ! call read    ; load the thing
                 ld de, ccp$fcb
                 call read
+;
 ; now, copy CCP to bank 0 for reloading
-; lxi h,0100h ! lxi b,0C80h    ; clone 3K, just in case
-                ld hl, 0x0100
-                ld bc, 0x0c80
 ; lda @cbnk ! push psw        ; save current bank
                 ld a, (@cbnk)
                 push af
 ;
-ld$1:
-; mvi a,tpa$bank ! call ?bnksl    ; select TPA
-                ld a, tpa$bank
-                call ?bnksl
-; mov a,m ! push psw        ; get a byte
-                ld a, (hl)
-                push af
-; mvi a,2 ! call ?bnksl        ; select extra bank
-                ld a, 2
-                call ?bnksl
-; pop psw ! mov m,a        ; save the byte
-                pop af
-                ld (hl), a
-; inx h ! dcx b            ; bump pointer, drop count
-                inc hl
-                dec bc
-; mov a,b ! ora c            ; test for done
-                ld a, b
-                or c
-; jnz ld$1
-                jr nz, ld$1
+; The DRI code copied one byte at a time and was very slow. My MOVE code can
+; do this much more efficiently.
+                ld c, tpa$bank          ; Source bank
+                ld b, 2                 ; Destination ("extra") bank
+                call ?xmove             ; Set banks for MOVE
+; lxi h,0100h ! lxi b,0C80h    ; clone 3K, just in case
+                ld de, 0x0100           ; Source address
+                ld hl, 0x0100           ; Destination address
+                ld bc, 0x0c80           ; Length
+                call ?move              ; Move a block of memory
+;
 ; pop psw ! call ?bnksl        ; restore original bank
                 pop af
                 call ?bnksl
@@ -237,30 +226,16 @@ no$CCP:            ; here if we couldn't find the file
                 jp ?ldccp
 
 ?rlccp:
+; The DRI code copied one byte at a time and was very slow. My MOVE code can
+; do this much more efficiently.
+                ld c, 2                 ; Source ("extra") bank
+                ld b, tpa$bank          ; Destination bank
+                call ?xmove             ; Set banks for MOVE
 ; lxi h,0100h ! lxi b,0C00h    ; clone 3K
-                ld hl, 0x0100
-                ld bc, 0x0c80   ; Length extended to match save code above
-rl$1:
-; mvi a,2 ! call ?bnksl        ; select extra bank
-                ld a, 2
-                call ?bnksl
-; mov a,m ! push psw        ; get a byte
-                ld a, (hl)
-                push af
-; mvi a,tpa$bank ! call ?bnksl    ; select TPA
-                ld a, tpa$bank
-                call ?bnksl
-; pop psw ! mov m,a        ; save the byte
-                pop af
-                ld (hl), a
-; inx h ! dcx b            ; bump pointer, drop count
-                inc hl
-                dec bc
-; mov a,b ! ora c            ; test for done
-                ld a, b
-                or c
-; jnz rl$1
-                jr nz, rl$1
+                ld de, 0x0100           ; Source address
+                ld hl, 0x0100           ; Destination address
+                ld bc, 0x0c80           ; Length extended to match save code above
+                call ?move              ; Move a block of memory
                 ret
 ;
 ;

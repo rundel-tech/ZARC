@@ -1398,7 +1398,7 @@
   15:				;
   16:				; BIOS version
   17:     -	0001'         	BIOS_MAJ_VER        equ 1
-  18:     -	0000'         	BIOS_MIN_VER        equ 0
+  18:     -	0001'         	BIOS_MIN_VER        equ 1
   19:				;
   20:     -	0040'         	STACK_SIZE      equ 64                  ; Stack space allocation
   21:				; The interrupt stack need only be deep enough to meet the requirements of the
@@ -2082,7 +2082,7 @@ BIOS_JPTBL_NEXT=7E        126
 BIOS_LISTST    =2A        42
 BIOS_MAJ_VER   =01        1
 BIOS_MAX_SIZE  =1000      4096
-BIOS_MIN_VER   =00        0
+BIOS_MIN_VER   =01        1
 BIOS_MON_CALL  =69        105
 BIOS_MOVE      =48        72
 BIOS_MULTIO    =42        66
