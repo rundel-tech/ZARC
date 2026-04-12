@@ -38,11 +38,10 @@ $(TARGET).COM: $(OBJS) $(SOBJS)
 # location in use.
 	@btime btime cseg 0x24	# Generate btime.rel with current date and time
 	@rm btime.z80		# Remove file to prevent confusion with %.z80 rule
-	ld80 -O bin -o $(TARGET_LC).tmp -s $(TARGET_LC).sym -m -P 0100 -c $(OBJS) btime.rel $(SOBJS)
-# Remove initial bytes (I can't find neater way of doing this).
-	dd bs=4096 skip=256 iflag=skip_bytes < $(TARGET_LC).tmp > $(TARGET).COM
+	ld80 -O hex -o $(TARGET_LC).hex -s $(TARGET_LC).sym -m -P 0100 -c $(OBJS) btime.rel $(SOBJS)
+	objcopy -Iihex -Obinary $(TARGET_LC).hex $(TARGET).COM
 	@rm btime.rel		# Remove to prevent unnecessary re-linking
-	@rm $(TARGET_LC).tmp
+	@rm $(TARGET_LC).hex
 	# File size in bytes:
 	stat -c "%s" $@
 
